@@ -97,14 +97,6 @@ public class PGMMatchListener implements Listener{
      */
 
 
-
-
-
-
-
-
-
-
     /**
      * Maneja casos de empate o partidas sin ganador claro
      */
@@ -129,17 +121,28 @@ public class PGMMatchListener implements Listener{
      */
     private Team determineWinnerTeam(MatchFinishEvent event, ActiveMatch activeMatch) {
         try {
-            logger.info("Starting Winner Determination", "Iniciando determinación de ganador por objetivos");
+            logger.info("Starting Winner Determination", "Iniciando determinación de ganador");
 
-            // Paso 1: Obtener todos los equipos PGM y sus puntuaciones
-            Map<tc.oc.pgm.teams.Team, Integer> teamScores = calculateAllTeamScores(event.getMatch());
+            Match match = event.getMatch();
+
+            // PASO 1: Intentar obtener ganador por puntuación (KoTH/KotF)
+            Team scoreWinner = determineWinnerByScore(match, activeMatch);
+            if (scoreWinner != null) {
+                logger.success("Winner by Score",
+                        String.format("Ganador determinado por puntuación: %s", scoreWinner.getDisplayName()));
+                return scoreWinner;
+            }
+
+            // PASO 2: Si no hay ganador por puntuación, usar objetivos (CTF/CTW/DTM/etc)
+            logger.info("No Score Winner", "No hay ganador por puntuación, analizando objetivos");
+
+            Map<tc.oc.pgm.teams.Team, Integer> teamScores = calculateAllTeamScores(match);
 
             if (teamScores.isEmpty()) {
                 logger.error("No Team Scores", "No se pudieron calcular puntuaciones");
                 return null;
             }
 
-            // Paso 2: Encontrar el equipo PGM con mayor puntuación
             tc.oc.pgm.teams.Team pgmWinnerTeam = findHighestScoringTeam(teamScores);
 
             if (pgmWinnerTeam == null) {
@@ -151,7 +154,6 @@ public class PGMMatchListener implements Listener{
                     String.format("Equipo PGM ganador: '%s' con %d objetivos",
                             pgmWinnerTeam.getId(), teamScores.get(pgmWinnerTeam)));
 
-            // Paso 3: Mapear ÚNICAMENTE por jugadores (100% confiable)
             Team ourWinnerTeam = mapWinnerByPlayersOnly(pgmWinnerTeam, activeMatch);
 
             if (ourWinnerTeam == null) {
@@ -167,6 +169,176 @@ public class PGMMatchListener implements Listener{
         } catch (Exception e) {
             logger.systemError("PGMMatchListener", "Error en determinación de ganador", e.getMessage());
             return null;
+        }
+    }
+    /**
+     * NUEVO: Determina ganador por puntuación (para KoTH y KotF)
+     */
+    private Team determineWinnerByScore(Match match, ActiveMatch activeMatch) {
+        try {
+            TeamMatchModule teamModule = match.getModule(TeamMatchModule.class);
+            if (teamModule == null) return null;
+
+            Collection<tc.oc.pgm.teams.Team> allTeams = teamModule.getTeams();
+            Map<tc.oc.pgm.teams.Team, Double> teamPoints = new HashMap<>();
+
+            boolean hasScoreSystem = false;
+
+            // Obtener puntuaciones de cada equipo
+            for (tc.oc.pgm.teams.Team team : allTeams) {
+                try {
+                    // Intentar obtener la puntuación del equipo
+                    double score = getTeamScore(team);
+                    teamPoints.put(team, score);
+
+                    if (score > 0) {
+                        hasScoreSystem = true;
+                    }
+
+                    logger.info("Team Score Detected",
+                            String.format("Equipo '%s': %.1f puntos", team.getId(), score));
+
+                } catch (Exception e) {
+                    logger.warning("Score Read Error",
+                            String.format("Error leyendo puntuación del equipo %s: %s",
+                                    team.getId(), e.getMessage()));
+                    teamPoints.put(team, 0.0);
+                }
+            }
+
+            if (!hasScoreSystem) {
+                logger.info("No Score System", "No se detectó sistema de puntuación");
+                return null;
+            }
+
+            // Encontrar equipo con mayor puntuación
+            tc.oc.pgm.teams.Team scoreWinner = null;
+            double maxScore = -1;
+            int teamsWithMaxScore = 0;
+
+            for (Map.Entry<tc.oc.pgm.teams.Team, Double> entry : teamPoints.entrySet()) {
+                double score = entry.getValue();
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    scoreWinner = entry.getKey();
+                    teamsWithMaxScore = 1;
+                } else if (score == maxScore) {
+                    teamsWithMaxScore++;
+                }
+            }
+
+            // Verificar empate
+            if (teamsWithMaxScore > 1) {
+                logger.warning("Score Tie Detected",
+                        String.format("%d equipos empatados con %.1f puntos", teamsWithMaxScore, maxScore));
+                return null; // Empate por puntuación
+            }
+
+            if (scoreWinner == null || maxScore <= 0) {
+                logger.info("No Valid Score Winner", "No hay ganador válido por puntuación");
+                return null;
+            }
+
+            logger.success("Score Winner Found",
+                    String.format("Ganador por puntuación: equipo '%s' con %.1f puntos",
+                            scoreWinner.getId(), maxScore));
+
+            // Mapear a nuestro equipo
+            return mapWinnerByPlayersOnly(scoreWinner, activeMatch);
+
+        } catch (Exception e) {
+            logger.warning("Score Determination Error",
+                    String.format("Error determinando ganador por puntuación: %s", e.getMessage()));
+            return null;
+        }
+    }
+    /**
+     * NUEVO: Obtiene la puntuación de un equipo usando reflexión
+     */
+    private double getTeamScore(tc.oc.pgm.teams.Team team) {
+        try {
+            // Metodo 1 : Obtiene el getScore() si existe!
+            try {
+                java.lang.reflect.Method getScoreMethod = team.getClass().getMethod("getScore");
+                Object result = getScoreMethod.invoke(team);
+                if (result instanceof Number) {
+                    return ((Number) result).doubleValue();
+                }
+            } catch (Exception ignored) {}
+
+            // Método 2: Buscar en campos del equipo
+            try {
+                java.lang.reflect.Field[] fields = team.getClass().getDeclaredFields();
+                for (java.lang.reflect.Field field : fields) {
+                    field.setAccessible(true);
+                    String fieldName = field.getName().toLowerCase();
+
+                    if (fieldName.contains("score") || fieldName.contains("points")) {
+                        Object value = field.get(team);
+                        if (value instanceof Number) {
+                            return ((Number) value).doubleValue();
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+
+           //Metodo 3 : Buscar en clase padre
+            try {
+                Class<?> parentClass = team.getClass().getSuperclass();
+                if (parentClass != null) {
+                    java.lang.reflect.Field[] parentFields = parentClass.getDeclaredFields();
+                    for (java.lang.reflect.Field field : parentFields) {
+                        field.setAccessible(true);
+                        String fieldName = field.getName().toLowerCase();
+
+                        if (fieldName.contains("score") || fieldName.contains("points")) {
+                            Object value = field.get(team);
+                            if (value instanceof Number) {
+                                return ((Number) value).doubleValue();
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            //Metodo 4: Buscar en módulos del match
+            try {
+                Match match = team.getMatch();
+                if (match != null) {
+                    // Buscar módulos que puedan tener puntuaciones
+                    Object[] modules = match.getModules().toArray();
+                    for (Object module : modules) {
+                        String moduleName = module.getClass().getSimpleName().toLowerCase();
+
+                        if (moduleName.contains("score") || moduleName.contains("points") ||
+                                moduleName.contains("koth") || moduleName.contains("kotf")) {
+
+                            // Intentar obtener puntuación del equipo desde este módulo
+                            java.lang.reflect.Method[] methods = module.getClass().getMethods();
+                            for (java.lang.reflect.Method method : methods) {
+                                String methodName = method.getName().toLowerCase();
+                                if (methodName.contains("score") || methodName.contains("points")) {
+                                    try {
+                                        Object result = method.invoke(module, team);
+                                        if (result instanceof Number) {
+                                            return ((Number) result).doubleValue();
+                                        }
+                                    } catch (Exception ignored) {}
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            return 0.0;
+
+        } catch (Exception e) {
+            logger.warning("Team Score Error",
+                    String.format("Error obteniendo puntuación del equipo %s: %s",
+                            team.getId(), e.getMessage()));
+            return 0.0;
         }
     }
     /**
@@ -457,51 +629,7 @@ public class PGMMatchListener implements Listener{
 
 
 
-    /**
-     * Obtiene el username de un jugador dado su UUID
-     */
-    private String getPlayerUsernameFromUuid(UUID playerUuid) {
-        try {
-            // Método 1: Player (jugador online)
-            org.bukkit.entity.Player player = org.bukkit.Bukkit.getPlayer(playerUuid);
-            if (player != null) {
-                return player.getName();
-            }
 
-            // Método 2: OfflinePlayer (historial de servidor)
-            org.bukkit.OfflinePlayer offlinePlayer = org.bukkit.Bukkit.getOfflinePlayer(playerUuid);
-            String name = offlinePlayer.getName();
-            if (name != null && !name.isEmpty()) {
-                return name;
-            }
-
-            // Método 3: Desde PGM Match Player (si está en la partida)
-            return getPlayerNameFromPGM(playerUuid);
-
-        } catch (Exception e) {
-            logger.warning("Username Lookup Failed",
-                    "No se pudo obtener username para UUID: " + playerUuid);
-            return null;
-        }
-    }
-
-    // MÉTODO AUXILIAR PARA OBTENER NOMBRE DESDE PGM
-    private String getPlayerNameFromPGM(UUID playerUuid) {
-        try {
-            // Buscar en todos los matches activos de PGM
-            for (Iterator<Match> it = PGM.get().getMatchManager().getMatches(); it.hasNext(); ) {
-                Match match = it.next();
-                for (tc.oc.pgm.api.player.MatchPlayer matchPlayer : match.getPlayers()) {
-                    if (matchPlayer.getId().equals(playerUuid)) {
-                        return matchPlayer.getBukkit().getName();
-                    }
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     /**
      * Notifica a los jugadores sobre el empate
