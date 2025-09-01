@@ -267,7 +267,7 @@ public class PGMMatchListener implements Listener{
                 }
             } catch (Exception ignored) {}
 
-            // Método 2: Buscar en campos del equipo
+            // Metodo 2: Buscar Campos en el Equipo, si tienen "score" o "points" en el nombre
             try {
                 java.lang.reflect.Field[] fields = team.getClass().getDeclaredFields();
                 for (java.lang.reflect.Field field : fields) {
