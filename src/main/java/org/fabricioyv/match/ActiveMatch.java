@@ -342,7 +342,7 @@ public class ActiveMatch {
     public void setFinishedByForfeit(boolean finishedByForfeit) {
         this.finishedByForfeit = finishedByForfeit;
     }
-
+    //Estados de la Match. (Agregar picks por capitanes)
     public enum MatchStatus {
         PREPARING,
         VOTING,

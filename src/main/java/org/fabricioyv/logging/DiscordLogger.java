@@ -274,23 +274,6 @@ public class DiscordLogger {
     }
 
     /**
-     * Log específico para eventos de canales de voz
-     */
-    public void voiceEvent(String playerName, String discordId, String fromChannel, String toChannel, String result) {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle("🔊 Movimiento de Canal");
-        embed.setColor(Color.YELLOW);
-        embed.addField("👤 Jugador", playerName, true);
-        embed.addField("🔗 Discord ID", discordId, true);
-        embed.addField("📤 Canal Anterior", fromChannel != null ? "<#" + fromChannel + ">" : "Ninguno", true);
-        embed.addField("📥 Canal Nuevo", toChannel != null ? "<#" + toChannel + ">" : "Ninguno", true);
-        embed.addField("✅ Resultado", result, false);
-        embed.setTimestamp(java.time.Instant.now());
-
-        sendEmbed(embed);
-    }
-
-    /**
      * Log específico para errores de sistema
      */
     public void systemError(String component, String error, String stackTrace) {
@@ -325,23 +308,9 @@ public class DiscordLogger {
         sendEmbed(embed);
     }
 
-    /**
-     * Log de parada del sistema
-     */
-    public void systemStop() {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle("🛑 Sistema Detenido");
-        embed.setDescription("RankedMinecraft ha sido deshabilitado");
-        embed.setColor(Color.RED);
-        embed.addField("⏰ Tiempo", DATE_FORMAT.format(LocalDateTime.now()), true);
-        embed.addField("🔧 Estado", "Desconectado", true);
-        embed.setTimestamp(java.time.Instant.now());
-
-        sendEmbed(embed);
-    }
 
     /**
-     * Método privado para enviar logs básicos
+     * Metodo generico para enviar logs.
      */
     private void sendLog(LogLevel level, String title, String description, Color color) {
         EmbedBuilder embed = new EmbedBuilder();
@@ -356,7 +325,6 @@ public class DiscordLogger {
     }
 
     /**
-     * Método privado para enviar embeds
      */
     private void sendEmbed(EmbedBuilder embed) {
         if (logsChannel == null) {

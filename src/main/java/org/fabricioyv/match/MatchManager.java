@@ -273,7 +273,6 @@ public class MatchManager {
         for (PlayerData player : players) {
             player.setInMatch(inMatch);
             player.setCurrentMatchId(matchId);
-            // TODO: Actualizar en base de datos
             DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), inMatch, matchId);
         }
     }
