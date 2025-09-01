@@ -14,7 +14,6 @@ import org.fabricioyv.match.Team;
 
 // Imports de PGM - ajustar según la versión de PGM que uses
 import org.fabricioyv.model.PlayerData;
-import tc.oc.pgm.api.PGM;
 import tc.oc.pgm.api.match.Match;
 import tc.oc.pgm.api.match.event.MatchFinishEvent;
 import tc.oc.pgm.goals.Goal;
@@ -22,7 +21,6 @@ import tc.oc.pgm.goals.GoalMatchModule;
 import tc.oc.pgm.teams.TeamMatchModule;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 public class PGMMatchListener implements Listener{
@@ -92,11 +90,6 @@ public class PGMMatchListener implements Listener{
         }
         return null;
     }
-    /**
-     * Determina qué equipo ganó basándose en el evento de PGM
-     */
-
-
     /**
      * Maneja casos de empate o partidas sin ganador claro
      */

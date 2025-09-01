@@ -283,7 +283,7 @@ public class DatabaseManager {
                 stmt.setString(3, minecraftUuid);
 
                 stmt.executeUpdate();
-                return; // Éxito
+                return;
 
             } catch (SQLException e) {
                 if (attempt == 3) {
