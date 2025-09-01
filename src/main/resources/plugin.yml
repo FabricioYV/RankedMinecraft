@@ -1,0 +1,19 @@
+name: RankedMinecraft
+version: '${project.version}'
+main: org.fabricioyv.RankedMinecraft
+authors: [ FabricioYv ]
+depend: [PGM]
+
+commands:
+  votemap:
+    description: Votar por un mapa durante la votación
+    usage: /votemap <número>
+    aliases: [v, votar]
+  ff:
+    description: Votar para rendirse en una partida
+    usage: /ff
+    aliases: [ forfeit, surrender ]
+  ready:
+    description: Acelerar inicio de partida
+    aliases: [ r ]
+    usage: /ready
