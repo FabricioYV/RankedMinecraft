@@ -1,4 +1,3 @@
-
 package org.fabricioyv.database;
 
 import com.zaxxer.hikari.HikariConfig;
@@ -8,30 +7,74 @@ import org.fabricioyv.model.PlayerData;
 
 import java.sql.*;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.UUID;
 
 public class DatabaseManager {
-    private static HikariDataSource dataSource;
+    // Mapa para almacenar múltiples datasources
+    private static final Map<String, HikariDataSource> dataSources = new HashMap<>();
 
-    // Configuración de base de datos
-    private static final String HOST = "db-dtx-03.sparkedhost.us";
-    private static final String PORT = "3306";
-    private static final String DATABASE = "s181642_ranked";
-    private static final String USERNAME = "u181642_EmzxRextoT";
-    private static final String PASSWORD = "O=VjTvdt30P=tA3=QRhBMOks";
-
-    // Configuración de pool y timeouts
+    // Configuración de pools y timeouts
     private static final int MAX_POOL_SIZE = 8;
     private static final int MIN_IDLE = 2;
     private static final long CONNECTION_TIMEOUT = 10000; // 10 segundos
     private static final long IDLE_TIMEOUT = 300000; // 5 minutos
     private static final long MAX_LIFETIME = 1800000; // 30 minutos
 
+    // Configuraciones de bases de datos
+    public static class DatabaseConfig {
+        public final String name;
+        public final String host;
+        public final String port;
+        public final String database;
+        public final String username;
+        public final String password;
+
+        public DatabaseConfig(String name, String host, String port, String database, String username, String password) {
+            this.name = name;
+            this.host = host;
+            this.port = port;
+            this.database = database;
+            this.username = username;
+            this.password = password;
+        }
+    }
+
     public static boolean initialize() {
+        // Configuración de la base de datos principal (ranked)
+        DatabaseConfig rankedConfig = new DatabaseConfig(
+            "ranked",
+            "db-dtx-03.sparkedhost.us",
+            "3306",
+            "s181642_ranked",
+            "u181642_EmzxRextoT",
+            "O=VjTvdt30P=tA3=QRhBMOks"
+        );
+
+        // Configuración de la base de datos de logs de matches
+        DatabaseConfig matchLogsConfig = new DatabaseConfig(
+            "match_logs",
+            "db-mfl-01.sparkedhost.us",
+            "3306",
+            "s181642_matches",
+            "u181642_kO2S4fweyJ",
+            "@JQbP+M@A1!ingF9cola4OT1"
+        );
+
+        // Inicializar ambas bases de datos
+        boolean success = initializeDatabase(rankedConfig);
+        success &= initializeDatabase(matchLogsConfig);
+
+        return success;
+    }
+
+    private static boolean initializeDatabase(DatabaseConfig config) {
         try {
-            HikariConfig config = new HikariConfig();
+            HikariConfig hikariConfig = new HikariConfig();
+
             // URL de conexión con configuración optimizada
-            String url = "jdbc:mysql://" + HOST + ":" + PORT + "/" + DATABASE +
+            String url = "jdbc:mysql://" + config.host + ":" + config.port + "/" + config.database +
                     "?useSSL=false" +
                     "&autoReconnect=true" +
                     "&characterEncoding=utf8" +
@@ -50,60 +93,77 @@ public class DatabaseManager {
                     "&prepStmtCacheSize=250" +
                     "&prepStmtCacheSqlLimit=2048";
 
-            config.setJdbcUrl(url);
-            config.setUsername(USERNAME);
-            config.setPassword(PASSWORD);
-            config.setDriverClassName("com.mysql.cj.jdbc.Driver");
+            hikariConfig.setJdbcUrl(url);
+            hikariConfig.setUsername(config.username);
+            hikariConfig.setPassword(config.password);
+            hikariConfig.setDriverClassName("com.mysql.cj.jdbc.Driver");
 
             // Configuración del pool
-            config.setMaximumPoolSize(MAX_POOL_SIZE);
-            config.setMinimumIdle(MIN_IDLE);
-            config.setConnectionTimeout(CONNECTION_TIMEOUT);
-            config.setIdleTimeout(IDLE_TIMEOUT);
-            config.setMaxLifetime(MAX_LIFETIME);
-            config.setLeakDetectionThreshold(60000); // 1 minuto
+            hikariConfig.setMaximumPoolSize(MAX_POOL_SIZE);
+            hikariConfig.setMinimumIdle(MIN_IDLE);
+            hikariConfig.setConnectionTimeout(CONNECTION_TIMEOUT);
+            hikariConfig.setIdleTimeout(IDLE_TIMEOUT);
+            hikariConfig.setMaxLifetime(MAX_LIFETIME);
+            hikariConfig.setLeakDetectionThreshold(60000); // 1 minuto
+
+            // Nombre único del pool
+            hikariConfig.setPoolName("RankedMC-" + config.name);
 
             // Configuración de conexión
-            config.addDataSourceProperty("cachePrepStmts", "true");
-            config.addDataSourceProperty("prepStmtCacheSize", "250");
-            config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
-            config.addDataSourceProperty("useServerPrepStmts", "true");
-            config.addDataSourceProperty("useLocalSessionState", "true");
-            config.addDataSourceProperty("rewriteBatchedStatements", "true");
-            config.addDataSourceProperty("cacheResultSetMetadata", "true");
-            config.addDataSourceProperty("cacheServerConfiguration", "true");
-            config.addDataSourceProperty("elideSetAutoCommits", "true");
-            config.addDataSourceProperty("maintainTimeStats", "false");
+            hikariConfig.addDataSourceProperty("cachePrepStmts", "true");
+            hikariConfig.addDataSourceProperty("prepStmtCacheSize", "250");
+            hikariConfig.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
+            hikariConfig.addDataSourceProperty("useServerPrepStmts", "true");
+            hikariConfig.addDataSourceProperty("useLocalSessionState", "true");
+            hikariConfig.addDataSourceProperty("rewriteBatchedStatements", "true");
+            hikariConfig.addDataSourceProperty("cacheResultSetMetadata", "true");
+            hikariConfig.addDataSourceProperty("cacheServerConfiguration", "true");
+            hikariConfig.addDataSourceProperty("elideSetAutoCommits", "true");
+            hikariConfig.addDataSourceProperty("maintainTimeStats", "false");
 
             // Test de conexión
-            config.setConnectionTestQuery("SELECT 1");
-            config.setValidationTimeout(5000);
+            hikariConfig.setConnectionTestQuery("SELECT 1");
+            hikariConfig.setValidationTimeout(5000);
 
-            dataSource = new HikariDataSource(config);
+            HikariDataSource dataSource = new HikariDataSource(hikariConfig);
 
-            // Verificar conexión inicial
+            // Verificar conexión inicial y crear tablas si es necesario
             try (Connection testConn = dataSource.getConnection()) {
-                createTables();
-                Bukkit.getConsoleSender().sendMessage("§a✅ Pool de conexiones MySQL inicializado correctamente!");
-                Bukkit.getConsoleSender().sendMessage("§7📊 Pool configurado: " + MAX_POOL_SIZE + " conexiones máximas");
+                if (config.name.equals("ranked")) {
+                    createRankedTables(testConn);
+                } else if (config.name.equals("match_logs")) {
+                    createMatchLogsTables(testConn);
+                }
+
+                dataSources.put(config.name, dataSource);
+
+                Bukkit.getConsoleSender().sendMessage("§a✅ Pool de conexiones '" + config.name + "' inicializado correctamente!");
+                Bukkit.getConsoleSender().sendMessage("§7📊 Pool '" + config.name + "' configurado: " + MAX_POOL_SIZE + " conexiones máximas");
                 return true;
             }
 
         } catch (SQLException e) {
-            Bukkit.getConsoleSender().sendMessage("§c❌ Error al inicializar pool de conexiones!");
+            Bukkit.getConsoleSender().sendMessage("§c❌ Error al inicializar pool de conexiones '" + config.name + "'!");
             e.printStackTrace();
             return false;
         }
     }
 
-    private static Connection getConnection() throws SQLException {
+    // Método para obtener conexión de una base de datos específica
+    private static Connection getConnection(String databaseName) throws SQLException {
+        HikariDataSource dataSource = dataSources.get(databaseName);
         if (dataSource == null || dataSource.isClosed()) {
-            throw new SQLException("Pool de conexiones no inicializado o cerrado");
+            throw new SQLException("Pool de conexiones '" + databaseName + "' no inicializado o cerrado");
         }
         return dataSource.getConnection();
     }
 
-    private static void createTables() throws SQLException {
+    // Método para obtener conexión de la base de datos principal (retrocompatibilidad)
+    private static Connection getConnection() throws SQLException {
+        return getConnection("ranked");
+    }
+
+    private static void createRankedTables(Connection conn) throws SQLException {
         String createPlayersTable = """
         CREATE TABLE IF NOT EXISTS ranked_players (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -132,10 +192,90 @@ public class DatabaseManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """;
 
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
+        try (Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(createPlayersTable);
         }
+    }
+
+    private static void createMatchLogsTables(Connection conn) throws SQLException {
+        String createMatchesTable = """
+        CREATE TABLE IF NOT EXISTS matches (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            match_id VARCHAR(50) NOT NULL UNIQUE,
+            match_type VARCHAR(20) NOT NULL,
+            map_name VARCHAR(50) NOT NULL,
+            winner_team VARCHAR(10) NOT NULL,
+            duration_seconds BIGINT NOT NULL,
+            start_time TIMESTAMP NOT NULL,
+            end_time TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_match_id (match_id),
+            INDEX idx_match_type (match_type),
+            INDEX idx_map_name (map_name),
+            INDEX idx_start_time (start_time)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """;
+
+        String createMatchPlayersTable = """
+        CREATE TABLE IF NOT EXISTS match_players (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            match_id VARCHAR(50) NOT NULL,
+            player_uuid VARCHAR(36) NOT NULL,
+            player_name VARCHAR(16) NOT NULL,
+            team VARCHAR(10) NOT NULL,
+            kills INT DEFAULT 0,
+            deaths INT DEFAULT 0,
+            damage_dealt DOUBLE DEFAULT 0,
+            arrows_shot INT DEFAULT 0,
+            arrows_hit INT DEFAULT 0,
+            arrow_accuracy DOUBLE DEFAULT 0,
+            old_elo INT NOT NULL,
+            new_elo INT NOT NULL,
+            elo_change INT NOT NULL,
+            old_mmr DOUBLE NOT NULL,
+            new_mmr DOUBLE NOT NULL,
+            mmr_change DOUBLE NOT NULL,
+            won TINYINT(1) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_match_id (match_id),
+            INDEX idx_player_uuid (player_uuid),
+            INDEX idx_team (team),
+            FOREIGN KEY (match_id) REFERENCES matches(match_id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """;
+
+        String createMatchEventsTable = """
+        CREATE TABLE IF NOT EXISTS match_events (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            match_id VARCHAR(50) NOT NULL,
+            event_type VARCHAR(30) NOT NULL,
+            player_uuid VARCHAR(36),
+            event_data TEXT,
+            event_timestamp TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_match_id (match_id),
+            INDEX idx_event_type (event_type),
+            INDEX idx_player_uuid (player_uuid),
+            INDEX idx_event_timestamp (event_timestamp),
+            FOREIGN KEY (match_id) REFERENCES matches(match_id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """;
+
+        try (Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate(createMatchesTable);
+            stmt.executeUpdate(createMatchPlayersTable);
+            stmt.executeUpdate(createMatchEventsTable);
+        }
+    }
+
+    // Métodos públicos para trabajar con bases de datos específicas
+    public static Connection getConnectionTo(String databaseName) throws SQLException {
+        return getConnection(databaseName);
+    }
+
+    public static boolean isDatabaseConnected(String databaseName) {
+        HikariDataSource dataSource = dataSources.get(databaseName);
+        return dataSource != null && !dataSource.isClosed();
     }
 
     public static PlayerData getPlayerByDiscordId(String discordId) {
@@ -325,9 +465,11 @@ public class DatabaseManager {
     }
 
     public static void close() {
-        if (dataSource != null && !dataSource.isClosed()) {
-            dataSource.close();
-            System.out.println("🔌 Pool de conexiones cerrado correctamente");
+        for (HikariDataSource dataSource : dataSources.values()) {
+            if (dataSource != null && !dataSource.isClosed()) {
+                dataSource.close();
+                System.out.println("🔌 Pool de conexiones '" + dataSource.getPoolName() + "' cerrado correctamente");
+            }
         }
     }
 
