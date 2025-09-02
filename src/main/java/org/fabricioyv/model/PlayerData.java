@@ -12,6 +12,10 @@ public class PlayerData {
     private int currentMatchDeaths;
     private double currentMatchDamage;
 
+    // Estadísticas de flechas por partida
+    private int currentMatchArrowsShot;
+    private int currentMatchArrowsHit;
+
     // Estadísticas generales
     private int wins;
     private int losses;
@@ -30,6 +34,8 @@ public class PlayerData {
         this.currentMatchKills = 0;
         this.currentMatchDeaths = 0;
         this.currentMatchDamage = 0.0;
+        this.currentMatchArrowsShot = 0;
+        this.currentMatchArrowsHit = 0;
         this.wins = wins;
         this.losses = losses;
         this.gamesPlayed = gamesPlayed;
@@ -60,11 +66,23 @@ public class PlayerData {
     public void setCurrentMatchDamage(double damage) { this.currentMatchDamage = damage; }
     public void addDamage(double damage) { this.currentMatchDamage += damage; }
 
+    // Métodos para estadísticas de flechas
+    public int getCurrentMatchArrowsShot() { return currentMatchArrowsShot; }
+    public int getCurrentMatchArrowsHit() { return currentMatchArrowsHit; }
+    public void addArrowShot() { this.currentMatchArrowsShot++; }
+    public void addArrowHit() { this.currentMatchArrowsHit++; }
+
+    public double getCurrentMatchArrowAccuracy() {
+        return currentMatchArrowsShot > 0 ? (double) currentMatchArrowsHit / currentMatchArrowsShot * 100.0 : 0.0;
+    }
+
     // Resetear estadísticas de partida
     public void resetMatchStats() {
         this.currentMatchKills = 0;
         this.currentMatchDeaths = 0;
         this.currentMatchDamage = 0.0;
+        this.currentMatchArrowsShot = 0;
+        this.currentMatchArrowsHit = 0;
     }
     public int getWins() { return wins; }
     public int getLosses() { return losses; }

@@ -310,7 +310,13 @@ public class ActiveMatch {
                 .findFirst()
                 .orElse(null);
     }
-
+    public Team getTeamForPlayer(PlayerData playerData) {
+        return teams.entrySet().stream()
+                .filter(entry -> entry.getValue().contains(playerData))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
 
     public static ActiveMatch getMatch(String matchId) {
         return activeMatches.get(matchId);

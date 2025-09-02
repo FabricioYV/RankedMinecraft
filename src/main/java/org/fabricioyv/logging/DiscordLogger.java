@@ -7,6 +7,7 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.bukkit.entity.Player;
 import org.fabricioyv.config.VoiceChannelConfig;
+import org.fabricioyv.database.MatchLogsManager;
 import org.fabricioyv.match.Team;
 import org.fabricioyv.model.PlayerData;
 
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 
 
@@ -41,11 +43,14 @@ public class DiscordLogger {
 
     /**
      * Log detallado de finalización de partida con estadísticas completas
+     * OPTIMIZADO: NO guarda en base de datos automáticamente - solo envía a Discord
      */
     public void matchComplete(String matchId, String matchType, String mapName,
                               Team winnerTeam, Map<Team, List<PlayerData>> teams,
                               Map<String, Integer> eloChanges, long durationSeconds) {
 
+
+        // Continuar con el logging a Discord existente
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("🏆 Partida Finalizada");
         embed.setColor(winnerTeam == Team.BLUE ? Color.BLUE : Color.RED);
@@ -427,6 +432,97 @@ public class DiscordLogger {
 
     public void matchDraw(String matchId, String matchType, String selectedMap, Map<Team, List<PlayerData>> teams, long durationSeconds) {
 
+    }
+
+
+    /**
+     * Versión extendida del método matchComplete con más datos para la base de datos
+     */
+    public void matchComplete(String matchId, String matchType, String mapName,
+                              Team winnerTeam, Map<Team, List<PlayerData>> teams,
+                              Map<String, Integer> eloChanges, Map<String, Double> mmrChanges,
+                              Map<String, Integer> oldElos, Map<String, Double> oldMMRs,
+                              Map<String, Integer> kills, Map<String, Integer> deaths,
+                              long durationSeconds, LocalDateTime startTime, LocalDateTime endTime) {
+
+        // Guardar en base de datos de logs
+        CompletableFuture.runAsync(() -> {
+            try {
+                boolean saved = MatchLogsManager.saveMatchLog(
+                    matchId, matchType, mapName, winnerTeam, teams,
+                    eloChanges, mmrChanges, oldElos, oldMMRs, kills, deaths,
+                    durationSeconds, startTime, endTime
+                );
+
+                if (saved) {
+                    System.out.println("✅ Match data guardado en base de datos: " + matchId);
+                } else {
+                    System.err.println("⚠️ No se pudo guardar match data en base de datos: " + matchId);
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error guardando match data: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+
+        // Llamar al método original para Discord
+        matchComplete(matchId, matchType, mapName, winnerTeam, teams, eloChanges, durationSeconds);
+    }
+
+    /**
+     * Guarda un match en la base de datos de logs (método auxiliar)
+     */
+    private void saveMatchToDatabase(String matchId, String matchType, String mapName,
+                                   Team winnerTeam, Map<Team, List<PlayerData>> teams,
+                                   Map<String, Integer> eloChanges, long durationSeconds) {
+        try {
+            // Crear mapas con datos por defecto si no están disponibles
+            Map<String, Double> mmrChanges = new HashMap<>();
+            Map<String, Integer> oldElos = new HashMap<>();
+            Map<String, Double> oldMMRs = new HashMap<>();
+            Map<String, Integer> kills = new HashMap<>();
+            Map<String, Integer> deaths = new HashMap<>();
+
+            // Llenar los mapas con datos disponibles
+            for (Map.Entry<Team, List<PlayerData>> teamEntry : teams.entrySet()) {
+                for (PlayerData player : teamEntry.getValue()) {
+                    String uuid = player.getMinecraftUuid();
+
+                    // Estimar valores anteriores basados en el cambio de ELO
+                    Integer eloChange = eloChanges.getOrDefault(uuid, 0);
+                    oldElos.put(uuid, player.getElo() - eloChange);
+                    oldMMRs.put(uuid, player.getMmr()); // Asumir que MMR no cambió mucho
+                    mmrChanges.put(uuid, 0.0); // Por defecto
+                    kills.put(uuid, 0); // Por defecto
+                    deaths.put(uuid, 0); // Por defecto
+                }
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime startTime = now.minusSeconds(durationSeconds);
+
+            MatchLogsManager.saveMatchLog(
+                matchId, matchType, mapName, winnerTeam, teams,
+                eloChanges, mmrChanges, oldElos, oldMMRs, kills, deaths,
+                durationSeconds, startTime, now
+            );
+
+        } catch (Exception e) {
+            System.err.println("❌ Error guardando match básico en base de datos: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Guarda un evento específico del match en la base de datos
+     */
+    public void logMatchEvent(String matchId, String eventType, String playerUuid, String eventData) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                MatchLogsManager.saveMatchEvent(matchId, eventType, playerUuid, eventData, LocalDateTime.now());
+            } catch (Exception e) {
+                System.err.println("❌ Error guardando evento de match: " + e.getMessage());
+            }
+        });
     }
 
 

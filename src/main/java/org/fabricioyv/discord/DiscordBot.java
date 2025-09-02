@@ -7,6 +7,8 @@ import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.Compression;
 import org.fabricioyv.RankedMinecraft;
+import org.fabricioyv.commands.ListMatchesCommand;
+import org.fabricioyv.commands.MatchDetailsCommand;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.queue.QueueManager;
 
@@ -36,6 +38,8 @@ public class DiscordBot {
 
             // Registrar listener para eventos de voz
             jda.addEventListener(new VoiceChannelListener(queueManager, logger));
+            jda.addEventListener(new ListMatchesCommand());
+            jda.addEventListener(new MatchDetailsCommand());
 
             logger.systemStart();
 
