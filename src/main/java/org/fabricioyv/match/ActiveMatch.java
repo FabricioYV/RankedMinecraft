@@ -38,6 +38,7 @@ public class ActiveMatch {
     private LocalDateTime startTime;
     private final ProgressiveEloCalculator.MatchType matchTypeEnum;
     private boolean finishedByForfeit = false;
+    private Team winnerTeam; // Campo para almacenar el equipo ganador
 
     public ActiveMatch(String matchId, List<PlayerData> players, JDA jda, Guild guild,
                        RankedMinecraft plugin, DiscordLogger logger) {
@@ -250,55 +251,124 @@ public class ActiveMatch {
                 return;
             }
 
-            // Esperar un poco y luego configurar permisos
+            // Configurar permisos de manera asíncrona pero secuencial para evitar conflictos
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 try {
-                    // PASO 1: Denegar acceso a @everyone por defecto (usar complete() para sincronizar)
+                    logger.info("Setting Permissions", "Configurando permisos para canal " + team.getDisplayName());
+
+                    // PASO 1: Denegar acceso a @everyone por defecto
                     channel.getManager()
-                            .putPermissionOverride(guild.getPublicRole(), null,
-                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK))
-                            .complete();
-
-                    logger.debug("Permissions Set", "Permisos @everyone denegados en " + channel.getName());
-
-                    // PASO 2: Dar permisos específicos a cada miembro del equipo
-                    for (PlayerData playerData : teamPlayers) {
-                        try {
-                            Member member = guild.getMemberById(playerData.getDiscordId());
-                            if (member != null) {
-                                // Dar permisos de conexión y habla al miembro del equipo
-                                channel.getManager()
-                                        .putPermissionOverride(member,
-                                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VIEW_CHANNEL),
-                                                null)
-                                        .complete();
-
-                                logger.debug("Member Permission Set",
-                                        String.format("Permisos otorgados a %s en canal %s",
-                                                member.getEffectiveName(), team.getDisplayName()));
-                            } else {
-                                logger.warning("Member Not Found",
-                                        "No se encontró miembro Discord ID: " + playerData.getDiscordId());
-                            }
-                        } catch (Exception e) {
-                            logger.systemError("ActiveMatch",
-                                    "Error configurando permisos para jugador", e.getMessage());
-                        }
-                    }
-
-                    logger.success("Channel Permissions Set",
-                            String.format("Permisos configurados para canal %s (%d miembros)",
-                                    team.getDisplayName(), teamPlayers.size()));
+                            .putPermissionOverride(guild.getPublicRole(),
+                                    Collections.emptyList(), // Sin permisos permitidos
+                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VIEW_CHANNEL))
+                            .queue(
+                                success -> {
+                                    logger.debug("Permissions Set", "Permisos @everyone denegados en " + channel.getName());
+                                    // PASO 2: Configurar permisos para cada miembro del equipo
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                },
+                                error -> {
+                                    logger.error("Permission Error", "Error denegando permisos a @everyone: " + error.getMessage());
+                                    // Intentar configurar permisos de miembros de todos modos
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                }
+                            );
 
                 } catch (Exception e) {
-                    logger.systemError("ActiveMatch",
-                            "Error configurando permisos del canal", e.getMessage());
+                    logger.systemError("ActiveMatch", "Error en configuración inicial de permisos", e.getMessage());
+                    // Intentar configurar permisos básicos como fallback
+                    setupBasicPermissions(channel, team, teamPlayers);
                 }
             }, 20L); // 1 segundo de espera
 
         } catch (Exception e) {
-            logger.systemError("ActiveMatch",
-                    "Error configurando permisos del canal", e.getMessage());
+            logger.systemError("ActiveMatch", "Error configurando permisos del canal", e.getMessage());
+        }
+    }
+
+    /**
+     * Configura permisos para miembros del equipo de forma secuencial
+     */
+    private void setupTeamMemberPermissions(VoiceChannel channel, Team team, List<PlayerData> teamPlayers, int memberIndex) {
+        if (memberIndex >= teamPlayers.size()) {
+            logger.success("Channel Permissions Set",
+                    String.format("Permisos configurados exitosamente para canal %s (%d miembros)",
+                            team.getDisplayName(), teamPlayers.size()));
+            return;
+        }
+
+        PlayerData playerData = teamPlayers.get(memberIndex);
+        try {
+            Member member = guild.getMemberById(playerData.getDiscordId());
+            if (member != null) {
+                // Dar permisos de conexión, habla y visualización al miembro del equipo
+                channel.getManager()
+                        .putPermissionOverride(member,
+                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VIEW_CHANNEL),
+                                Collections.emptyList()) // Sin permisos denegados
+                        .queue(
+                            success -> {
+                                logger.debug("Member Permission Set",
+                                        String.format("Permisos otorgados a %s en canal %s",
+                                                member.getEffectiveName(), team.getDisplayName()));
+                                // Configurar siguiente miembro
+                                setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+                            },
+                            error -> {
+                                logger.warning("Member Permission Error",
+                                        String.format("Error configurando permisos para %s: %s",
+                                                member.getEffectiveName(), error.getMessage()));
+                                // Continuar con el siguiente miembro
+                                setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+                            }
+                        );
+            } else {
+                logger.warning("Member Not Found", "No se encontró miembro Discord ID: " + playerData.getDiscordId());
+                // Continuar con el siguiente miembro
+                setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+            }
+        } catch (Exception e) {
+            logger.systemError("ActiveMatch", "Error configurando permisos para jugador individual", e.getMessage());
+            // Continuar con el siguiente miembro
+            setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+        }
+    }
+
+    /**
+     * Configuración básica de permisos como fallback
+     */
+    private void setupBasicPermissions(VoiceChannel channel, Team team, List<PlayerData> teamPlayers) {
+        logger.info("Basic Permissions", "Aplicando configuración básica de permisos para " + team.getDisplayName());
+
+        try {
+            // Solo intentar dar permisos básicos a los miembros del equipo
+            for (PlayerData playerData : teamPlayers) {
+                try {
+                    Member member = guild.getMemberById(playerData.getDiscordId());
+                    if (member != null) {
+                        // Configuración básica: solo permitir conexión y habla
+                        channel.getManager()
+                                .putPermissionOverride(member,
+                                        EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK),
+                                        Collections.emptyList())
+                                .queue(
+                                    success -> logger.debug("Basic Permission Set",
+                                            "Permisos básicos para " + member.getEffectiveName()),
+                                    error -> logger.warning("Basic Permission Failed",
+                                            "Falló configuración básica para " + member.getEffectiveName())
+                                );
+                    }
+
+                    // Pequeña pausa entre configuraciones para evitar rate limiting
+                    Thread.sleep(100);
+
+                } catch (Exception e) {
+                    logger.warning("Basic Permission Error",
+                            "Error en configuración básica para jugador: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.systemError("ActiveMatch", "Error en configuración básica de permisos", e.getMessage());
         }
     }
 
@@ -353,5 +423,13 @@ public class ActiveMatch {
     }
     public ProgressiveEloCalculator.MatchType getMatchTypeEnum() {
         return matchTypeEnum;
+    }
+
+    public Team getWinnerTeam() {
+        return winnerTeam;
+    }
+
+    public void setWinnerTeam(Team winnerTeam) {
+        this.winnerTeam = winnerTeam;
     }
 }

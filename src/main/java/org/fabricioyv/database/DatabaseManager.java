@@ -226,6 +226,7 @@ public class DatabaseManager {
             kills INT DEFAULT 0,
             deaths INT DEFAULT 0,
             damage_dealt DOUBLE DEFAULT 0,
+            damage_received DOUBLE DEFAULT 0,
             arrows_shot INT DEFAULT 0,
             arrows_hit INT DEFAULT 0,
             arrow_accuracy DOUBLE DEFAULT 0,

@@ -7,6 +7,8 @@ import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.Compression;
 import org.fabricioyv.RankedMinecraft;
+import org.fabricioyv.commands.MatchDetailsCommand;
+import org.fabricioyv.commands.RecentMatchesCommand;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.queue.QueueManager;
 
@@ -37,12 +39,45 @@ public class DiscordBot {
             // Registrar listener para eventos de voz
             jda.addEventListener(new VoiceChannelListener(queueManager, logger));
 
+            // REGISTRAR COMANDOS DE MATCH LOGS
+            registerMatchCommands();
+
             logger.systemStart();
 
             plugin.getLogger().info("Discord bot inicializado correctamente!");
 
         } catch (Exception e) {
             plugin.getLogger().severe("Error al inicializar Discord bot: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Registra los comandos slash para consultar partidas
+     */
+    private void registerMatchCommands() {
+        try {
+            // Crear instancias de los comandos
+            RecentMatchesCommand recentMatchesCommand = new RecentMatchesCommand();
+            MatchDetailsCommand matchDetailsCommand = new MatchDetailsCommand();
+
+            // Registrar listeners para los comandos
+            jda.addEventListener(recentMatchesCommand);
+            jda.addEventListener(matchDetailsCommand);
+
+            // Registrar comandos slash globalmente
+            jda.updateCommands()
+                .addCommands(
+                    RecentMatchesCommand.getSlashCommand(),
+                    MatchDetailsCommand.getSlashCommand()
+                )
+                .queue(
+                    success -> logger.info("Match Commands Registered", "Comandos de partidas registrados exitosamente"),
+                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                );
+
+        } catch (Exception e) {
+            logger.systemError("DiscordBot", "Error registrando comandos de partidas", e.getMessage());
             e.printStackTrace();
         }
     }

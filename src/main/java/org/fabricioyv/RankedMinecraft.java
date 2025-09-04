@@ -23,8 +23,6 @@ public final class RankedMinecraft extends JavaPlugin {
     public void onEnable() {
         instance = this;
         try {
-
-
             // Inicializar sistema de mapas
             MapManager.initialize(this);
 
@@ -40,13 +38,15 @@ public final class RankedMinecraft extends JavaPlugin {
                 getServer().getPluginManager().disablePlugin(this);
                 return;
             }
-            // Inicializar Discord bot
+
+            // Inicializar Discord bot ANTES de registrar listeners que lo necesiten
             initializeDiscordBot();
-            // Registrar listeners de PGM
+
+            // Registrar listeners de PGM (ya verifica internamente si discordBot está listo)
             registerPGMListeners();
-            getServer().getPluginManager().registerEvents(new MatchStatsListener(this,discordBot.getLogger()), this);
 
-
+            // Registrar MatchStatsListener para capturar estadísticas durante las partidas
+            getServer().getPluginManager().registerEvents(new MatchStatsListener(), this);
 
             getLogger().info("RankedMinecraft habilitado exitosamente!");
 

@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.database.DatabaseManager;
+import org.fabricioyv.database.MatchLogsIntegration;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 
@@ -207,6 +208,12 @@ public class MatchManager {
      */
     private static void startOfficialMatch(ActiveMatch activeMatch, DiscordLogger logger) {
         activeMatch.setStatus(ActiveMatch.MatchStatus.IN_PROGRESS);
+
+        // INICIALIZAR SISTEMA DE LOGS DE PARTIDAS
+        MatchLogsIntegration.startMatchTracking(activeMatch.getMatchId(), activeMatch.getTeams(),
+            activeMatch.getMatchType(), activeMatch.getSelectedMap());
+        MatchLogsIntegration.logMatchStart(activeMatch.getMatchId(), activeMatch.getSelectedMap(),
+            activeMatch.getAllPlayers().size());
 
         // Anunciar inicio
         announceToPlayers(activeMatch.getAllPlayers(),
