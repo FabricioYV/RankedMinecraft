@@ -22,6 +22,7 @@ public class MatchFinisher {
 
     public static void finishMatch(ActiveMatch activeMatch, Team winnerTeam, RankedMinecraft plugin, DiscordLogger logger){
         String matchId = activeMatch.getMatchId();
+        long startTime = System.currentTimeMillis();
 
         logger.matchEvent(matchId, "Finalizando Partida",
                 "Iniciando proceso de finalización", activeMatch.getAllPlayers().size());
@@ -57,21 +58,19 @@ public class MatchFinisher {
                 logger.systemError("MatchFinisher", "Error crítico finalizando partida " + matchId, e.getMessage());
 
                 // Cleanup en main thread si hay error
-                Bukkit.getScheduler().runTask(plugin, () -> emergencyCleanup(activeMatch, plugin, logger));
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    emergencyCleanup(activeMatch, plugin, logger);
+                });
             }
         });
     }
     /**
      * Actualiza estadísticas de todos los jugadores y calcula cambios de ELO y MMR
-     * OPTIMIZADO: Recopila datos ANTES de actualizar objetos
      */
     private static Map<String, Integer> updatePlayerStatistics(ActiveMatch activeMatch,
                                                                Team winnerTeam, DiscordLogger logger) {
         Map<String, Integer> eloChanges = new HashMap<>();
-        Map<String, Double> mmrChanges = new HashMap<>();  // NUEVO: Para guardar cambios MMR
-        Map<String, Integer> oldElos = new HashMap<>();    // NUEVO: Para guardar ELOs anteriores
-        Map<String, Double> oldMMRs = new HashMap<>();     // NUEVO: Para guardar MMRs anteriores
-        Map<String, ProgressiveEloCalculator.EloChange> detailedChanges = new HashMap<>();
+        Map<String, ProgressiveEloCalculator.EloChange> detailedChanges = new HashMap<>(); // Nuevo
         List<DatabaseManager.PlayerStatUpdate> batchUpdates = new ArrayList<>();
         Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
 
@@ -87,7 +86,7 @@ public class MatchFinisher {
                         matchType.getDisplayName(), blueTeamAvgMMR, redTeamAvgMMR,
                         matchType.getWinMultiplier(), matchType.getLossMultiplier()));
 
-        // PASO 1: RECOPILAR DATOS SIN MODIFICAR OBJETOS
+        // Procesar cada equipo
         for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
             Team team = entry.getKey();
             List<PlayerData> players = entry.getValue();
@@ -97,152 +96,76 @@ public class MatchFinisher {
 
             for (PlayerData player : players) {
                 try {
-                    String uuid = player.getMinecraftUuid();
-
-                    // GUARDAR VALORES ANTERIORES ANTES DE CALCULAR CAMBIOS
-                    int currentElo = player.getElo();
-                    double currentMMR = player.getMmr();
-                    oldElos.put(uuid, currentElo);
-                    oldMMRs.put(uuid, currentMMR);
-
-                    // Calcular cambios
+                    // 1. Calcular cambio de ELO (visible para el jugador)
+                    // Calcular cambio de ELO con modificadores de tipo de partida
                     ProgressiveEloCalculator.EloChange eloChange =
                             ProgressiveEloCalculator.calculateEloChange(
-                                    currentElo, opponentAvgMMR, won, matchType);
+                                    player.getElo(), opponentAvgMMR, won, matchType);
 
+                    // 2. Calcular cambio de MMR (interno para balanceo)
                     MMRCalculator.MMRChange mmrChange =
                             MMRCalculator.calculateMMRChange(player, won, teamAvgMMR, opponentAvgMMR);
 
-                    // GUARDAR CAMBIOS CALCULADOS
-                    eloChanges.put(uuid, eloChange.getEloChange());
-                    mmrChanges.put(uuid, mmrChange.getMMRChange());
-                    detailedChanges.put(uuid, eloChange);
+                    eloChanges.put(player.getMinecraftUuid(), eloChange.getEloChange());
+                    detailedChanges.put(player.getMinecraftUuid(), eloChange); // Guardar cambios detallados
 
-                    // Preparar batch update
+                    // 3. Actualizar en base de datos (ELO, MMR y estadísticas)
+                    // PREPARAR PARA BATCH UPDATE - ASEGURANDO KILLS Y DEATHS
+                    int matchKills = player.getCurrentMatchKills();
+                    int matchDeaths = player.getCurrentMatchDeaths();
+
                     batchUpdates.add(new DatabaseManager.PlayerStatUpdate(
-                            uuid,
+                            player.getMinecraftUuid(),
                             won,
                             eloChange.getNewElo(),
                             mmrChange.getNewMMR(),
-                            player.getCurrentMatchKills(),
-                            player.getCurrentMatchDeaths()
+                            matchKills,    // KILLS de esta partida
+                            matchDeaths    // DEATHS de esta partida
                     ));
 
+                    // 4. Actualizar objeto en memoria
+                    player.setElo(eloChange.getNewElo());
+                    player.setMmr(mmrChange.getNewMMR());
+                    player.setInMatch(false);
+                    player.setCurrentMatchId(null);
+
+                    // 5. Log detallado de cambios
                     String playerName = getPlayerName(player);
-                    logger.info("Player Stats Calculated",
+                    logger.info("Player Stats Updated",
                             String.format("%s | %s | %s | Result: %s",
                                     playerName,
                                     eloChange.getChangeMessage(),
                                     mmrChange.getDetailedMessage(),
                                     won ? "VICTORIA" : "DERROTA"));
 
+                    // 6. Resetear estadísticas de partida para próxima partida
+                    player.resetMatchStats();
+
                 } catch (Exception e) {
                     logger.systemError("MatchFinisher",
-                            "Error calculating player statistics: " + player.getMinecraftUuid(),
+                            "Error updating player statistics: " + player.getMinecraftUuid(),
                             e.getMessage());
                 }
             }
         }
-
-        // PASO 2: GUARDAR EN BASE DE DATOS DE LOGS DE FORMA ASÍNCRONA
-        // CRÍTICO: Esto debe hacerse ANTES de actualizar los objetos PlayerData
-        saveMatchToDatabaseAsync(activeMatch, winnerTeam, eloChanges, mmrChanges,
-                                oldElos, oldMMRs, logger);
-
-        // PASO 3: ACTUALIZAR BASE DE DATOS PRINCIPAL (BATCH)
+        // EJECUTAR BATCH UPDATE UNA SOLA VEZ
         if (!batchUpdates.isEmpty()) {
             DatabaseManager.updatePlayerStats(batchUpdates);
             logger.success("Database Updated",
                     "Actualizadas estadísticas de " + batchUpdates.size() + " jugadores en batch");
         }
-
-        // PASO 4: ACTUALIZAR OBJETOS EN MEMORIA Y RESETEAR ESTADÍSTICAS
-        for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
-            for (PlayerData player : entry.getValue()) {
-                String uuid = player.getMinecraftUuid();
-
-                // Actualizar ELO y MMR
-                if (eloChanges.containsKey(uuid)) {
-                    int newElo = oldElos.get(uuid) + eloChanges.get(uuid);
-                    player.setElo(newElo);
-                }
-                if (mmrChanges.containsKey(uuid)) {
-                    double newMMR = oldMMRs.get(uuid) + mmrChanges.get(uuid);
-                    player.setMmr(newMMR);
-                }
-
-                // Limpiar estado de match
-                player.setInMatch(false);
-                player.setCurrentMatchId(null);
-                player.resetMatchStats(); // AHORA sí es seguro resetear
-            }
-        }
-
-        // PASO 5: ACTUALIZAR ROLES DE DISCORD
+        // ACTUALIZAR ROLES DE DISCORD DESPUÉS DE BATCH UPDATE
         updateDiscordRoles(activeMatch, detailedChanges, logger);
-
         return eloChanges;
     }
 
     /**
-     * NUEVO: Guarda match en base de datos de forma completamente asíncrona
-     */
-    private static void saveMatchToDatabaseAsync(ActiveMatch activeMatch, Team winnerTeam,
-                                               Map<String, Integer> eloChanges, Map<String, Double> mmrChanges,
-                                               Map<String, Integer> oldElos, Map<String, Double> oldMMRs,
-                                               DiscordLogger logger) {
-
-        // Ejecutar en un hilo separado para no bloquear el servidor
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                long durationSeconds = java.time.Duration.between(
-                    activeMatch.getStartTime(),
-                    java.time.LocalDateTime.now()
-                ).getSeconds();
-
-                java.time.LocalDateTime endTime = java.time.LocalDateTime.now();
-                java.time.LocalDateTime startTime = endTime.minusSeconds(durationSeconds);
-
-                boolean saved = org.fabricioyv.database.MatchLogsManager.saveMatchLogWithChanges(
-                    activeMatch.getMatchId(),
-                    activeMatch.getMatchType(),
-                    activeMatch.getSelectedMap(),
-                    winnerTeam,
-                    activeMatch.getTeams(),
-                    eloChanges,
-                    mmrChanges,
-                    oldElos,
-                    oldMMRs,
-                    durationSeconds,
-                    startTime,
-                    endTime
-                );
-
-                if (saved) {
-                    System.out.println("✅ Match " + activeMatch.getMatchId() + " guardado en base de datos de logs");
-                    logger.success("Match Log Saved", "Match guardado exitosamente en base de datos");
-                } else {
-                    System.err.println("⚠️ No se pudo guardar el match " + activeMatch.getMatchId() + " en logs");
-                    logger.warning("Match Log Failed", "No se pudo guardar el match en base de datos");
-                }
-
-            } catch (Exception e) {
-                System.err.println("❌ Error guardando match en base de datos de logs: " + e.getMessage());
-                logger.systemError("MatchFinisher", "Error guardando match log", e.getMessage());
-                e.printStackTrace();
-            }
-        });
-    }
-
-    /**
-     * Envía los resultados completos a Discord (SIN guardar en base de datos)
-     * El guardado ya se hace de forma optimizada en updatePlayerStatistics
+     * Envía los resultados completos a Discord
      */
     private static void sendDiscordResults(ActiveMatch activeMatch, Team winnerTeam,
                                            Map<String, Integer> eloChanges, long durationSeconds,
                                            DiscordLogger logger) {
 
-        // Enviar resultados a Discord solamente (sin guardar en DB)
         logger.matchComplete(
                 activeMatch.getMatchId(),
                 activeMatch.getMatchType(),
@@ -253,6 +176,7 @@ public class MatchFinisher {
                 durationSeconds
         );
 
+        // También enviar log separado de cambios de ELO
         // Log específico con modificadores aplicados
         ProgressiveEloCalculator.MatchType matchType = activeMatch.getMatchTypeEnum();
         logger.info("ELO Modifiers Applied",
@@ -260,64 +184,6 @@ public class MatchFinisher {
                         matchType.getDisplayName(),
                         (matchType.getWinMultiplier() - 1.0) * 100,
                         (matchType.getLossMultiplier() - 1.0) * 100));
-    }
-
-    /**
-     * Guarda el match completo en la base de datos de logs con todas las estadísticas detalladas
-     */
-    private static void saveMatchToDatabase(ActiveMatch activeMatch, Team winnerTeam,
-                                           Map<String, Integer> eloChanges, long durationSeconds) {
-        try {
-            // Calcular tiempos del match
-            java.time.LocalDateTime endTime = java.time.LocalDateTime.now();
-            java.time.LocalDateTime startTime = endTime.minusSeconds(durationSeconds);
-
-            // Guardar el match completo en la base de datos de logs
-            boolean saved = org.fabricioyv.database.MatchLogsManager.saveMatchLogWithChanges(
-                activeMatch.getMatchId(),
-                activeMatch.getMatchType(),
-                activeMatch.getSelectedMap(),
-                winnerTeam,
-                activeMatch.getTeams(),
-                eloChanges,
-                new java.util.HashMap<>(), // MMR changes - por implementar
-                calculateOldElos(activeMatch.getTeams(), eloChanges), // ELOs anteriores
-                new java.util.HashMap<>(), // Old MMRs - por implementar
-                durationSeconds,
-                startTime,
-                endTime
-            );
-
-            if (saved) {
-                System.out.println("✅ Match " + activeMatch.getMatchId() + " guardado en base de datos de logs");
-            } else {
-                System.err.println("⚠️ No se pudo guardar el match " + activeMatch.getMatchId() + " en logs");
-            }
-
-        } catch (Exception e) {
-            System.err.println("❌ Error guardando match en base de datos de logs: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Calcula los ELOs anteriores basándose en los cambios
-     */
-    private static java.util.Map<String, Integer> calculateOldElos(java.util.Map<Team, java.util.List<org.fabricioyv.model.PlayerData>> teams,
-                                                                   java.util.Map<String, Integer> eloChanges) {
-        java.util.Map<String, Integer> oldElos = new java.util.HashMap<>();
-
-        for (java.util.List<org.fabricioyv.model.PlayerData> teamPlayers : teams.values()) {
-            for (org.fabricioyv.model.PlayerData player : teamPlayers) {
-                String uuid = player.getMinecraftUuid();
-                int currentElo = player.getElo();
-                int eloChange = eloChanges.getOrDefault(uuid, 0);
-                int oldElo = currentElo - eloChange;
-                oldElos.put(uuid, oldElo);
-            }
-        }
-
-        return oldElos;
     }
     /**
      * Notifica a todos los jugadores en Minecraft sobre el resultado
@@ -345,7 +211,7 @@ public class MatchFinisher {
                     Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
                     if (eloChange != null) {
                         String eloMessage = eloChange > 0 ?
-                                "§a���� +" + eloChange + " ELO!" :
+                                "§a📈 +" + eloChange + " ELO!" :
                                 "§c📉 " + eloChange + " ELO";
                         mcPlayer.sendMessage(eloMessage);
                     }
@@ -375,8 +241,7 @@ public class MatchFinisher {
             for (PlayerData playerData : teamPlayers) {
                 try {
                     Member member = guild.getMemberById(playerData.getDiscordId());
-                    // CORREGIDO: Verificar null antes de usar getVoiceState()
-                    if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                    if (member != null && member.getVoiceState().inAudioChannel()) {
                         guild.moveVoiceMember(member, waitingRoom).queue(
                                 success -> logger.info("Jugador Movido a Espera",
                                         member.getEffectiveName() + " movido al canal de espera"),

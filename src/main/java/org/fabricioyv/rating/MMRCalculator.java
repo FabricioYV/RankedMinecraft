@@ -31,9 +31,6 @@ public class MMRCalculator {
 
         public double getNewMMR() { return newMMR; }
 
-        // NUEVO: Método que faltaba para obtener el cambio de MMR
-        public double getMMRChange() { return change; }
-
         public String getDetailedMessage() {
             return String.format("MMR: %.1f → %.1f (%+.1f) | %s",
                     oldMMR, newMMR, change, performanceBreakdown);

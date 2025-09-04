@@ -1,15 +1,11 @@
 package org.fabricioyv.listeners;
 
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.logging.DiscordLogger;
@@ -29,7 +25,6 @@ public class MatchStatsListener implements Listener {
         this.plugin = plugin;
         this.logger = logger;
     }
-
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
@@ -70,33 +65,6 @@ public class MatchStatsListener implements Listener {
         PlayerData attackerData = findPlayerData(activeMatch, attacker);
         if (attackerData != null) {
             attackerData.addDamage(event.getFinalDamage());
-        }
-
-        // Si el daño fue causado por una flecha, registrar el hit
-        if (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player shooter) {
-            PlayerData shooterData = findPlayerData(activeMatch, shooter);
-            if (shooterData != null) {
-                shooterData.addArrowHit();
-            }
-        }
-    }
-
-    @EventHandler
-    public void onBowShoot(EntityShootBowEvent event) {
-        if (!(event.getEntity() instanceof Player shooter)) return;
-        if (!(event.getProjectile() instanceof Arrow)) return;
-
-        // Buscar la partida activa
-        ActiveMatch activeMatch = findActiveMatchForPlayer(shooter);
-        if (activeMatch == null) return;
-
-        // Solo rastrear si la partida está en progreso
-        if (activeMatch.getStatus() != ActiveMatch.MatchStatus.IN_PROGRESS) return;
-
-        // Registrar flecha disparada
-        PlayerData shooterData = findPlayerData(activeMatch, shooter);
-        if (shooterData != null) {
-            shooterData.addArrowShot();
         }
     }
 

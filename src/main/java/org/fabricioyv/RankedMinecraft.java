@@ -10,8 +10,6 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
-import org.fabricioyv.listeners.RejoinListener;
-import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MapManager;
 import org.fabricioyv.match.MatchFinisher;
@@ -47,9 +45,7 @@ public final class RankedMinecraft extends JavaPlugin {
             // Registrar listeners de PGM
             registerPGMListeners();
             getServer().getPluginManager().registerEvents(new MatchStatsListener(this,discordBot.getLogger()), this);
-            DiscordLogger logger = new DiscordLogger(discordBot.getJda()); // Asegúrate de inicializar correctamente
 
-            getServer().getPluginManager().registerEvents(new RejoinListener(logger), this);
 
 
             getLogger().info("RankedMinecraft habilitado exitosamente!");
