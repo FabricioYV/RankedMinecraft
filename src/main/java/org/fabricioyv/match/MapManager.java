@@ -11,11 +11,13 @@ import java.util.*;
 public class MapManager {
     private static final Map<String, List<String>> mapPools = new HashMap<>();
     private static RankedMinecraft plugin;
+    private static boolean playerVotingEnabled = true; // Por defecto habilitado
 
     public static void initialize(RankedMinecraft plugin) {
         MapManager.plugin = plugin;
         loadMapPools();
     }
+
     private static void loadMapPools() {
         // Crear archivo de mapas por defecto si no existe
         File mapsFile = new File(plugin.getDataFolder(), "maps.yml");
@@ -24,6 +26,9 @@ public class MapManager {
         }
 
         FileConfiguration mapsConfig = YamlConfiguration.loadConfiguration(mapsFile);
+
+        // Cargar configuración de votación
+        playerVotingEnabled = mapsConfig.getBoolean("voting.enable_player_voting", true);
 
         // Cargar mapas para 5v5
         List<String> maps5v5 = mapsConfig.getStringList("pools.5v5");
@@ -42,7 +47,16 @@ public class MapManager {
         mapPools.put("8v8", maps8v8);
 
         plugin.getLogger().info("Cargados " + maps5v5.size() + " mapas para 5v5 y " + maps8v8.size() + " mapas para 8v8");
+        plugin.getLogger().info("Votación de jugadores: " + (playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
     }
+
+    /**
+     * Verifica si la votación por jugadores está habilitada
+     */
+    public static boolean isPlayerVotingEnabled() {
+        return playerVotingEnabled;
+    }
+
     /**
      * Obtiene los mapas disponibles para un tipo específico de match
      */

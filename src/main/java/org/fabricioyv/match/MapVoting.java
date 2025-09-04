@@ -38,13 +38,31 @@ public class MapVoting {
      */
     public void startVoting(VotingCompleteCallback callback) {
         this.callback = callback;
-        this.votingActive = true;
 
         if (availableMaps.isEmpty()) {
             logger.error("Votación de Mapas", "No hay mapas disponibles para " + matchType);
             callback.onVotingComplete(MapManager.getRandomMap(matchType));
             return;
         }
+
+        // Verificar si la votación de jugadores está habilitada
+        if (!MapManager.isPlayerVotingEnabled()) {
+            // Selección automática de mapa aleatorio
+            String selectedMap = MapManager.getRandomMap(matchType);
+
+            logger.info("Selección Automática",
+                "Mapa seleccionado automáticamente para " + matchType + ": " + selectedMap);
+
+            // Anunciar a los jugadores que se seleccionó automáticamente
+            announceAutomaticSelection(selectedMap);
+
+            // Callback inmediato con el mapa seleccionado
+            callback.onVotingComplete(selectedMap);
+            return;
+        }
+
+        // Continuar con votación normal
+        this.votingActive = true;
 
         logger.info("Votación Iniciada",
                 "Votación de mapas " + matchType + " iniciada con " + availableMaps.size() + " opciones");
@@ -54,6 +72,22 @@ public class MapVoting {
 
         // Iniciar countdown de 20 segundos
         startCountdown();
+    }
+
+    /**
+     * Anuncia la selección automática de mapa a los jugadores
+     */
+    private void announceAutomaticSelection(String selectedMap) {
+        for (PlayerData playerData : players) {
+            Player player = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            if (player != null && player.isOnline()) {
+                player.sendMessage("§6§l=== MAPA SELECCIONADO ===");
+                player.sendMessage("§eMapa asignado automáticamente:");
+                player.sendMessage("§a§l" + selectedMap);
+                player.sendMessage("§7La votación de mapas está deshabilitada");
+                player.sendMessage("§6§l=========================");
+            }
+        }
     }
     /**
      * Anuncia la votación a los jugadores

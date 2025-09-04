@@ -27,9 +27,11 @@ pools:
 # Configuración adicional
 voting:
   duration: 20 # segundos para votar
+  enable_player_voting: true # true = jugadores votan, false = selección aleatoria automática
 
 map_cycle:
   delay: 6 # segundos de espera después del ciclo
 
 final_countdown:
   duration: 10 # segundos de cuenta regresiva final
+e
