@@ -18,9 +18,9 @@ public class ProgressiveEloCalculator {
             this.lossMultiplier = lossMultiplier;
         }
 
-        public String getDisplayName() { return displayName; }
         public double getWinMultiplier() { return winMultiplier; }
         public double getLossMultiplier() { return lossMultiplier; }
+        public String getDisplayName() { return displayName; }
     }
     /**
      * Calcula los cambios de ELO con sistema progresivo

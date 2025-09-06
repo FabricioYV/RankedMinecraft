@@ -87,6 +87,38 @@ public class PlayerData {
         this.elo = elo;
     }
 
+    /**
+     * Obtiene el UUID como objeto UUID (para compatibilidad con rejoin system)
+     */
+    public java.util.UUID getUuid() {
+        return java.util.UUID.fromString(minecraftUuid);
+    }
+
+    /**
+     * Obtiene el nombre de Minecraft del jugador
+     * Nota: Este método requiere una consulta a Bukkit para obtener el nombre actual
+     */
+    public String getMinecraftName() {
+        try {
+            org.bukkit.entity.Player player = org.bukkit.Bukkit.getPlayer(getUuid());
+            if (player != null) {
+                return player.getName();
+            }
+
+            // Si el jugador no está online, intentar obtener el nombre desde el UUID
+            org.bukkit.OfflinePlayer offlinePlayer = org.bukkit.Bukkit.getOfflinePlayer(getUuid());
+            if (offlinePlayer != null && offlinePlayer.getName() != null) {
+                return offlinePlayer.getName();
+            }
+
+            // Fallback: usar los primeros 8 caracteres del UUID
+            return "Player_" + minecraftUuid.substring(0, 8);
+        } catch (Exception e) {
+            // Fallback en caso de error
+            return "Unknown_Player";
+        }
+    }
+
     @Override
     public int hashCode() {
         return minecraftUuid.hashCode();

@@ -5,12 +5,17 @@ import org.fabricioyv.model.PlayerData;
 
 import java.sql.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class MatchLogsManager {
+
+    // Zona horaria de Lima, Perú
+    private static final ZoneId LIMA_ZONE = ZoneId.of("America/Lima");
 
     /**
      * Clase para almacenar las estadísticas de un jugador en una partida
@@ -112,8 +117,9 @@ public class MatchLogsManager {
             this.arrowsShot++; 
             calculateArrowAccuracy();
         }
-        public void addArrowHit() { 
-            this.arrowsHit++; 
+
+        public void addArrowHit() {
+            this.arrowsHit++;
             calculateArrowAccuracy();
         }
     }
@@ -139,8 +145,32 @@ public class MatchLogsManager {
             this.winnerTeam = winnerTeam;
             this.startTime = startTime;
             this.endTime = endTime;
-            this.durationSeconds = java.time.Duration.between(startTime, endTime).getSeconds();
-            this.playerStats = playerStats;
+
+            // Calcular duración considerando si la partida está en curso
+            if (endTime != null && startTime != null) {
+                this.durationSeconds = java.time.Duration.between(startTime, endTime).getSeconds();
+            } else if ("TBD".equals(winnerTeam) && startTime != null) {
+                // Partida en curso: calcular duración hasta ahora
+                this.durationSeconds = java.time.Duration.between(startTime, LocalDateTime.now()).getSeconds();
+            } else {
+                this.durationSeconds = 0;
+            }
+
+            this.playerStats = playerStats != null ? playerStats : new java.util.HashMap<>();
+        }
+
+        // Constructor para partidas completadas con duración específica
+        public MatchSummary(String matchId, String matchType, String mapName, String winnerTeam,
+                          LocalDateTime startTime, LocalDateTime endTime, long durationSeconds,
+                          Map<String, PlayerMatchStats> playerStats) {
+            this.matchId = matchId;
+            this.matchType = matchType;
+            this.mapName = mapName;
+            this.winnerTeam = winnerTeam;
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.durationSeconds = durationSeconds;
+            this.playerStats = playerStats != null ? playerStats : new java.util.HashMap<>();
         }
 
         // Getters
@@ -152,6 +182,16 @@ public class MatchLogsManager {
         public LocalDateTime getEndTime() { return endTime; }
         public long getDurationSeconds() { return durationSeconds; }
         public Map<String, PlayerMatchStats> getPlayerStats() { return playerStats; }
+
+        // Método de utilidad para verificar si la partida está completada
+        public boolean isCompleted() {
+            return winnerTeam != null && !"TBD".equals(winnerTeam);
+        }
+
+        // Método de utilidad para verificar si la partida está en curso
+        public boolean isOngoing() {
+            return "TBD".equals(winnerTeam);
+        }
     }
 
     /**
@@ -278,8 +318,8 @@ public class MatchLogsManager {
     public static CompletableFuture<Boolean> initializeMatch(String matchId, String matchType, String mapName) {
         return CompletableFuture.supplyAsync(() -> {
             String insertMatchQuery = """
-                INSERT INTO matches (match_id, match_type, map_name, start_time)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO matches (match_id, match_type, map_name, start_time, winner_team, duration_seconds, end_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                 match_type = VALUES(match_type),
                 map_name = VALUES(map_name),
@@ -289,10 +329,17 @@ public class MatchLogsManager {
             try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
                  PreparedStatement stmt = conn.prepareStatement(insertMatchQuery)) {
 
+                // Usar tiempo de Lima para inicializar la partida
+                LocalDateTime startTimeLima = getCurrentTimeInLima();
+                Timestamp startTime = limaTimeToTimestamp(startTimeLima);
+
                 stmt.setString(1, matchId);
                 stmt.setString(2, matchType);
                 stmt.setString(3, mapName);
-                stmt.setTimestamp(4, new Timestamp(System.currentTimeMillis()));
+                stmt.setTimestamp(4, startTime);
+                stmt.setString(5, "TBD"); // Placeholder for winner_team since match hasn't finished
+                stmt.setLong(6, 0); // Duration 0 for ongoing match
+                stmt.setTimestamp(7, startTime); // Temporary end_time, will be updated when match finishes
 
                 int rowsAffected = stmt.executeUpdate();
 
@@ -304,7 +351,8 @@ public class MatchLogsManager {
                 // Verificar que el registro se creó correctamente
                 if (rowsAffected > 0) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§a✅ Partida " + matchId + " inicializada correctamente en base de datos"
+                        "§a✅ Partida " + matchId + " inicializada correctamente en base de datos (Hora Lima: " +
+                        startTimeLima.toString() + ")"
                     );
                     return true;
                 } else {
@@ -412,17 +460,38 @@ public class MatchLogsManager {
 
     /**
      * Obtiene una lista de las últimas partidas con información básica
+     * Filtra solo partidas completadas por defecto
      */
     public static CompletableFuture<List<MatchBasicInfo>> getRecentMatches(int limit) {
+        return getRecentMatches(limit, true);
+    }
+
+    /**
+     * Obtiene una lista de las últimas partidas con información básica
+     * @param limit número máximo de partidas a obtener
+     * @param onlyCompleted si true, solo obtiene partidas completadas (winner_team != 'TBD')
+     */
+    public static CompletableFuture<List<MatchBasicInfo>> getRecentMatches(int limit, boolean onlyCompleted) {
         return CompletableFuture.supplyAsync(() -> {
             List<MatchBasicInfo> matches = new java.util.ArrayList<>();
 
-            String query = """
-                SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
-                FROM matches 
-                ORDER BY start_time DESC 
-                LIMIT ?
-            """;
+            String query;
+            if (onlyCompleted) {
+                query = """
+                    SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
+                    FROM matches 
+                    WHERE winner_team != 'TBD' AND winner_team IS NOT NULL
+                    ORDER BY start_time DESC 
+                    LIMIT ?
+                """;
+            } else {
+                query = """
+                    SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
+                    FROM matches 
+                    ORDER BY start_time DESC 
+                    LIMIT ?
+                """;
+            }
 
             try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
                  PreparedStatement stmt = conn.prepareStatement(query)) {
@@ -431,14 +500,26 @@ public class MatchLogsManager {
                 ResultSet rs = stmt.executeQuery();
 
                 while (rs.next()) {
+                    // Calcular duración real para partidas en curso
+                    long duration = rs.getLong("duration_seconds");
+                    String winnerTeam = rs.getString("winner_team");
+                    Timestamp endTime = rs.getTimestamp("end_time");
+                    Timestamp startTime = rs.getTimestamp("start_time");
+
+                    // Si la partida está en curso (TBD), calcular duración hasta ahora
+                    if ("TBD".equals(winnerTeam) && startTime != null) {
+                        duration = (System.currentTimeMillis() - startTime.getTime()) / 1000;
+                        endTime = null; // No mostrar end_time para partidas en curso
+                    }
+
                     MatchBasicInfo info = new MatchBasicInfo(
                         rs.getString("match_id"),
                         rs.getString("match_type"),
                         rs.getString("map_name"),
-                        rs.getString("winner_team"),
-                        rs.getTimestamp("start_time").toLocalDateTime(),
-                        rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toLocalDateTime() : null,
-                        rs.getLong("duration_seconds")
+                        winnerTeam,
+                        startTime.toLocalDateTime(),
+                        endTime != null ? endTime.toLocalDateTime() : null,
+                        duration
                     );
                     matches.add(info);
                 }
@@ -653,5 +734,198 @@ public class MatchLogsManager {
      */
     public static CompletableFuture<MatchSummary> getMatchStats(String matchId) {
         return getMatchDetails(matchId);
+    }
+
+    /**
+     * Método de utilidad para verificar la integridad de los datos guardados
+     * Compara los datos esperados con los datos realmente guardados en la base de datos
+     */
+    public static CompletableFuture<Boolean> validateMatchData(String matchId, MatchSummary expectedData) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Obtener los datos guardados
+                MatchSummary savedData = getMatchDetails(matchId).join();
+
+                if (savedData == null) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§c❌ Validación fallida: No se encontró la partida " + matchId + " en la base de datos"
+                    );
+                    return false;
+                }
+
+                boolean isValid = true;
+                StringBuilder errors = new StringBuilder();
+
+                // Verificar datos básicos de la partida
+                if (!expectedData.getMatchType().equals(savedData.getMatchType())) {
+                    errors.append("§c- Match type: esperado '").append(expectedData.getMatchType())
+                           .append("', encontrado '").append(savedData.getMatchType()).append("'\n");
+                    isValid = false;
+                }
+
+                if (!expectedData.getMapName().equals(savedData.getMapName())) {
+                    errors.append("§c- Map name: esperado '").append(expectedData.getMapName())
+                           .append("', encontrado '").append(savedData.getMapName()).append("'\n");
+                    isValid = false;
+                }
+
+                if (!expectedData.getWinnerTeam().equals(savedData.getWinnerTeam())) {
+                    errors.append("§c- Winner team: esperado '").append(expectedData.getWinnerTeam())
+                           .append("', encontrado '").append(savedData.getWinnerTeam()).append("'\n");
+                    isValid = false;
+                }
+
+                // Verificar estadísticas de jugadores
+                Map<String, PlayerMatchStats> expectedStats = expectedData.getPlayerStats();
+                Map<String, PlayerMatchStats> savedStats = savedData.getPlayerStats();
+
+                if (expectedStats.size() != savedStats.size()) {
+                    errors.append("§c- Player stats count: esperado ").append(expectedStats.size())
+                           .append(", encontrado ").append(savedStats.size()).append("\n");
+                    isValid = false;
+                }
+
+                // Verificar cada jugador
+                for (Map.Entry<String, PlayerMatchStats> entry : expectedStats.entrySet()) {
+                    String playerUuid = entry.getKey();
+                    PlayerMatchStats expected = entry.getValue();
+                    PlayerMatchStats saved = savedStats.get(playerUuid);
+
+                    if (saved == null) {
+                        errors.append("§c- Jugador ").append(expected.getPlayerName())
+                               .append(" (").append(playerUuid).append(") no encontrado en base de datos\n");
+                        isValid = false;
+                        continue;
+                    }
+
+                    // Verificar estadísticas específicas del jugador
+                    if (expected.getKills() != saved.getKills()) {
+                        errors.append("§c- ").append(expected.getPlayerName()).append(" kills: esperado ")
+                               .append(expected.getKills()).append(", encontrado ").append(saved.getKills()).append("\n");
+                        isValid = false;
+                    }
+
+                    if (expected.getDeaths() != saved.getDeaths()) {
+                        errors.append("§c- ").append(expected.getPlayerName()).append(" deaths: esperado ")
+                               .append(expected.getDeaths()).append(", encontrado ").append(saved.getDeaths()).append("\n");
+                        isValid = false;
+                    }
+
+                    if (Math.abs(expected.getDamageDealt() - saved.getDamageDealt()) > 0.01) {
+                        errors.append("§c- ").append(expected.getPlayerName()).append(" damage dealt: esperado ")
+                               .append(expected.getDamageDealt()).append(", encontrado ").append(saved.getDamageDealt()).append("\n");
+                        isValid = false;
+                    }
+
+                    if (expected.getNewElo() != saved.getNewElo()) {
+                        errors.append("§c- ").append(expected.getPlayerName()).append(" new ELO: esperado ")
+                               .append(expected.getNewElo()).append(", encontrado ").append(saved.getNewElo()).append("\n");
+                        isValid = false;
+                    }
+
+                    if (Math.abs(expected.getNewMmr() - saved.getNewMmr()) > 0.01) {
+                        errors.append("§c- ").append(expected.getPlayerName()).append(" new MMR: esperado ")
+                               .append(expected.getNewMmr()).append(", encontrado ").append(saved.getNewMmr()).append("\n");
+                        isValid = false;
+                    }
+                }
+
+                if (isValid) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§a✅ Validación exitosa: Todos los datos de la partida " + matchId + " se guardaron correctamente"
+                    );
+                } else {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§c❌ Validación fallida para partida " + matchId + ":\n" + errors.toString()
+                    );
+                }
+
+                return isValid;
+
+            } catch (Exception e) {
+                Bukkit.getConsoleSender().sendMessage(
+                    "§c❌ Error durante validación de partida " + matchId + ": " + e.getMessage()
+                );
+                e.printStackTrace();
+                return false;
+            }
+        });
+    }
+
+    /**
+     * Método de utilidad para verificar partidas incompletas o corruptas
+     */
+    public static CompletableFuture<List<String>> findIncompleteMatches() {
+        return CompletableFuture.supplyAsync(() -> {
+            List<String> incompleteMatches = new java.util.ArrayList<>();
+
+            String query = """
+                SELECT m.match_id, m.winner_team, 
+                       COUNT(mp.player_uuid) as player_count,
+                       COUNT(CASE WHEN mp.old_elo = 0 OR mp.new_elo = 0 THEN 1 END) as invalid_elo_count
+                FROM matches m
+                LEFT JOIN match_players mp ON m.match_id = mp.match_id
+                GROUP BY m.match_id, m.winner_team
+                HAVING winner_team = 'TBD' 
+                    OR player_count = 0 
+                    OR invalid_elo_count > 0
+                ORDER BY m.start_time DESC
+            """;
+
+            try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
+                 PreparedStatement stmt = conn.prepareStatement(query)) {
+
+                ResultSet rs = stmt.executeQuery();
+
+                while (rs.next()) {
+                    String matchId = rs.getString("match_id");
+                    String winnerTeam = rs.getString("winner_team");
+                    int playerCount = rs.getInt("player_count");
+                    int invalidEloCount = rs.getInt("invalid_elo_count");
+
+                    String reason = "";
+                    if ("TBD".equals(winnerTeam)) {
+                        reason = "partida en curso";
+                    } else if (playerCount == 0) {
+                        reason = "sin estadísticas de jugadores";
+                    } else if (invalidEloCount > 0) {
+                        reason = "datos de ELO inválidos";
+                    }
+
+                    incompleteMatches.add(matchId + " (" + reason + ")");
+                }
+
+            } catch (SQLException e) {
+                Bukkit.getConsoleSender().sendMessage(
+                    "§c❌ Error al buscar partidas incompletas: " + e.getMessage()
+                );
+                e.printStackTrace();
+            }
+
+            return incompleteMatches;
+        });
+    }
+
+    /**
+     * Obtiene la fecha y hora actual en la zona horaria de Lima, Perú
+     */
+    public static LocalDateTime getCurrentTimeInLima() {
+        return ZonedDateTime.now(LIMA_ZONE).toLocalDateTime();
+    }
+
+    /**
+     * Convierte un Timestamp de la base de datos a LocalDateTime en zona horaria de Lima
+     */
+    private static LocalDateTime timestampToLimaTime(Timestamp timestamp) {
+        if (timestamp == null) return null;
+        return timestamp.toInstant().atZone(LIMA_ZONE).toLocalDateTime();
+    }
+
+    /**
+     * Convierte un LocalDateTime de Lima a Timestamp para la base de datos
+     */
+    public static Timestamp limaTimeToTimestamp(LocalDateTime limaTime) {
+        ZonedDateTime limaZoned = limaTime.atZone(LIMA_ZONE);
+        return Timestamp.valueOf(limaZoned.toLocalDateTime());
     }
 }

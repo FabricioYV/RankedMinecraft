@@ -4,6 +4,7 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -35,7 +36,7 @@ public class ActiveMatch {
     private VoiceChannel blueTeamChannel;
     private VoiceChannel redTeamChannel;
     private MatchStatus status;
-    private LocalDateTime startTime;
+    private final LocalDateTime startTime;
     private final ProgressiveEloCalculator.MatchType matchTypeEnum;
     private boolean finishedByForfeit = false;
     private Team winnerTeam; // Campo para almacenar el equipo ganador
@@ -256,21 +257,23 @@ public class ActiveMatch {
                 try {
                     logger.info("Setting Permissions", "Configurando permisos para canal " + team.getDisplayName());
 
-                    // PASO 1: Denegar acceso a @everyone por defecto
+                    // PASO 1: Configurar permisos para @everyone - PERMITIR VER pero DENEGAR conectar y hablar
                     channel.getManager()
                             .putPermissionOverride(guild.getPublicRole(),
-                                    Collections.emptyList(), // Sin permisos permitidos
-                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VIEW_CHANNEL))
+                                    EnumSet.of(Permission.VIEW_CHANNEL), // Permitir ver el canal
+                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                             Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                             Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
                             .queue(
                                 success -> {
-                                    logger.debug("Permissions Set", "Permisos @everyone denegados en " + channel.getName());
-                                    // PASO 2: Configurar permisos para cada miembro del equipo
-                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER pero NO conectar/hablar");
+                                    // PASO 2: Configurar permisos para el rol @Queue
+                                    setupQueueRolePermissions(channel, team, teamPlayers);
                                 },
                                 error -> {
-                                    logger.error("Permission Error", "Error denegando permisos a @everyone: " + error.getMessage());
-                                    // Intentar configurar permisos de miembros de todos modos
-                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                    logger.error("Permission Error", "Error configurando permisos a @everyone: " + error.getMessage());
+                                    // Intentar configurar permisos del rol Queue de todos modos
+                                    setupQueueRolePermissions(channel, team, teamPlayers);
                                 }
                             );
 
@@ -287,12 +290,50 @@ public class ActiveMatch {
     }
 
     /**
+     * Configura permisos para el rol @Queue - pueden ver pero NO conectar ni hablar
+     */
+    private void setupQueueRolePermissions(VoiceChannel channel, Team team, List<PlayerData> teamPlayers) {
+        try {
+            Role queueRole = guild.getRoleById(VoiceChannelConfig.QUEUE_ROLE_ID);
+            if (queueRole != null) {
+                channel.getManager()
+                        .putPermissionOverride(queueRole,
+                                EnumSet.of(Permission.VIEW_CHANNEL), // Solo permitir ver el canal
+                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                         Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                         Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
+                        .queue(
+                            success -> {
+                                logger.debug("Queue Role Permissions Set", "Permisos del rol @Queue configurados en " + channel.getName() + " - Solo VER canal");
+                                // PASO 3: Configurar permisos para cada miembro del equipo
+                                setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                            },
+                            error -> {
+                                logger.warning("Queue Role Permission Error", "Error configurando permisos para rol @Queue: " + error.getMessage());
+                                // Continuar con permisos de miembros del equipo
+                                setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                            }
+                        );
+            } else {
+                logger.warning("Queue Role Not Found", "No se encontró el rol @Queue con ID: " + VoiceChannelConfig.QUEUE_ROLE_ID);
+                // Continuar con permisos de miembros del equipo
+                setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+            }
+        } catch (Exception e) {
+            logger.systemError("ActiveMatch", "Error configurando permisos del rol @Queue", e.getMessage());
+            // Continuar con permisos de miembros del equipo
+            setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+        }
+    }
+
+    /**
      * Configura permisos para miembros del equipo de forma secuencial
+     * Les da permisos COMPLETOS: ver, conectar, hablar, y usar PTT
      */
     private void setupTeamMemberPermissions(VoiceChannel channel, Team team, List<PlayerData> teamPlayers, int memberIndex) {
         if (memberIndex >= teamPlayers.size()) {
             logger.success("Channel Permissions Set",
-                    String.format("Permisos configurados exitosamente para canal %s (%d miembros)",
+                    String.format("✅ Permisos configurados exitosamente para canal %s (%d miembros) - Visible para todos, acceso solo para el equipo",
                             team.getDisplayName(), teamPlayers.size()));
             return;
         }
@@ -301,22 +342,31 @@ public class ActiveMatch {
         try {
             Member member = guild.getMemberById(playerData.getDiscordId());
             if (member != null) {
-                // Dar permisos de conexión, habla y visualización al miembro del equipo
+                // Dar permisos COMPLETOS al miembro del equipo: ver, conectar, hablar, usar PTT, y desmutearse
                 channel.getManager()
                         .putPermissionOverride(member,
-                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VIEW_CHANNEL),
-                                Collections.emptyList()) // Sin permisos denegados
+                                EnumSet.of(
+                                    Permission.VIEW_CHANNEL,           // Ver el canal
+                                    Permission.VOICE_CONNECT,          // Conectarse al canal
+                                    Permission.VOICE_SPEAK,            // Hablar en el canal
+                                    Permission.VOICE_USE_VAD,          // Usar detección de voz automática// Usar actividad de voz
+                                    Permission.VOICE_STREAM            // Compartir pantalla/cámara si está disponible
+                                ),
+                                EnumSet.of(
+                                    Permission.VOICE_MUTE_OTHERS,      // No puede mutear a otros
+                                    Permission.VOICE_DEAF_OTHERS       // No puede ensordecer a otros
+                                )) // Permisos denegados explícitamente
                         .queue(
                             success -> {
                                 logger.debug("Member Permission Set",
-                                        String.format("Permisos otorgados a %s en canal %s",
+                                        String.format("✅ Permisos COMPLETOS otorgados a %s en canal %s (ver, conectar, hablar, PTT)",
                                                 member.getEffectiveName(), team.getDisplayName()));
                                 // Configurar siguiente miembro
                                 setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
                             },
                             error -> {
                                 logger.warning("Member Permission Error",
-                                        String.format("Error configurando permisos para %s: %s",
+                                        String.format("⚠️ Error configurando permisos para %s: %s",
                                                 member.getEffectiveName(), error.getMessage()));
                                 // Continuar con el siguiente miembro
                                 setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
@@ -341,95 +391,263 @@ public class ActiveMatch {
         logger.info("Basic Permissions", "Aplicando configuración básica de permisos para " + team.getDisplayName());
 
         try {
-            // Solo intentar dar permisos básicos a los miembros del equipo
+            // Configurar permisos básicos para @everyone (solo ver)
+            channel.getManager()
+                    .putPermissionOverride(guild.getPublicRole(),
+                            EnumSet.of(Permission.VIEW_CHANNEL),
+                            EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK))
+                    .queue();
+
+            // Dar permisos básicos a los miembros del equipo
             for (PlayerData playerData : teamPlayers) {
                 try {
                     Member member = guild.getMemberById(playerData.getDiscordId());
                     if (member != null) {
-                        // Configuración básica: solo permitir conexión y habla
+                        // Configuración básica: permitir conexión, habla y ver
                         channel.getManager()
                                 .putPermissionOverride(member,
-                                        EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK),
+                                        EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                                 Permission.VIEW_CHANNEL, Permission.VOICE_USE_VAD),
                                         Collections.emptyList())
                                 .queue(
                                     success -> logger.debug("Basic Permission Set",
-                                            "Permisos básicos para " + member.getEffectiveName()),
+                                            "✅ Permisos básicos para " + member.getEffectiveName()),
                                     error -> logger.warning("Basic Permission Failed",
-                                            "Falló configuración básica para " + member.getEffectiveName())
+                                            "⚠️ Falló configuración básica para " + member.getEffectiveName())
                                 );
                     }
 
                     // Pequeña pausa entre configuraciones para evitar rate limiting
-                    Thread.sleep(100);
+                    Thread.sleep(150);
 
                 } catch (Exception e) {
                     logger.warning("Basic Permission Error",
-                            "Error en configuración básica para jugador: " + e.getMessage());
+                        "Error configurando permisos básicos para jugador: " + e.getMessage());
                 }
             }
+
+            logger.success("Basic Permissions Applied",
+                "Configuración básica aplicada para canal " + team.getDisplayName());
+
         } catch (Exception e) {
-            logger.systemError("ActiveMatch", "Error en configuración básica de permisos", e.getMessage());
+            logger.systemError("ActiveMatch", "Error aplicando configuración básica de permisos", e.getMessage());
         }
     }
 
-    // Getters y métodos estáticos
-    public static ActiveMatch getPlayerActiveMatch(String playerUuid) {
-        return activeMatches.values().stream()
-                .filter(match -> match.allPlayers.stream()
-                        .anyMatch(p -> p.getMinecraftUuid().equals(playerUuid)))
-                .findFirst()
-                .orElse(null);
+    /**
+     * Método para mover un jugador específico al canal de su equipo (usado para rejoin)
+     */
+    public void movePlayerToTeamChannel(PlayerData playerData, Team team) {
+        VoiceChannel targetChannel = (team == Team.BLUE) ? blueTeamChannel : redTeamChannel;
+
+        if (targetChannel == null) {
+            logger.error("Team Channel Not Available",
+                "Canal del equipo " + team.getDisplayName() + " no está disponible para rejoin");
+            return;
+        }
+
+        try {
+            Member member = guild.getMemberById(playerData.getDiscordId());
+            if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                guild.moveVoiceMember(member, targetChannel).queue(
+                        success -> logger.success("Rejoin Voice Move",
+                            "✅ " + member.getEffectiveName() + " movido al canal " + team.getDisplayName() + " (rejoin)"),
+                        error -> logger.error("Rejoin Voice Move Failed",
+                            "❌ Error moviendo " + member.getEffectiveName() + " al canal " + team.getDisplayName() + ": " + error.getMessage())
+                );
+            } else {
+                logger.info("Player Not In Voice",
+                    "Jugador " + playerData.getMinecraftName() + " no está en un canal de voz para mover (rejoin)");
+            }
+        } catch (Exception e) {
+            logger.systemError("ActiveMatch", "Error en rejoin voice move", e.getMessage());
+        }
     }
 
-
-    public static ActiveMatch getMatch(String matchId) {
-        return activeMatches.get(matchId);
+    /**
+     * Obtiene el ID de la partida
+     */
+    public String getMatchId() {
+        return matchId;
     }
 
+    /**
+     * Obtiene los equipos de la partida
+     */
+    public Map<Team, List<PlayerData>> getTeams() {
+        return teams;
+    }
+
+    /**
+     * Obtiene todas las partidas activas
+     */
+    public static Map<String, ActiveMatch> getActiveMatches() {
+        return activeMatches;
+    }
+
+    /**
+     * Obtiene todas las partidas activas
+     */
     public static Collection<ActiveMatch> getAllActiveMatches() {
         return activeMatches.values();
     }
 
-    // Getters completos
-    public String getMatchId() { return matchId; }
-    public String getMatchType() { return matchType; }
-    public List<PlayerData> getAllPlayers() { return allPlayers; }
-    public Map<Team, List<PlayerData>> getTeams() { return teams; }
-    public String getSelectedMap() { return selectedMap; }
-    public void setSelectedMap(String selectedMap) { this.selectedMap = selectedMap; }
-    public MapVoting getMapVoting() { return mapVoting; }
-    public void setMapVoting(MapVoting mapVoting) { this.mapVoting = mapVoting; }
-    public MatchStatus getStatus() { return status; }
-    public void setStatus(MatchStatus status) { this.status = status; }
-    public LocalDateTime getStartTime() { return startTime; }
-    public VoiceChannel getBlueTeamChannel() { return blueTeamChannel; }
-    public VoiceChannel getRedTeamChannel() { return redTeamChannel; }
-    // Getter y setter
+    /**
+     * Encuentra la partida activa de un jugador específico por su UUID
+     */
+    public static ActiveMatch getPlayerActiveMatch(String playerUuid) {
+        for (ActiveMatch match : activeMatches.values()) {
+            // Buscar en todos los jugadores de la partida
+            for (PlayerData player : match.getAllPlayers()) {
+                if (player.getMinecraftUuid().equals(playerUuid)) {
+                    return match;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Obtiene todos los jugadores de la partida
+     */
+    public List<PlayerData> getAllPlayers() {
+        return new ArrayList<>(allPlayers);
+    }
+
+    /**
+     * Obtiene un jugador por su UUID
+     */
+    public PlayerData getPlayerByUUID(UUID playerUUID) {
+        return allPlayers.stream()
+                .filter(player -> UUID.fromString(player.getMinecraftUuid()).equals(playerUUID))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Verifica si la partida fue finalizada por forfeit
+     */
     public boolean isFinishedByForfeit() {
         return finishedByForfeit;
     }
 
+    /**
+     * Establece que la partida fue finalizada por forfeit
+     */
     public void setFinishedByForfeit(boolean finishedByForfeit) {
         this.finishedByForfeit = finishedByForfeit;
     }
-    //Estados de la Match. (Agregar picks por capitanes)
-    public enum MatchStatus {
-        PREPARING,
-        VOTING,
-        STARTING,
-        IN_PROGRESS,
-        FINISHED,
-        CANCELLED
-    }
-    public ProgressiveEloCalculator.MatchType getMatchTypeEnum() {
-        return matchTypeEnum;
-    }
 
+    /**
+     * Obtiene el equipo ganador
+     */
     public Team getWinnerTeam() {
         return winnerTeam;
     }
 
+    /**
+     * Establece el equipo ganador
+     */
     public void setWinnerTeam(Team winnerTeam) {
         this.winnerTeam = winnerTeam;
+    }
+
+    /**
+     * Obtiene el estado de la partida
+     */
+    public MatchStatus getStatus() {
+        return status;
+    }
+
+    /**
+     * Establece el estado de la partida
+     */
+    public void setStatus(MatchStatus status) {
+        this.status = status;
+    }
+
+    /**
+     * Obtiene el mapa seleccionado
+     */
+    public String getSelectedMap() {
+        return selectedMap;
+    }
+
+    /**
+     * Establece el mapa seleccionado
+     */
+    public void setSelectedMap(String selectedMap) {
+        this.selectedMap = selectedMap;
+    }
+
+    /**
+     * Obtiene el sistema de votación de mapas
+     */
+    public MapVoting getMapVoting() {
+        return mapVoting;
+    }
+
+    /**
+     * Establece el sistema de votación de mapas
+     */
+    public void setMapVoting(MapVoting mapVoting) {
+        this.mapVoting = mapVoting;
+    }
+
+    /**
+     * Obtiene la hora de inicio de la partida
+     */
+    public LocalDateTime getStartTime() {
+        return startTime;
+    }
+
+    /**
+     * Obtiene el tipo de partida como enum
+     */
+    public ProgressiveEloCalculator.MatchType getMatchTypeEnum() {
+        return matchTypeEnum;
+    }
+
+    /**
+     * Obtiene el tipo de partida como string
+     */
+    public String getMatchType() {
+        return matchType;
+    }
+
+    /**
+     * Obtiene el canal de voz del equipo azul
+     */
+    public VoiceChannel getBlueTeamChannel() {
+        return blueTeamChannel;
+    }
+
+    /**
+     * Obtiene el canal de voz del equipo rojo
+     */
+    public VoiceChannel getRedTeamChannel() {
+        return redTeamChannel;
+    }
+
+    /**
+     * Enum para los estados de la partida
+     */
+    public enum MatchStatus {
+        PREPARING("Preparando"),
+        MAP_VOTING("Votación de Mapa"),
+        STARTING("Iniciando"),
+        IN_PROGRESS("En Progreso"),
+        FINISHED("Finalizada"),
+        CANCELLED("Cancelada");
+
+        private final String displayName;
+
+        MatchStatus(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
     }
 }

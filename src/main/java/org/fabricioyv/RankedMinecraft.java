@@ -10,10 +10,7 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
-import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MapManager;
-import org.fabricioyv.match.MatchFinisher;
-import org.fabricioyv.match.MatchState;
 
 
 public final class RankedMinecraft extends JavaPlugin {
@@ -31,6 +28,7 @@ public final class RankedMinecraft extends JavaPlugin {
             getCommand("ff").setExecutor(new ForfeitCommand(this));
             getCommand("ready").setExecutor(new ReadyCommand());
             getCommand("r").setExecutor(new ReadyCommand()); // Alias corto
+            getCommand("mapadmin").setExecutor(new org.fabricioyv.commands.MapAdminCommand()); // Comando para administrar mapas
 
             // Inicializar base de datos
             if(!DatabaseManager.initialize()) {
@@ -99,22 +97,28 @@ public final class RankedMinecraft extends JavaPlugin {
         discordBot = new DiscordBot();
         discordBot.initialize(this, token, guildId);
     }
+
+    private void registerPGMListeners() {
+        // Esperar a que Discord bot esté listo antes de registrar listeners
+        if (discordBot != null && discordBot.getLogger() != null) {
+            // Registrar listener de PGM
+            getServer().getPluginManager().registerEvents(
+                new PGMMatchListener(this, discordBot.getLogger()), this);
+
+            // Registrar listener de rejoin para jugadores
+            getServer().getPluginManager().registerEvents(
+                new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
+
+            getLogger().info("✅ Listeners de PGM y Rejoin registrados exitosamente");
+        } else {
+            getLogger().warning("⚠️ Discord bot no está listo, intentando registrar listeners en 5 segundos...");
+
+            // Reintentar en 5 segundos
+            Bukkit.getScheduler().runTaskLater(this, this::registerPGMListeners, 100L);
+        }
+    }
     public DiscordBot getDiscordBot() {
         return discordBot;
-    }
-    /**
-     * Registra los listeners para eventos de PGM
-     */
-    private void registerPGMListeners() {
-        if (discordBot != null && discordBot.getLogger() != null) {
-            getServer().getPluginManager().registerEvents(
-                    new PGMMatchListener(this, discordBot.getLogger()),
-                    this
-            );
-            getLogger().info("Listeners de PGM registrados correctamente!");
-        } else {
-            getLogger().warning("No se pudieron registrar listeners de PGM - Discord bot no inicializado");
-        }
     }
     public static RankedMinecraft getInstance() {
         return instance;

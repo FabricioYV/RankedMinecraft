@@ -11,6 +11,9 @@ public class VoiceChannelConfig {
     // Categoría donde se crearán los canales temporales de equipos
     public static final String TEAM_CHANNELS_CATEGORY_ID = "1405393161123266680";
 
+    // ID del rol @Queue
+    public static final String QUEUE_ROLE_ID = "1404726708359401534"; // Reemplaza con el ID real del rol @Queue
+
     public static final String ID_VOICE_CHANNEL_5vs5 = "1405393573855105075";
 
     public static final String ID_VOICE_CHANNEL_8vs8 = "1405393438148657324";
@@ -39,8 +42,5 @@ public class VoiceChannelConfig {
             Map.entry(Rank.ESMERALDA, "1404637917250588723")   // ID del rol Esmeralda
     );
 
-    public static Set<String> getAllRankRoleIds() {
-        return Set.copyOf(RANK_ROLE_IDS.values());
-    }
 
 }

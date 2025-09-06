@@ -100,7 +100,7 @@ public class MatchManager {
      * Inicia el proceso de votación de mapas
      */
     private static void startMapVoting(ActiveMatch activeMatch, DiscordLogger logger) {
-        activeMatch.setStatus(ActiveMatch.MatchStatus.VOTING);
+        activeMatch.setStatus(ActiveMatch.MatchStatus.MAP_VOTING);
 
         // Crear sistema de votación
         MapVoting mapVoting = new MapVoting(
@@ -176,6 +176,8 @@ public class MatchManager {
 
         RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
         new BukkitRunnable() {
+
+            //This countdown from start match.
             int countdown = 10;
 
             @Override

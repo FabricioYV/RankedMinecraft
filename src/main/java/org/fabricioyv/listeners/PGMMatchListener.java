@@ -14,8 +14,12 @@ import org.fabricioyv.match.Team;
 
 // Imports de PGM - ajustar según la versión de PGM que uses
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.listeners.MatchStatsListener;
 import tc.oc.pgm.api.match.Match;
 import tc.oc.pgm.api.match.event.MatchFinishEvent;
+import tc.oc.pgm.api.player.MatchPlayer;
+import tc.oc.pgm.api.player.ParticipantState;
+import tc.oc.pgm.api.player.event.MatchPlayerDeathEvent;
 import tc.oc.pgm.goals.Goal;
 import tc.oc.pgm.goals.GoalMatchModule;
 import tc.oc.pgm.teams.TeamMatchModule;
@@ -678,4 +682,73 @@ public class PGMMatchListener implements Listener{
     }
 
 
+    @EventHandler
+    public void onPlayerDeath(MatchPlayerDeathEvent event) {
+        MatchPlayer victim = event.getPlayer();
+        ParticipantState killerState = event.getKiller();
+        Match match = victim.getMatch();
+
+        if (match == null) return;
+
+        logger.info("Player Death Detected",
+                String.format("Jugador %s ha muerto en el match %s",
+                        victim.getName(), match.getId()));
+
+        try {
+            // Buscar partida activa correspondiente
+            ActiveMatch activeMatch = findActiveMatchForPGM(match);
+
+            if (activeMatch == null) {
+                logger.warning("Partida No Encontrada",
+                        "No se encontró partida activa correspondiente al match PGM: " + match.getId());
+                return;
+            }
+
+            // OBTENER UUIDs DE VICTIM Y KILLER
+            UUID victimUUID = victim.getId();
+            UUID killerUUID = null;
+            String killerName = "ninguno";
+
+            // Extraer killer UUID del ParticipantState usando Optional
+            if (killerState != null && killerState.getPlayer().isPresent()) {
+                MatchPlayer killer = killerState.getPlayer().get();
+                killerUUID = killer.getId();
+                // Convertir Component a String usando PlainTextComponentSerializer
+                killerName = PlainTextComponentSerializer.plainText().serialize(killer.getName());
+            }
+
+            // 1. ACTUALIZAR SISTEMA PLAYERMATCHSTATS (PARA LA BASE DE DATOS)
+            MatchStatsListener.recordPlayerDeath(activeMatch.getMatchId(), victimUUID, killerUUID);
+
+            // 2. ACTUALIZAR SISTEMA PLAYERDATA (PARA CÁLCULOS DE ELO/MMR)
+            PlayerData victimData = activeMatch.getPlayerByUUID(victimUUID);
+            if (victimData != null) {
+                victimData.addDeath();
+                logger.info("Death Added to PlayerData",
+                        String.format("Muerte añadida a PlayerData para %s (total: %d)",
+                                victim.getName(), victimData.getCurrentMatchDeaths()));
+            }
+
+            if (killerUUID != null) {
+                PlayerData killerData = activeMatch.getPlayerByUUID(killerUUID);
+                if (killerData != null) {
+                    killerData.addKill();
+                    logger.info("Kill Added to PlayerData",
+                            String.format("Kill añadido a PlayerData para %s (total: %d)",
+                                    killerName, killerData.getCurrentMatchKills()));
+                }
+            }
+
+            logger.success("Player Death Processed",
+                    String.format("Muerte de %s procesada correctamente en partida %s (killer: %s)",
+                            victim.getName(),
+                            activeMatch.getMatchId(),
+                            killerName));
+
+        } catch (Exception e) {
+            logger.systemError("PGMMatchListener",
+                    "Error procesando muerte de jugador", e.getMessage());
+            e.printStackTrace();
+        }
+    }
 }

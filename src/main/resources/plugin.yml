@@ -17,3 +17,7 @@ commands:
     description: Acelerar inicio de partida
     aliases: [ r ]
     usage: /ready
+  mapadmin:
+    description: Comandos administrativos para gestionar el sistema de mapas
+    usage: /mapadmin <stats|recent|clear|list|test>
+    permission: rankedmc.admin

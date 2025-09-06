@@ -113,6 +113,7 @@ public class MatchStatsListener implements Listener {
         if (!(event.getEntity() instanceof Player victim)) return;
 
         Player attacker = null;
+        boolean isArrowHit = false;
 
         // Determinar el atacante
         if (event.getDamager() instanceof Player) {
@@ -120,6 +121,7 @@ public class MatchStatsListener implements Listener {
         } else if (event.getDamager() instanceof Arrow arrow) {
             if (arrow.getShooter() instanceof Player) {
                 attacker = (Player) arrow.getShooter();
+                isArrowHit = true;
             }
         }
 
@@ -138,6 +140,11 @@ public class MatchStatsListener implements Listener {
         MatchLogsManager.PlayerMatchStats attackerStats = matchStats.get(attacker.getUniqueId());
         if (attackerStats != null) {
             attackerStats.addDamageDealt(damage);
+
+            // Si es un hit de flecha, registrar el hit
+            if (isArrowHit) {
+                attackerStats.addArrowHit();
+            }
         }
 
         // Registrar daño recibido a la víctima
