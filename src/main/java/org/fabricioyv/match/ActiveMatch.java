@@ -258,12 +258,13 @@ public class ActiveMatch {
                     logger.info("Setting Permissions", "Configurando permisos para canal " + team.getDisplayName());
 
                     // PASO 1: Configurar permisos para @everyone - PERMITIR VER pero DENEGAR conectar y hablar
-                    channel.getManager()
-                            .putPermissionOverride(guild.getPublicRole(),
-                                    EnumSet.of(Permission.VIEW_CHANNEL), // Permitir ver el canal
-                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
-                                             Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
-                                             Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
+                    channel.upsertPermissionOverride(guild.getPublicRole())
+                            .grant(Permission.VIEW_CHANNEL)
+                            .deny(
+                                    Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                    Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                    Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS
+                            )
                             .queue(
                                 success -> {
                                     logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER pero NO conectar/hablar");
@@ -296,12 +297,13 @@ public class ActiveMatch {
         try {
             Role queueRole = guild.getRoleById(VoiceChannelConfig.QUEUE_ROLE_ID);
             if (queueRole != null) {
-                channel.getManager()
-                        .putPermissionOverride(queueRole,
-                                EnumSet.of(Permission.VIEW_CHANNEL), // Solo permitir ver el canal
-                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
-                                         Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
-                                         Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
+                channel.upsertPermissionOverride(queueRole)
+                        .grant(Permission.VIEW_CHANNEL)
+                        .deny(
+                                Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS
+                        )
                         .queue(
                             success -> {
                                 logger.debug("Queue Role Permissions Set", "Permisos del rol @Queue configurados en " + channel.getName() + " - Solo VER canal");
@@ -343,19 +345,19 @@ public class ActiveMatch {
             Member member = guild.getMemberById(playerData.getDiscordId());
             if (member != null) {
                 // Dar permisos COMPLETOS al miembro del equipo: ver, conectar, hablar, usar PTT, y desmutearse
-                channel.getManager()
-                        .putPermissionOverride(member,
-                                EnumSet.of(
-                                    Permission.VIEW_CHANNEL,           // Ver el canal
-                                    Permission.VOICE_CONNECT,          // Conectarse al canal
-                                    Permission.VOICE_SPEAK,            // Hablar en el canal
-                                    Permission.VOICE_USE_VAD,          // Usar detección de voz automática// Usar actividad de voz
-                                    Permission.VOICE_STREAM            // Compartir pantalla/cámara si está disponible
-                                ),
-                                EnumSet.of(
-                                    Permission.VOICE_MUTE_OTHERS,      // No puede mutear a otros
-                                    Permission.VOICE_DEAF_OTHERS       // No puede ensordecer a otros
-                                )) // Permisos denegados explícitamente
+                channel.upsertPermissionOverride(member)
+                        .grant(
+                                Permission.VIEW_CHANNEL,           // Ver el canal
+                                Permission.VOICE_CONNECT,          // Conectarse al canal
+                                Permission.VOICE_SPEAK,            // Hablar en el canal
+                                Permission.VOICE_USE_VAD,          // Usar detección de voz automática// Usar actividad de voz
+                                Permission.VOICE_STREAM            // Compartir pantalla/cámara si está disponible
+                        )
+                        .deny(
+                                Permission.VOICE_MUTE_OTHERS,      // No puede mutear a otros
+                                Permission.VOICE_DEAF_OTHERS       // No puede ensordecer a otros/ No pueden gestionar permisos
+                        )
+
                         .queue(
                             success -> {
                                 logger.debug("Member Permission Set",
@@ -434,35 +436,7 @@ public class ActiveMatch {
         }
     }
 
-    /**
-     * Método para mover un jugador específico al canal de su equipo (usado para rejoin)
-     */
-    public void movePlayerToTeamChannel(PlayerData playerData, Team team) {
-        VoiceChannel targetChannel = (team == Team.BLUE) ? blueTeamChannel : redTeamChannel;
 
-        if (targetChannel == null) {
-            logger.error("Team Channel Not Available",
-                "Canal del equipo " + team.getDisplayName() + " no está disponible para rejoin");
-            return;
-        }
-
-        try {
-            Member member = guild.getMemberById(playerData.getDiscordId());
-            if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
-                guild.moveVoiceMember(member, targetChannel).queue(
-                        success -> logger.success("Rejoin Voice Move",
-                            "✅ " + member.getEffectiveName() + " movido al canal " + team.getDisplayName() + " (rejoin)"),
-                        error -> logger.error("Rejoin Voice Move Failed",
-                            "❌ Error moviendo " + member.getEffectiveName() + " al canal " + team.getDisplayName() + ": " + error.getMessage())
-                );
-            } else {
-                logger.info("Player Not In Voice",
-                    "Jugador " + playerData.getMinecraftName() + " no está en un canal de voz para mover (rejoin)");
-            }
-        } catch (Exception e) {
-            logger.systemError("ActiveMatch", "Error en rejoin voice move", e.getMessage());
-        }
-    }
 
     /**
      * Obtiene el ID de la partida

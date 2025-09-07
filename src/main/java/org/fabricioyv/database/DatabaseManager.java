@@ -3,6 +3,7 @@ package org.fabricioyv.database;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.bukkit.Bukkit;
+import org.fabricioyv.cache.PlayerDataCache;
 import org.fabricioyv.model.PlayerData;
 
 import java.sql.*;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public class DatabaseManager {
     // Mapa para almacenar múltiples datasources
@@ -65,6 +67,9 @@ public class DatabaseManager {
         // Inicializar ambas bases de datos
         boolean success = initializeDatabase(rankedConfig);
         success &= initializeDatabase(matchLogsConfig);
+
+        // OPTIMIZACIÓN: Inicializar cache de PlayerData
+        PlayerDataCache.initialize();
 
         return success;
     }
@@ -279,7 +284,38 @@ public class DatabaseManager {
         return dataSource != null && !dataSource.isClosed();
     }
 
+    /**
+     * OPTIMIZACIÓN: Obtener jugador por Discord ID con cache
+     */
     public static PlayerData getPlayerByDiscordId(String discordId) {
+        // Verificar cache primero
+        PlayerData cached = PlayerDataCache.getPlayerByDiscordId(discordId);
+        if (cached != null) {
+            return cached;
+        }
+
+        // Si no está en cache, consultar DB
+        return getPlayerByDiscordIdFromDB(discordId);
+    }
+
+    /**
+     * OPTIMIZACIÓN: Versión asíncrona para obtener jugador por Discord ID
+     */
+    public static CompletableFuture<PlayerData> getPlayerByDiscordIdAsync(String discordId) {
+        // Verificar cache primero
+        PlayerData cached = PlayerDataCache.getPlayerByDiscordId(discordId);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+
+        // Consultar DB de forma asíncrona
+        return CompletableFuture.supplyAsync(() -> getPlayerByDiscordIdFromDB(discordId));
+    }
+
+    /**
+     * Consulta síncrona a la base de datos (solo cuando cache falla)
+     */
+    private static PlayerData getPlayerByDiscordIdFromDB(String discordId) {
         String query = "SELECT * FROM ranked_players WHERE discord_id = ?";
 
         for (int attempt = 1; attempt <= 3; attempt++) {
@@ -290,7 +326,7 @@ public class DatabaseManager {
 
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        return new PlayerData(
+                        PlayerData player = new PlayerData(
                                 rs.getString("minecraft_uuid"),
                                 rs.getString("discord_id"),
                                 rs.getInt("elo"),
@@ -303,6 +339,10 @@ public class DatabaseManager {
                                 rs.getInt("total_kills"),
                                 rs.getInt("total_deaths")
                         );
+
+                        // OPTIMIZACIÓN: Cache el resultado
+                        PlayerDataCache.cachePlayer(player);
+                        return player;
                     }
                 }
 
@@ -319,7 +359,38 @@ public class DatabaseManager {
         return null;
     }
 
+    /**
+     * OPTIMIZACIÓN: Obtener jugador por UUID con cache
+     */
     public static PlayerData getPlayerByMinecraftUuid(String minecraftUuid) {
+        // Verificar cache primero
+        PlayerData cached = PlayerDataCache.getPlayerByUuid(minecraftUuid);
+        if (cached != null) {
+            return cached;
+        }
+
+        // Si no está en cache, consultar DB
+        return getPlayerByMinecraftUuidFromDB(minecraftUuid);
+    }
+
+    /**
+     * OPTIMIZACIÓN: Versión asíncrona para obtener jugador por UUID
+     */
+    public static CompletableFuture<PlayerData> getPlayerByMinecraftUuidAsync(String minecraftUuid) {
+        // Verificar cache primero
+        PlayerData cached = PlayerDataCache.getPlayerByUuid(minecraftUuid);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+
+        // Consultar DB de forma asíncrona
+        return CompletableFuture.supplyAsync(() -> getPlayerByMinecraftUuidFromDB(minecraftUuid));
+    }
+
+    /**
+     * Consulta síncrona a la base de datos por UUID (solo cuando cache falla)
+     */
+    private static PlayerData getPlayerByMinecraftUuidFromDB(String minecraftUuid) {
         String query = "SELECT * FROM ranked_players WHERE minecraft_uuid = ?";
 
         for (int attempt = 1; attempt <= 3; attempt++) {

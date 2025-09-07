@@ -1,0 +1,161 @@
+package org.fabricioyv.cache;
+
+import org.bukkit.Bukkit;
+import org.fabricioyv.model.PlayerData;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * OPTIMIZACIÓN: Sistema de cache separado para PlayerData
+ * Evita consultas repetidas a la base de datos durante partidas activas
+ */
+public class PlayerDataCache {
+    
+    // Cache de jugadores en memoria con TTL
+    private static final Map<String, PlayerData> playerCacheByDiscordId = new ConcurrentHashMap<>();
+    private static final Map<String, PlayerData> playerCacheByUuid = new ConcurrentHashMap<>();
+    private static final Map<String, Long> cacheTimestamps = new ConcurrentHashMap<>();
+    private static final long CACHE_TTL = 5 * 60 * 1000; // 5 minutos TTL
+
+    /**
+     * Inicializa el sistema de cache con limpieza periódica
+     */
+    public static void initialize() {
+        // Iniciar limpieza periódica de cache cada 5 minutos
+        Bukkit.getScheduler().runTaskTimerAsynchronously(
+            Bukkit.getPluginManager().getPlugin("RankedMinecraft"), 
+            PlayerDataCache::cleanupExpiredCache, 
+            6000L, // 5 minutos inicial
+            6000L  // cada 5 minutos
+        );
+        
+        Bukkit.getConsoleSender().sendMessage("§a✅ PlayerDataCache inicializado con limpieza automática");
+    }
+
+    /**
+     * Limpia entradas de cache expiradas
+     */
+    private static void cleanupExpiredCache() {
+        long currentTime = System.currentTimeMillis();
+        int cleanedEntries = 0;
+        
+        // Limpiar entradas expiradas
+        cacheTimestamps.entrySet().removeIf(entry -> {
+            if (currentTime - entry.getValue() > CACHE_TTL) {
+                String key = entry.getKey();
+                if (key.startsWith("discord:")) {
+                    playerCacheByDiscordId.remove(key.substring(8));
+                } else if (key.startsWith("uuid:")) {
+                    playerCacheByUuid.remove(key.substring(5));
+                }
+                return true;
+            }
+            return false;
+        });
+        
+        if (cleanedEntries > 0) {
+            Bukkit.getConsoleSender().sendMessage(
+                String.format("§7🧹 Cache limpiado: %d entradas expiradas removidas", cleanedEntries)
+            );
+        }
+    }
+
+    /**
+     * Cache jugador en memoria
+     */
+    public static void cachePlayer(PlayerData player) {
+        if (player == null) return;
+        
+        long currentTime = System.currentTimeMillis();
+        
+        if (player.getDiscordId() != null) {
+            playerCacheByDiscordId.put(player.getDiscordId(), player);
+            cacheTimestamps.put("discord:" + player.getDiscordId(), currentTime);
+        }
+        
+        if (player.getMinecraftUuid() != null) {
+            playerCacheByUuid.put(player.getMinecraftUuid(), player);
+            cacheTimestamps.put("uuid:" + player.getMinecraftUuid(), currentTime);
+        }
+    }
+
+    /**
+     * Verificar si cache está válido
+     */
+    private static boolean isCacheValid(String key) {
+        Long timestamp = cacheTimestamps.get(key);
+        if (timestamp == null) return false;
+        return (System.currentTimeMillis() - timestamp) < CACHE_TTL;
+    }
+
+    /**
+     * Obtener jugador por Discord ID desde cache
+     */
+    public static PlayerData getPlayerByDiscordId(String discordId) {
+        String cacheKey = "discord:" + discordId;
+        if (isCacheValid(cacheKey)) {
+            return playerCacheByDiscordId.get(discordId);
+        }
+        return null;
+    }
+
+    /**
+     * Obtener jugador por UUID desde cache
+     */
+    public static PlayerData getPlayerByUuid(String minecraftUuid) {
+        String cacheKey = "uuid:" + minecraftUuid;
+        if (isCacheValid(cacheKey)) {
+            return playerCacheByUuid.get(minecraftUuid);
+        }
+        return null;
+    }
+
+    /**
+     * Invalidar cache cuando se actualiza un jugador
+     */
+    public static void invalidatePlayer(String minecraftUuid, String discordId) {
+        if (minecraftUuid != null) {
+            playerCacheByUuid.remove(minecraftUuid);
+            cacheTimestamps.remove("uuid:" + minecraftUuid);
+        }
+        if (discordId != null) {
+            playerCacheByDiscordId.remove(discordId);
+            cacheTimestamps.remove("discord:" + discordId);
+        }
+    }
+
+    /**
+     * Pre-cargar jugadores en cache al inicio de partida
+     */
+    public static void preloadPlayers(java.util.List<PlayerData> players) {
+        for (PlayerData player : players) {
+            cachePlayer(player);
+        }
+        Bukkit.getConsoleSender().sendMessage(
+            String.format("§a📦 Cache pre-cargado con %d jugadores", players.size())
+        );
+    }
+
+    /**
+     * Obtener estadísticas del cache
+     */
+    public static String getCacheStats() {
+        return String.format("Cache Stats - Discord: %d, UUID: %d, Timestamps: %d", 
+            playerCacheByDiscordId.size(), 
+            playerCacheByUuid.size(), 
+            cacheTimestamps.size()
+        );
+    }
+
+    /**
+     * Limpiar todo el cache (para testing o reinicio)
+     */
+    public static void clearAll() {
+        playerCacheByDiscordId.clear();
+        playerCacheByUuid.clear();
+        cacheTimestamps.clear();
+        Bukkit.getConsoleSender().sendMessage("§c🗑️ Cache completamente limpiado");
+    }
+}

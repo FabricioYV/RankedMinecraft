@@ -87,8 +87,8 @@ public class ProgressiveEloCalculator {
             case COBRE_3, COBRE_2, COBRE_1 -> -5;          // Mínimo -5 en cobre
             case HIERRO_3, HIERRO_2, HIERRO_1 -> -10;      // Mínimo -10 en hierro
             case ORO_3, ORO_2, ORO_1 -> -18;               // Mínimo -18 en oro
-            case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> -25; // Mínimo -25 en diamante
-            case ESMERALDA -> -30;                          // Mínimo -30 en esmeralda
+            case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> -35; // Mínimo -35 en diamante (máximo permitido)
+            case ESMERALDA -> -40;                          // Mínimo -40 en esmeralda (doble del gain máximo)
         };
     }
 
@@ -112,17 +112,17 @@ public class ProgressiveEloCalculator {
             case ORO_3:
             case ORO_2:
             case ORO_1:
-                multiplier = won ? 0.9 : 2.3;  // Pérdidas significativas
+                multiplier = won ? 0.9 : 2.0;  // Pérdidas significativas
                 break;
 
             case DIAMANTE_3:
             case DIAMANTE_2:
             case DIAMANTE_1:
-                multiplier = won ? 0.8 : 4.0;  // Pérdidas severas (40-50 puntos)
+                multiplier = won ? 0.67 : 2.5; // Máximo +20 ELO ganando, máximo -35 ELO perdiendo
                 break;
 
             case ESMERALDA:
-                multiplier = won ? 0.7 : 5;  // Pérdidas extremas (50-60 puntos)
+                multiplier = won ? 0.4 : 3.0;  // Máximo +20 ELO ganando, máximo -40 ELO perdiendo (doble)
                 break;
         }
 
