@@ -15,7 +15,6 @@ import org.fabricioyv.match.Team;
 
 // Imports de PGM - ajustar según la versión de PGM que uses
 import org.fabricioyv.model.PlayerData;
-import org.fabricioyv.listeners.MatchStatsListener;
 import tc.oc.pgm.api.match.Match;
 import tc.oc.pgm.api.match.event.MatchFinishEvent;
 import tc.oc.pgm.api.player.MatchPlayer;
@@ -26,6 +25,7 @@ import tc.oc.pgm.goals.GoalMatchModule;
 import tc.oc.pgm.teams.TeamMatchModule;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 
 public class PGMMatchListener implements Listener{
@@ -36,6 +36,7 @@ public class PGMMatchListener implements Listener{
         this.plugin = plugin;
         this.logger = logger;
     }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMatchFinish(MatchFinishEvent event) {
         Match match = event.getMatch();
@@ -59,22 +60,47 @@ public class PGMMatchListener implements Listener{
                 return;
             }
 
-            // Determinar equipo ganador
-            Team winnerTeam = determineWinnerTeam(event, activeMatch);
+            // OPTIMIZACIÓN: Mover la determinación del ganador a un thread asíncrono
+            // para no bloquear el main thread con cálculos pesados
+            CompletableFuture.supplyAsync(() -> {
+                return determineWinnerTeam(event, activeMatch);
+            }).thenAcceptAsync(winnerTeam -> {
+                if (winnerTeam == null) {
+                    logger.warning("Sin Ganador",
+                            "No se pudo determinar ganador para partida: " + activeMatch.getMatchId());
+                    // Procesar como empate en el main thread
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        handleDrawOrCancel(activeMatch);
+                    });
+                    return;
+                }
 
-            if (winnerTeam == null) {
-                logger.warning("Sin Ganador",
-                        "No se pudo determinar ganador para partida: " + activeMatch.getMatchId());
-                // Considerar como empate o cancelar
-                handleDrawOrCancel(activeMatch);
-                return;
-            }
+                logger.success("Ganador Determinado",
+                        "Equipo " + winnerTeam.getDisplayName() + " ganó la partida " + activeMatch.getMatchId());
 
-            logger.success("Ganador Determinado",
-                    "Equipo " + winnerTeam.getDisplayName() + " ganó la partida " + activeMatch.getMatchId());
+                // Volver al main thread para finalizar la partida
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    MatchFinisher.finishMatch(activeMatch, winnerTeam, plugin, logger);
+                });
+            }).exceptionally(throwable -> {
+                logger.systemError("PGMMatchListener",
+                        "Error procesando fin de partida PGM de forma asíncrona", throwable.getMessage());
 
-            // Procesar finalización de la partida
-            MatchFinisher.finishMatch(activeMatch, winnerTeam, plugin, logger);
+                // Fallback al main thread
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    try {
+                        Team winnerTeam = determineWinnerTeam(event, activeMatch);
+                        if (winnerTeam != null) {
+                            MatchFinisher.finishMatch(activeMatch, winnerTeam, plugin, logger);
+                        } else {
+                            handleDrawOrCancel(activeMatch);
+                        }
+                    } catch (Exception e) {
+                        logger.systemError("PGMMatchListener", "Error en fallback", e.getMessage());
+                    }
+                });
+                return null;
+            });
 
         } catch (Exception e) {
             logger.systemError("PGMMatchListener",
@@ -82,6 +108,7 @@ public class PGMMatchListener implements Listener{
             e.printStackTrace();
         }
     }
+
     /**
      * Busca la partida activa que corresponde al match de PGM
      */
@@ -95,6 +122,7 @@ public class PGMMatchListener implements Listener{
         }
         return null;
     }
+
     /**
      * Maneja casos de empate o partidas sin ganador claro
      */
@@ -116,10 +144,11 @@ public class PGMMatchListener implements Listener{
     /**
      * DETERMINACIÓN DE GANADOR 100% CONFIABLE
      * Solo usa comparación de jugadores, ignora completamente colores/nombres
+     * OPTIMIZADO: Ahora se ejecuta de forma asíncrona para no bloquear main thread
      */
     private Team determineWinnerTeam(MatchFinishEvent event, ActiveMatch activeMatch) {
         try {
-            logger.info("Starting Winner Determination", "Iniciando determinación de ganador");
+            logger.info("Starting Winner Determination", "Iniciando determinación de ganador (async)");
 
             Match match = event.getMatch();
 
@@ -169,6 +198,7 @@ public class PGMMatchListener implements Listener{
             return null;
         }
     }
+
     /**
      * NUEVO: Determina ganador por puntuación (para KoTH y KotF)
      */
@@ -204,50 +234,37 @@ public class PGMMatchListener implements Listener{
                 }
             }
 
+            // Si no hay sistema de puntuación, retornar null
             if (!hasScoreSystem) {
                 logger.info("No Score System", "No se detectó sistema de puntuación");
                 return null;
             }
 
             // Encontrar equipo con mayor puntuación
-            tc.oc.pgm.teams.Team scoreWinner = null;
+            tc.oc.pgm.teams.Team winnerPgmTeam = null;
             double maxScore = -1;
-            int teamsWithMaxScore = 0;
 
             for (Map.Entry<tc.oc.pgm.teams.Team, Double> entry : teamPoints.entrySet()) {
-                double score = entry.getValue();
-
-                if (score > maxScore) {
-                    maxScore = score;
-                    scoreWinner = entry.getKey();
-                    teamsWithMaxScore = 1;
-                } else if (score == maxScore) {
-                    teamsWithMaxScore++;
+                if (entry.getValue() > maxScore) {
+                    maxScore = entry.getValue();
+                    winnerPgmTeam = entry.getKey();
                 }
             }
 
-            // Verificar empate
-            if (teamsWithMaxScore > 1) {
-                logger.warning("Score Tie Detected",
-                        String.format("%d equipos empatados con %.1f puntos", teamsWithMaxScore, maxScore));
-                return null; // Empate por puntuación
-            }
-
-            if (scoreWinner == null || maxScore <= 0) {
-                logger.info("No Valid Score Winner", "No hay ganador válido por puntuación");
+            if (winnerPgmTeam == null || maxScore <= 0) {
+                logger.warning("No Score Winner", "No se encontró ganador por puntuación");
                 return null;
             }
 
             logger.success("Score Winner Found",
-                    String.format("Ganador por puntuación: equipo '%s' con %.1f puntos",
-                            scoreWinner.getId(), maxScore));
+                    String.format("Ganador por puntuación: %s (%.1f puntos)",
+                            winnerPgmTeam.getId(), maxScore));
 
-            // Mapear a nuestro equipo
-            return mapWinnerByPlayersOnly(scoreWinner, activeMatch);
+            // Mapear a nuestros equipos
+            return mapWinnerByPlayersOnly(winnerPgmTeam, activeMatch);
 
         } catch (Exception e) {
-            logger.warning("Score Determination Error",
-                    String.format("Error determinando ganador por puntuación: %s", e.getMessage()));
+            logger.systemError("PGMMatchListener", "Error determinando ganador por puntuación", e.getMessage());
             return null;
         }
     }

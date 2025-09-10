@@ -70,6 +70,13 @@ public class MatchStatsListener implements Listener {
         return stats;
     }
 
+    /**
+     * Obtiene las estadísticas actuales de un jugador en una partida específica
+     */
+    public static MatchLogsManager.PlayerMatchStats getPlayerStats(String matchId, UUID playerUuid) {
+        Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
+        return matchStats != null ? matchStats.get(playerUuid) : null;
+    }
 
     /**
      * Registra una muerte de jugador
@@ -258,4 +265,11 @@ public class MatchStatsListener implements Listener {
         }
     }
 
+    /**
+     * Limpia todas las estadísticas de partidas activas (usar con cuidado)
+     */
+    public static void clearAllActiveStats() {
+        activeMatchStats.clear();
+        arrowOwners.clear();
+    }
 }
