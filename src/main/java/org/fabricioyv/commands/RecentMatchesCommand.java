@@ -6,11 +6,12 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import org.bukkit.Bukkit;
 import org.fabricioyv.database.MatchLogsManager;
 
 import java.awt.*;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.util.Objects;
 
 /**
  * Comando para obtener lista de partidas recientes
@@ -34,7 +35,7 @@ public class RecentMatchesCommand extends ListenerAdapter {
         // Obtener número de partidas (por defecto 10, máximo 20)
         int limit = 10; // valor por defecto
         if (event.getOption("limit") != null) {
-            limit = Math.min(event.getOption("limit").getAsInt(), 20);
+            limit = Math.min(Objects.requireNonNull(event.getOption("limit")).getAsInt(), 20);
         }
 
         MatchLogsManager.getRecentMatches(limit).thenAccept(matches -> {
@@ -50,16 +51,16 @@ public class RecentMatchesCommand extends ListenerAdapter {
                 .setFooter("Usa /matchdetails <match_id> para ver detalles completos");
 
             for (int i = 0; i < matches.size(); i++) {
-                MatchLogsManager.MatchBasicInfo match = matches.get(i);
+                MatchLogsManager.MatchSummary match = matches.get(i);
 
-                String matchInfo = String.format(
-                    "**ID:** `%s`\n" +
-                    "**Tipo:** %s\n" +
-                    "**Mapa:** %s\n" +
-                    "**Ganador:** %s\n" +
-                    "**Fecha:** %s\n" +
-                    "**Duración:** %s",
-                    match.getMatchId(), // Mostrar ID completo
+                String matchInfo = """
+                    **ID:** `%s`
+                    **Tipo:** %s
+                    **Mapa:** %s
+                    **Ganador:** %s
+                    **Fecha:** %s
+                    **Duración:** %s""".formatted(
+                    match.getMatchId(),
                     match.getMatchType(),
                     match.getMapName(),
                     getWinnerEmoji(match.getWinnerTeam()) + " " + match.getWinnerTeam(),
@@ -68,7 +69,7 @@ public class RecentMatchesCommand extends ListenerAdapter {
                 );
 
                 embed.addField(
-                    String.format("#%d - %s", i + 1, match.getMatchId()), // Mostrar ID completo en título
+                    String.format("#%d - %s", i + 1, match.getMatchId()),
                     matchInfo,
                     false // Cambiar a false para mejor legibilidad con IDs largos
                 );
@@ -82,7 +83,7 @@ public class RecentMatchesCommand extends ListenerAdapter {
             event.getHook().editOriginalEmbeds(embed.build()).queue();
         }).exceptionally(throwable -> {
             event.getHook().editOriginal("❌ Error obteniendo partidas recientes: " + throwable.getMessage()).queue();
-            throwable.printStackTrace();
+            Bukkit.getLogger().severe("Error obteniendo partidas recientes: " + throwable.getMessage());
             return null;
         });
     }
@@ -98,13 +99,6 @@ public class RecentMatchesCommand extends ListenerAdapter {
     private String formatDuration(long seconds) {
         long minutes = seconds / 60;
         long remainingSeconds = seconds % 60;
-
-        if (minutes >= 60) {
-            long hours = minutes / 60;
-            minutes = minutes % 60;
-            return String.format("%dh %dm %ds", hours, minutes, remainingSeconds);
-        } else {
-            return String.format("%dm %ds", minutes, remainingSeconds);
-        }
+        return String.format("%02d:%02d", minutes, remainingSeconds);
     }
 }

@@ -9,8 +9,10 @@ import org.fabricioyv.commands.VoteCommand;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
+import org.fabricioyv.listeners.OptimizedMatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
 import org.fabricioyv.match.MapManager;
+import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 
 public final class RankedMinecraft extends JavaPlugin {
@@ -22,6 +24,9 @@ public final class RankedMinecraft extends JavaPlugin {
         try {
             // Inicializar sistema de mapas
             MapManager.initialize(this);
+
+            // Inicializar sistema ELO
+            ProgressiveEloCalculator.initialize(this);
 
             // Registrar comandos
             getCommand("votemap").setExecutor(new VoteCommand());
@@ -70,7 +75,7 @@ public final class RankedMinecraft extends JavaPlugin {
             DatabaseManager.close();
 
             getLogger().info("RankedMinecraft deshabilitado correctamente!");
-
+            OptimizedMatchStatsListener.shutdown();
             // 5. Cancel all Bukkit tasks
             Bukkit.getScheduler().cancelTasks(this);
         } catch (Exception e) {

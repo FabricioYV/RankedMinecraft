@@ -1,15 +1,14 @@
 package org.fabricioyv.database;
 
 import org.bukkit.Bukkit;
-import org.fabricioyv.model.PlayerData;
 
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class MatchLogsManager {
@@ -46,36 +45,72 @@ public class MatchLogsManager {
         }
 
         // Getters y setters
-        public String getPlayerUuid() { return playerUuid; }
-        public String getPlayerName() { return playerName; }
-        public String getTeam() { return team; }
-        
-        public int getKills() { return kills; }
-        public void setKills(int kills) { this.kills = kills; }
-        
-        public int getDeaths() { return deaths; }
-        public void setDeaths(int deaths) { this.deaths = deaths; }
-        
-        public double getDamageDealt() { return damageDealt; }
-        public void setDamageDealt(double damageDealt) { this.damageDealt = damageDealt; }
-        
-        public double getDamageReceived() { return damageReceived; }
-        public void setDamageReceived(double damageReceived) { this.damageReceived = damageReceived; }
-        
-        public int getArrowsShot() { return arrowsShot; }
-        public void setArrowsShot(int arrowsShot) { 
+        public String getPlayerUuid() {
+            return playerUuid;
+        }
+
+        public String getPlayerName() {
+            return playerName;
+        }
+
+        public String getTeam() {
+            return team;
+        }
+
+        public int getKills() {
+            return kills;
+        }
+
+        public void setKills(int kills) {
+            this.kills = kills;
+        }
+
+        public int getDeaths() {
+            return deaths;
+        }
+
+        public void setDeaths(int deaths) {
+            this.deaths = deaths;
+        }
+
+        public double getDamageDealt() {
+            return damageDealt;
+        }
+
+        public void setDamageDealt(double damageDealt) {
+            this.damageDealt = damageDealt;
+        }
+
+        public double getDamageReceived() {
+            return damageReceived;
+        }
+
+        public void setDamageReceived(double damageReceived) {
+            this.damageReceived = damageReceived;
+        }
+
+        public int getArrowsShot() {
+            return arrowsShot;
+        }
+
+        public void setArrowsShot(int arrowsShot) {
             this.arrowsShot = arrowsShot;
             calculateArrowAccuracy();
         }
-        
-        public int getArrowsHit() { return arrowsHit; }
-        public void setArrowsHit(int arrowsHit) { 
+
+        public int getArrowsHit() {
+            return arrowsHit;
+        }
+
+        public void setArrowsHit(int arrowsHit) {
             this.arrowsHit = arrowsHit;
             calculateArrowAccuracy();
         }
-        
-        public double getArrowAccuracy() { return arrowAccuracy; }
-        
+
+        public double getArrowAccuracy() {
+            return arrowAccuracy;
+        }
+
         private void calculateArrowAccuracy() {
             if (arrowsShot > 0) {
                 this.arrowAccuracy = ((double) arrowsHit / arrowsShot) * 100.0;
@@ -83,38 +118,75 @@ public class MatchLogsManager {
                 this.arrowAccuracy = 0.0;
             }
         }
-        
-        public int getOldElo() { return oldElo; }
-        public void setOldElo(int oldElo) { this.oldElo = oldElo; }
-        
-        public int getNewElo() { return newElo; }
-        public void setNewElo(int newElo) { 
+
+        public int getOldElo() {
+            return oldElo;
+        }
+
+        public void setOldElo(int oldElo) {
+            this.oldElo = oldElo;
+        }
+
+        public int getNewElo() {
+            return newElo;
+        }
+
+        public void setNewElo(int newElo) {
             this.newElo = newElo;
             this.eloChange = newElo - oldElo;
         }
-        
-        public int getEloChange() { return eloChange; }
-        
-        public double getOldMmr() { return oldMmr; }
-        public void setOldMmr(double oldMmr) { this.oldMmr = oldMmr; }
-        
-        public double getNewMmr() { return newMmr; }
-        public void setNewMmr(double newMmr) { 
+
+        public int getEloChange() {
+            return eloChange;
+        }
+
+        public double getOldMmr() {
+            return oldMmr;
+        }
+
+        public void setOldMmr(double oldMmr) {
+            this.oldMmr = oldMmr;
+        }
+
+        public double getNewMmr() {
+            return newMmr;
+        }
+
+        public void setNewMmr(double newMmr) {
             this.newMmr = newMmr;
             this.mmrChange = newMmr - oldMmr;
         }
-        
-        public double getMmrChange() { return mmrChange; }
-        
-        public boolean isWon() { return won; }
-        public void setWon(boolean won) { this.won = won; }
 
-        public void addKill() { this.kills++; }
-        public void addDeath() { this.deaths++; }
-        public void addDamageDealt(double damage) { this.damageDealt += damage; }
-        public void addDamageReceived(double damage) { this.damageReceived += damage; }
-        public void addArrowShot() { 
-            this.arrowsShot++; 
+        public double getMmrChange() {
+            return mmrChange;
+        }
+
+        public boolean isWon() {
+            return won;
+        }
+
+        public void setWon(boolean won) {
+            this.won = won;
+        }
+
+        public void addKill() {
+            this.kills++;
+        }
+
+        public void addDeath() {
+            this.deaths++;
+        }
+
+        public void addDamageDealt(double damage) {
+            this.damageDealt += damage;
+        }
+
+        public void addDamageReceived(double damage) {
+            this.damageReceived += damage;
+        }
+
+        public void addArrowShot() {
+            this.arrowsShot++;
             calculateArrowAccuracy();
         }
 
@@ -138,7 +210,7 @@ public class MatchLogsManager {
         private final Map<String, PlayerMatchStats> playerStats;
 
         public MatchSummary(String matchId, String matchType, String mapName, String winnerTeam,
-                          LocalDateTime startTime, LocalDateTime endTime, Map<String, PlayerMatchStats> playerStats) {
+                            LocalDateTime startTime, LocalDateTime endTime, Map<String, PlayerMatchStats> playerStats) {
             this.matchId = matchId;
             this.matchType = matchType;
             this.mapName = mapName;
@@ -161,8 +233,8 @@ public class MatchLogsManager {
 
         // Constructor para partidas completadas con duración específica
         public MatchSummary(String matchId, String matchType, String mapName, String winnerTeam,
-                          LocalDateTime startTime, LocalDateTime endTime, long durationSeconds,
-                          Map<String, PlayerMatchStats> playerStats) {
+                            LocalDateTime startTime, LocalDateTime endTime, long durationSeconds,
+                            Map<String, PlayerMatchStats> playerStats) {
             this.matchId = matchId;
             this.matchType = matchType;
             this.mapName = mapName;
@@ -174,14 +246,37 @@ public class MatchLogsManager {
         }
 
         // Getters
-        public String getMatchId() { return matchId; }
-        public String getMatchType() { return matchType; }
-        public String getMapName() { return mapName; }
-        public String getWinnerTeam() { return winnerTeam; }
-        public LocalDateTime getStartTime() { return startTime; }
-        public LocalDateTime getEndTime() { return endTime; }
-        public long getDurationSeconds() { return durationSeconds; }
-        public Map<String, PlayerMatchStats> getPlayerStats() { return playerStats; }
+        public String getMatchId() {
+            return matchId;
+        }
+
+        public String getMatchType() {
+            return matchType;
+        }
+
+        public String getMapName() {
+            return mapName;
+        }
+
+        public String getWinnerTeam() {
+            return winnerTeam;
+        }
+
+        public LocalDateTime getStartTime() {
+            return startTime;
+        }
+
+        public LocalDateTime getEndTime() {
+            return endTime;
+        }
+
+        public long getDurationSeconds() {
+            return durationSeconds;
+        }
+
+        public Map<String, PlayerMatchStats> getPlayerStats() {
+            return playerStats;
+        }
 
         // Método de utilidad para verificar si la partida está completada
         public boolean isCompleted() {
@@ -195,38 +290,53 @@ public class MatchLogsManager {
     }
 
     /**
+     * Obtiene la hora actual en la zona horaria de Lima
+     */
+    private static LocalDateTime getCurrentTimeInLima() {
+        return LocalDateTime.now(LIMA_ZONE);
+    }
+
+    /**
+     * Convierte LocalDateTime de Lima a Timestamp para la base de datos
+     */
+    private static Timestamp limaTimeToTimestamp(LocalDateTime limaTime) {
+        return Timestamp.valueOf(limaTime);
+    }
+
+    /**
      * Guarda los datos completos de una partida en la base de datos match_logs
      */
     public static CompletableFuture<Boolean> saveMatchData(MatchSummary matchSummary) {
         return CompletableFuture.supplyAsync(() -> {
             try (Connection conn = DatabaseManager.getConnectionTo("match_logs")) {
                 conn.setAutoCommit(false);
-                
+
                 try {
                     // Insertar información de la partida
                     saveMatchInfo(conn, matchSummary);
-                    
+
                     // Insertar estadísticas de los jugadores
                     savePlayerStats(conn, matchSummary);
-                    
+
                     conn.commit();
-                    
+
                     Bukkit.getConsoleSender().sendMessage(
-                        "§a✅ Datos de partida " + matchSummary.getMatchId() + " guardados correctamente en match_logs"
+                            "§a✅ Datos de partida " + matchSummary.getMatchId() + " guardados correctamente en match_logs"
                     );
-                    
+
                     return true;
-                    
+
                 } catch (SQLException e) {
                     conn.rollback();
                     throw e;
                 }
-                
+
             } catch (SQLException e) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al guardar datos de partida " + matchSummary.getMatchId() + ": " + e.getMessage()
+                        "§c❌ Error al guardar datos de partida " + matchSummary.getMatchId() + ": " + e.getMessage()
                 );
-                e.printStackTrace();
+                // Log error instead of printStackTrace
+                Bukkit.getLogger().severe("Error guardando partida: " + e.getMessage());
                 return false;
             }
         });
@@ -253,7 +363,7 @@ public class MatchLogsManager {
             stmt.setLong(5, matchSummary.getDurationSeconds());
             stmt.setTimestamp(6, Timestamp.valueOf(matchSummary.getStartTime()));
             stmt.setTimestamp(7, Timestamp.valueOf(matchSummary.getEndTime()));
-            
+
             stmt.executeUpdate();
         }
     }
@@ -306,7 +416,7 @@ public class MatchLogsManager {
 
                 stmt.addBatch();
             }
-            
+
             stmt.executeBatch();
         }
     }
@@ -351,22 +461,23 @@ public class MatchLogsManager {
                 // Verificar que el registro se creó correctamente
                 if (rowsAffected > 0) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§a✅ Partida " + matchId + " inicializada correctamente en base de datos (Hora Lima: " +
-                        startTimeLima.toString() + ")"
+                            "§a✅ Partida " + matchId + " inicializada correctamente en base de datos (Hora Lima: " +
+                                    startTimeLima.toString() + ")"
                     );
                     return true;
                 } else {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId
+                            "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId
                     );
                     return false;
                 }
 
             } catch (SQLException e) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
+                        "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
                 );
-                e.printStackTrace();
+                // Log error instead of printStackTrace
+                Bukkit.getLogger().severe("Error inicializando partida: " + e.getMessage());
                 return false;
             }
         });
@@ -376,8 +487,8 @@ public class MatchLogsManager {
      * Registra un evento específico de la partida
      * Verifica que el match exista antes de insertar el evento
      */
-    public static CompletableFuture<Void> logMatchEvent(String matchId, String eventType, String playerUuid, String eventData) {
-        return CompletableFuture.runAsync(() -> {
+    public static void logMatchEvent(String matchId, String eventType, String playerUuid, String eventData) {
+        CompletableFuture.runAsync(() -> {
             // Reintentar hasta 3 veces si hay problemas de sincronización
             int maxRetries = 3;
             int retryDelay = 100; // milisegundos
@@ -399,7 +510,7 @@ public class MatchLogsManager {
                             if (rs.next() && rs.getInt(1) == 0) {
                                 if (attempt == maxRetries) {
                                     Bukkit.getConsoleSender().sendMessage(
-                                        "§c⚠️ Partida " + matchId + " no existe después de " + maxRetries + " intentos"
+                                            "§c⚠️ Partida " + matchId + " no existe después de " + maxRetries + " intentos"
                                     );
                                 }
                                 // Esperar un poco antes del siguiente intento
@@ -427,23 +538,22 @@ public class MatchLogsManager {
                     if (e.getMessage().contains("foreign key constraint") && attempt < maxRetries) {
                         // Es un error de clave foránea, intentar de nuevo
                         try {
-                            Thread.sleep(retryDelay * attempt); // Aumentar el delay con cada intento
+                            Thread.sleep((long) retryDelay * attempt); // Fix casting issue
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             return;
                         }
-                        continue;
                     } else {
                         // Error diferente o último intento fallido
                         Bukkit.getConsoleSender().sendMessage(
-                            "§c❌ Error al registrar evento de partida (intento " + attempt + "/" + maxRetries + "): " + e.getMessage()
+                                "§c❌ Error al registrar evento de partida (intento " + attempt + "/" + maxRetries + "): " + e.getMessage()
                         );
                         if (attempt == maxRetries) {
-                            e.printStackTrace();
+                            Bukkit.getLogger().severe("Error registrando evento: " + e.getMessage());
                         }
                         if (attempt < maxRetries) {
                             try {
-                                Thread.sleep(retryDelay * attempt);
+                                Thread.sleep((long) retryDelay * attempt); // Fix casting issue
                             } catch (InterruptedException ie) {
                                 Thread.currentThread().interrupt();
                                 return;
@@ -459,39 +569,120 @@ public class MatchLogsManager {
     }
 
     /**
-     * Obtiene una lista de las últimas partidas con información básica
-     * Filtra solo partidas completadas por defecto
+     * Procesa eventos en lotes para optimizar rendimiento de base de datos
+     * NUEVO: Sistema optimizado que reduce lag significativamente
      */
-    public static CompletableFuture<List<MatchBasicInfo>> getRecentMatches(int limit) {
-        return getRecentMatches(limit, true);
+    public static void processBatchEvents(List<PendingEvent> events) {
+        if (events.isEmpty()) return;
+
+        CompletableFuture.runAsync(() -> {
+            try (Connection conn = DatabaseManager.getConnectionTo("match_logs")) {
+                conn.setAutoCommit(false);
+
+                String insertEventQuery = """
+                    INSERT INTO match_events (match_id, event_type, player_uuid, event_data, event_timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                """;
+
+                try (PreparedStatement stmt = conn.prepareStatement(insertEventQuery)) {
+                    int batchCount = 0;
+
+                    for (PendingEvent event : events) {
+                        try {
+                            stmt.setString(1, event.matchId);
+                            stmt.setString(2, event.eventType);
+                            stmt.setString(3, event.playerUuid);
+                            stmt.setString(4, event.eventData);
+                            stmt.setTimestamp(5, new Timestamp(event.timestamp));
+
+                            stmt.addBatch();
+                            batchCount++;
+
+                            // Ejecutar en sub-lotes de 50 para evitar timeouts
+                            if (batchCount % 50 == 0) {
+                                stmt.executeBatch();
+                                stmt.clearBatch();
+                            }
+
+                        } catch (Exception e) {
+                            Bukkit.getConsoleSender().sendMessage(
+                                    "§c[BatchProcessor] Error procesando evento individual: " + e.getMessage()
+                            );
+                        }
+                    }
+
+                    // Ejecutar el lote restante
+                    if (batchCount % 50 != 0) {
+                        stmt.executeBatch();
+                    }
+
+                    conn.commit();
+
+                    // Log de éxito (solo para lotes grandes)
+                    if (events.size() > 10) {
+                        Bukkit.getConsoleSender().sendMessage(
+                                "§a[BatchProcessor] ✅ Procesados " + events.size() + " eventos en lote"
+                        );
+                    }
+
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                }
+
+            } catch (SQLException e) {
+                Bukkit.getConsoleSender().sendMessage(
+                        "§c[BatchProcessor] ❌ Error procesando lote de " + events.size() + " eventos: " + e.getMessage()
+                );
+            }
+        });
     }
 
     /**
-     * Obtiene una lista de las últimas partidas con información básica
-     * @param limit número máximo de partidas a obtener
-     * @param onlyCompleted si true, solo obtiene partidas completadas (winner_team != 'TBD')
+     * Clase para eventos pendientes de procesamiento en lotes
      */
-    public static CompletableFuture<List<MatchBasicInfo>> getRecentMatches(int limit, boolean onlyCompleted) {
-        return CompletableFuture.supplyAsync(() -> {
-            List<MatchBasicInfo> matches = new java.util.ArrayList<>();
+    public static class PendingEvent {
+        public final String matchId;
+        public final String eventType;
+        public final String playerUuid;
+        public final String eventData;
+        public final long timestamp;
 
-            String query;
-            if (onlyCompleted) {
-                query = """
-                    SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
-                    FROM matches 
-                    WHERE winner_team != 'TBD' AND winner_team IS NOT NULL
-                    ORDER BY start_time DESC 
-                    LIMIT ?
-                """;
-            } else {
-                query = """
-                    SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
-                    FROM matches 
-                    ORDER BY start_time DESC 
-                    LIMIT ?
-                """;
-            }
+        public PendingEvent(String matchId, String eventType, String playerUuid, String eventData) {
+            this.matchId = matchId;
+            this.eventType = eventType;
+            this.playerUuid = playerUuid;
+            this.eventData = eventData;
+            this.timestamp = System.currentTimeMillis();
+        }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+    /**
+     * Obtiene las partidas más recientes (para todos los jugadores)
+     */
+    public static CompletableFuture<List<MatchSummary>> getRecentMatches(int limit) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<MatchSummary> matches = new ArrayList<>();
+
+            String query = """
+                SELECT DISTINCT m.match_id, m.match_type, m.map_name, m.winner_team, 
+                       m.start_time, m.end_time, m.duration_seconds
+                FROM matches m 
+                WHERE m.winner_team != 'TBD'
+                ORDER BY m.start_time DESC 
+                LIMIT ?
+            """;
 
             try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
                  PreparedStatement stmt = conn.prepareStatement(query)) {
@@ -500,432 +691,25 @@ public class MatchLogsManager {
                 ResultSet rs = stmt.executeQuery();
 
                 while (rs.next()) {
-                    // Calcular duración real para partidas en curso
-                    long duration = rs.getLong("duration_seconds");
-                    String winnerTeam = rs.getString("winner_team");
-                    Timestamp endTime = rs.getTimestamp("end_time");
-                    Timestamp startTime = rs.getTimestamp("start_time");
-
-                    // Si la partida está en curso (TBD), calcular duración hasta ahora
-                    if ("TBD".equals(winnerTeam) && startTime != null) {
-                        duration = (System.currentTimeMillis() - startTime.getTime()) / 1000;
-                        endTime = null; // No mostrar end_time para partidas en curso
-                    }
-
-                    MatchBasicInfo info = new MatchBasicInfo(
-                        rs.getString("match_id"),
-                        rs.getString("match_type"),
-                        rs.getString("map_name"),
-                        winnerTeam,
-                        startTime.toLocalDateTime(),
-                        endTime != null ? endTime.toLocalDateTime() : null,
-                        duration
-                    );
-                    matches.add(info);
-                }
-
-            } catch (SQLException e) {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al obtener partidas recientes: " + e.getMessage()
-                );
-                e.printStackTrace();
-            }
-
-            return matches;
-        });
-    }
-
-    /**
-     * Obtiene los detalles completos de una partida específica
-     */
-    public static CompletableFuture<MatchSummary> getMatchDetails(String matchId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try (Connection conn = DatabaseManager.getConnectionTo("match_logs")) {
-
-                // Obtener información básica de la partida
-                MatchBasicInfo basicInfo = getMatchBasicInfo(conn, matchId);
-                if (basicInfo == null) return null;
-
-                // Obtener estadísticas de los jugadores
-                Map<String, PlayerMatchStats> playerStats = getMatchPlayerStats(conn, matchId);
-
-                return new MatchSummary(
-                    basicInfo.getMatchId(),
-                    basicInfo.getMatchType(),
-                    basicInfo.getMapName(),
-                    basicInfo.getWinnerTeam(),
-                    basicInfo.getStartTime(),
-                    basicInfo.getEndTime(),
-                    playerStats
-                );
-
-            } catch (SQLException e) {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al obtener detalles de partida " + matchId + ": " + e.getMessage()
-                );
-                e.printStackTrace();
-                return null;
-            }
-        });
-    }
-
-    /**
-     * Obtiene información básica de una partida
-     */
-    private static MatchBasicInfo getMatchBasicInfo(Connection conn, String matchId) throws SQLException {
-        String query = """
-            SELECT match_id, match_type, map_name, winner_team, start_time, end_time, duration_seconds
-            FROM matches 
-            WHERE match_id = ?
-        """;
-
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, matchId);
-            ResultSet rs = stmt.executeQuery();
-
-            if (rs.next()) {
-                return new MatchBasicInfo(
-                    rs.getString("match_id"),
-                    rs.getString("match_type"),
-                    rs.getString("map_name"),
-                    rs.getString("winner_team"),
-                    rs.getTimestamp("start_time").toLocalDateTime(),
-                    rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toLocalDateTime() : null,
-                    rs.getLong("duration_seconds")
-                );
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Obtiene las estadísticas de todos los jugadores de una partida
-     */
-    private static Map<String, PlayerMatchStats> getMatchPlayerStats(Connection conn, String matchId) throws SQLException {
-        Map<String, PlayerMatchStats> playerStats = new java.util.HashMap<>();
-        
-        String query = """
-            SELECT player_uuid, player_name, team, kills, deaths, damage_dealt, damage_received,
-                   arrows_shot, arrows_hit, arrow_accuracy, old_elo, new_elo, elo_change,
-                   old_mmr, new_mmr, mmr_change, won
-            FROM match_players 
-            WHERE match_id = ?
-        """;
-
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, matchId);
-            ResultSet rs = stmt.executeQuery();
-
-            while (rs.next()) {
-                PlayerMatchStats stats = new PlayerMatchStats(
-                    rs.getString("player_uuid"),
-                    rs.getString("player_name"),
-                    rs.getString("team")
-                );
-
-                stats.setKills(rs.getInt("kills"));
-                stats.setDeaths(rs.getInt("deaths"));
-                stats.setDamageDealt(rs.getDouble("damage_dealt"));
-                stats.setDamageReceived(rs.getDouble("damage_received"));
-                stats.setArrowsShot(rs.getInt("arrows_shot"));
-                stats.setArrowsHit(rs.getInt("arrows_hit"));
-                stats.setOldElo(rs.getInt("old_elo"));
-                stats.setNewElo(rs.getInt("new_elo"));
-                stats.setOldMmr(rs.getDouble("old_mmr"));
-                stats.setNewMmr(rs.getDouble("new_mmr"));
-                stats.setWon(rs.getBoolean("won"));
-
-                playerStats.put(stats.getPlayerUuid(), stats);
-            }
-        }
-        
-        return playerStats;
-    }
-
-    /**
-     * Clase para información básica de partidas (para listas)
-     */
-    public static class MatchBasicInfo {
-        private final String matchId;
-        private final String matchType;
-        private final String mapName;
-        private final String winnerTeam;
-        private final LocalDateTime startTime;
-        private final LocalDateTime endTime;
-        private final long durationSeconds;
-
-        public MatchBasicInfo(String matchId, String matchType, String mapName, String winnerTeam,
-                            LocalDateTime startTime, LocalDateTime endTime, long durationSeconds) {
-            this.matchId = matchId;
-            this.matchType = matchType;
-            this.mapName = mapName;
-            this.winnerTeam = winnerTeam;
-            this.startTime = startTime;
-            this.endTime = endTime;
-            this.durationSeconds = durationSeconds;
-        }
-
-        // Getters
-        public String getMatchId() { return matchId; }
-        public String getMatchType() { return matchType; }
-        public String getMapName() { return mapName; }
-        public String getWinnerTeam() { return winnerTeam; }
-        public LocalDateTime getStartTime() { return startTime; }
-        public LocalDateTime getEndTime() { return endTime; }
-        public long getDurationSeconds() { return durationSeconds; }
-    }
-
-    /**
-     * Obtiene las partidas recientes de un jugador específico
-     */
-    public static CompletableFuture<List<MatchSummary>> getPlayerRecentMatches(String playerUuid, int limit) {
-        return CompletableFuture.supplyAsync(() -> {
-            List<MatchSummary> matches = new java.util.ArrayList<>();
-
-            String query = """
-                SELECT DISTINCT m.match_id, m.match_type, m.map_name, m.winner_team, 
-                       m.start_time, m.end_time, m.duration_seconds
-                FROM matches m
-                INNER JOIN match_players mp ON m.match_id = mp.match_id
-                WHERE mp.player_uuid = ?
-                ORDER BY m.start_time DESC 
-                LIMIT ?
-            """;
-
-            try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
-                 PreparedStatement stmt = conn.prepareStatement(query)) {
-
-                stmt.setString(1, playerUuid);
-                stmt.setInt(2, limit);
-                ResultSet rs = stmt.executeQuery();
-
-                while (rs.next()) {
-                    String matchId = rs.getString("match_id");
-
-                    // Obtener estadísticas de jugadores para esta partida
-                    Map<String, PlayerMatchStats> playerStats = getMatchPlayerStats(conn, matchId);
-
                     MatchSummary summary = new MatchSummary(
-                        matchId,
-                        rs.getString("match_type"),
-                        rs.getString("map_name"),
-                        rs.getString("winner_team"),
-                        rs.getTimestamp("start_time").toLocalDateTime(),
-                        rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toLocalDateTime() : null,
-                        playerStats
+                            rs.getString("match_id"),
+                            rs.getString("match_type"),
+                            rs.getString("map_name"),
+                            rs.getString("winner_team"),
+                            rs.getTimestamp("start_time").toLocalDateTime(),
+                            rs.getTimestamp("end_time").toLocalDateTime(),
+                            rs.getLong("duration_seconds"),
+                            new HashMap<>() // Empty player stats for recent matches list
                     );
                     matches.add(summary);
                 }
 
             } catch (SQLException e) {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al obtener historial de jugador " + playerUuid + ": " + e.getMessage()
-                );
-                e.printStackTrace();
+                Bukkit.getLogger().severe("Error obteniendo partidas recientes: " + e.getMessage());
             }
 
             return matches;
         });
     }
-
-    /**
-     * Obtiene estadísticas completas de una partida específica (alias para getMatchDetails)
-     */
-    public static CompletableFuture<MatchSummary> getMatchStats(String matchId) {
-        return getMatchDetails(matchId);
-    }
-
-    /**
-     * Método de utilidad para verificar la integridad de los datos guardados
-     * Compara los datos esperados con los datos realmente guardados en la base de datos
-     */
-    public static CompletableFuture<Boolean> validateMatchData(String matchId, MatchSummary expectedData) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Obtener los datos guardados
-                MatchSummary savedData = getMatchDetails(matchId).join();
-
-                if (savedData == null) {
-                    Bukkit.getConsoleSender().sendMessage(
-                        "§c❌ Validación fallida: No se encontró la partida " + matchId + " en la base de datos"
-                    );
-                    return false;
-                }
-
-                boolean isValid = true;
-                StringBuilder errors = new StringBuilder();
-
-                // Verificar datos básicos de la partida
-                if (!expectedData.getMatchType().equals(savedData.getMatchType())) {
-                    errors.append("§c- Match type: esperado '").append(expectedData.getMatchType())
-                           .append("', encontrado '").append(savedData.getMatchType()).append("'\n");
-                    isValid = false;
-                }
-
-                if (!expectedData.getMapName().equals(savedData.getMapName())) {
-                    errors.append("§c- Map name: esperado '").append(expectedData.getMapName())
-                           .append("', encontrado '").append(savedData.getMapName()).append("'\n");
-                    isValid = false;
-                }
-
-                if (!expectedData.getWinnerTeam().equals(savedData.getWinnerTeam())) {
-                    errors.append("§c- Winner team: esperado '").append(expectedData.getWinnerTeam())
-                           .append("', encontrado '").append(savedData.getWinnerTeam()).append("'\n");
-                    isValid = false;
-                }
-
-                // Verificar estadísticas de jugadores
-                Map<String, PlayerMatchStats> expectedStats = expectedData.getPlayerStats();
-                Map<String, PlayerMatchStats> savedStats = savedData.getPlayerStats();
-
-                if (expectedStats.size() != savedStats.size()) {
-                    errors.append("§c- Player stats count: esperado ").append(expectedStats.size())
-                           .append(", encontrado ").append(savedStats.size()).append("\n");
-                    isValid = false;
-                }
-
-                // Verificar cada jugador
-                for (Map.Entry<String, PlayerMatchStats> entry : expectedStats.entrySet()) {
-                    String playerUuid = entry.getKey();
-                    PlayerMatchStats expected = entry.getValue();
-                    PlayerMatchStats saved = savedStats.get(playerUuid);
-
-                    if (saved == null) {
-                        errors.append("§c- Jugador ").append(expected.getPlayerName())
-                               .append(" (").append(playerUuid).append(") no encontrado en base de datos\n");
-                        isValid = false;
-                        continue;
-                    }
-
-                    // Verificar estadísticas específicas del jugador
-                    if (expected.getKills() != saved.getKills()) {
-                        errors.append("§c- ").append(expected.getPlayerName()).append(" kills: esperado ")
-                               .append(expected.getKills()).append(", encontrado ").append(saved.getKills()).append("\n");
-                        isValid = false;
-                    }
-
-                    if (expected.getDeaths() != saved.getDeaths()) {
-                        errors.append("§c- ").append(expected.getPlayerName()).append(" deaths: esperado ")
-                               .append(expected.getDeaths()).append(", encontrado ").append(saved.getDeaths()).append("\n");
-                        isValid = false;
-                    }
-
-                    if (Math.abs(expected.getDamageDealt() - saved.getDamageDealt()) > 0.01) {
-                        errors.append("§c- ").append(expected.getPlayerName()).append(" damage dealt: esperado ")
-                               .append(expected.getDamageDealt()).append(", encontrado ").append(saved.getDamageDealt()).append("\n");
-                        isValid = false;
-                    }
-
-                    if (expected.getNewElo() != saved.getNewElo()) {
-                        errors.append("§c- ").append(expected.getPlayerName()).append(" new ELO: esperado ")
-                               .append(expected.getNewElo()).append(", encontrado ").append(saved.getNewElo()).append("\n");
-                        isValid = false;
-                    }
-
-                    if (Math.abs(expected.getNewMmr() - saved.getNewMmr()) > 0.01) {
-                        errors.append("§c- ").append(expected.getPlayerName()).append(" new MMR: esperado ")
-                               .append(expected.getNewMmr()).append(", encontrado ").append(saved.getNewMmr()).append("\n");
-                        isValid = false;
-                    }
-                }
-
-                if (isValid) {
-                    Bukkit.getConsoleSender().sendMessage(
-                        "§a✅ Validación exitosa: Todos los datos de la partida " + matchId + " se guardaron correctamente"
-                    );
-                } else {
-                    Bukkit.getConsoleSender().sendMessage(
-                        "§c❌ Validación fallida para partida " + matchId + ":\n" + errors.toString()
-                    );
-                }
-
-                return isValid;
-
-            } catch (Exception e) {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error durante validación de partida " + matchId + ": " + e.getMessage()
-                );
-                e.printStackTrace();
-                return false;
-            }
-        });
-    }
-
-    /**
-     * Método de utilidad para verificar partidas incompletas o corruptas
-     */
-    public static CompletableFuture<List<String>> findIncompleteMatches() {
-        return CompletableFuture.supplyAsync(() -> {
-            List<String> incompleteMatches = new java.util.ArrayList<>();
-
-            String query = """
-                SELECT m.match_id, m.winner_team, 
-                       COUNT(mp.player_uuid) as player_count,
-                       COUNT(CASE WHEN mp.old_elo = 0 OR mp.new_elo = 0 THEN 1 END) as invalid_elo_count
-                FROM matches m
-                LEFT JOIN match_players mp ON m.match_id = mp.match_id
-                GROUP BY m.match_id, m.winner_team
-                HAVING winner_team = 'TBD' 
-                    OR player_count = 0 
-                    OR invalid_elo_count > 0
-                ORDER BY m.start_time DESC
-            """;
-
-            try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
-                 PreparedStatement stmt = conn.prepareStatement(query)) {
-
-                ResultSet rs = stmt.executeQuery();
-
-                while (rs.next()) {
-                    String matchId = rs.getString("match_id");
-                    String winnerTeam = rs.getString("winner_team");
-                    int playerCount = rs.getInt("player_count");
-                    int invalidEloCount = rs.getInt("invalid_elo_count");
-
-                    String reason = "";
-                    if ("TBD".equals(winnerTeam)) {
-                        reason = "partida en curso";
-                    } else if (playerCount == 0) {
-                        reason = "sin estadísticas de jugadores";
-                    } else if (invalidEloCount > 0) {
-                        reason = "datos de ELO inválidos";
-                    }
-
-                    incompleteMatches.add(matchId + " (" + reason + ")");
-                }
-
-            } catch (SQLException e) {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al buscar partidas incompletas: " + e.getMessage()
-                );
-                e.printStackTrace();
-            }
-
-            return incompleteMatches;
-        });
-    }
-
-    /**
-     * Obtiene la fecha y hora actual en la zona horaria de Lima, Perú
-     */
-    public static LocalDateTime getCurrentTimeInLima() {
-        return ZonedDateTime.now(LIMA_ZONE).toLocalDateTime();
-    }
-
-    /**
-     * Convierte un Timestamp de la base de datos a LocalDateTime en zona horaria de Lima
-     */
-    private static LocalDateTime timestampToLimaTime(Timestamp timestamp) {
-        if (timestamp == null) return null;
-        return timestamp.toInstant().atZone(LIMA_ZONE).toLocalDateTime();
-    }
-
-    /**
-     * Convierte un LocalDateTime de Lima a Timestamp para la base de datos
-     */
-    public static Timestamp limaTimeToTimestamp(LocalDateTime limaTime) {
-        ZonedDateTime limaZoned = limaTime.atZone(LIMA_ZONE);
-        return Timestamp.valueOf(limaZoned.toLocalDateTime());
-    }
 }
+

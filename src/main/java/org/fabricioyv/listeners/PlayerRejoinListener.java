@@ -138,17 +138,4 @@ public class PlayerRejoinListener implements Listener {
 
 
 
-    /**
-     * Encuentra los datos del jugador en la partida activa
-     */
-    private PlayerData findPlayerData(ActiveMatch activeMatch, UUID playerUuid) {
-        for (List<PlayerData> team : activeMatch.getTeams().values()) {
-            for (PlayerData playerData : team) {
-                if (playerData.getUuid().equals(playerUuid)) {
-                    return playerData;
-                }
-            }
-        }
-        return null;
-    }
 }

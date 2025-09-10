@@ -1,32 +1,100 @@
 package org.fabricioyv.rating;
 
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
+import java.io.File;
+
 public class ProgressiveEloCalculator {
 
+    private static FileConfiguration eloConfig;
+    private static boolean configLoaded = false;
+    private static JavaPlugin plugin;
+
+    /**
+     * Inicializa la configuración ELO con la instancia del plugin
+     */
+    public static void initialize(JavaPlugin pluginInstance) {
+        plugin = pluginInstance;
+        loadEloConfig();
+        configLoaded = true;
+    }
+
     // ELO inicial para nuevos jugadores
-    public static final int STARTING_ELO = 500; // Cobre I
+    public static int getStartingElo() {
+        loadConfigIfNeeded();
+        return eloConfig.getInt("starting_elo", 500);
+    }
+
+    private static void loadConfigIfNeeded() {
+        if (!configLoaded) {
+            loadEloConfig();
+            configLoaded = true;
+        }
+    }
+
+    private static void loadEloConfig() {
+        try {
+            File configFile = new File(plugin.getDataFolder(), "elo-config.yml");
+
+            if (!configFile.exists()) {
+                plugin.saveResource("elo-config.yml", false);
+                plugin.getLogger().info("✅ Archivo elo-config.yml creado desde recursos");
+            }
+
+            eloConfig = YamlConfiguration.loadConfiguration(configFile);
+            plugin.getLogger().info("✅ Configuración ELO cargada correctamente");
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("❌ Error cargando elo-config.yml: " + e.getMessage());
+            createFallbackConfig();
+        }
+    }
+
+    private static void createFallbackConfig() {
+        eloConfig = new YamlConfiguration();
+        eloConfig.set("starting_elo", 500);
+        eloConfig.set("k_factors.cobre", 45);
+        eloConfig.set("k_factors.hierro", 40);
+        eloConfig.set("k_factors.oro", 35);
+        eloConfig.set("k_factors.diamante", 30);
+        eloConfig.set("k_factors.esmeralda", 25);
+    }
+
+    // Tipos de partida con sus modificadores
     public enum MatchType {
-        RANKED_5V5("5v5", 1.0, 1.0),      // Modificadores normales
-        RANKED_8V8("8v8", 1.25, 0.85);    // +25% ganancia, -15% pérdida
+        RANKED_5V5("ranked_5v5"),
+        RANKED_8V8("ranked_8v8");
 
-        private final String displayName;
-        private final double winMultiplier;
-        private final double lossMultiplier;
+        private final String configKey;
 
-        MatchType(String displayName, double winMultiplier, double lossMultiplier) {
-            this.displayName = displayName;
-            this.winMultiplier = winMultiplier;
-            this.lossMultiplier = lossMultiplier;
+        MatchType(String configKey) {
+            this.configKey = configKey;
         }
 
-        public double getWinMultiplier() { return winMultiplier; }
-        public double getLossMultiplier() { return lossMultiplier; }
-        public String getDisplayName() { return displayName; }
+        public double getWinMultiplier() {
+            loadConfigIfNeeded();
+            return eloConfig.getDouble("match_types." + configKey + ".win_multiplier", 1.0);
+        }
+
+        public double getLossMultiplier() {
+            loadConfigIfNeeded();
+            return eloConfig.getDouble("match_types." + configKey + ".loss_multiplier", 1.0);
+        }
+
+        public String getDisplayName() {
+            loadConfigIfNeeded();
+            return eloConfig.getString("match_types." + configKey + ".display_name", configKey);
+        }
     }
+
     /**
      * Calcula los cambios de ELO con sistema progresivo
      */
     public static EloChange calculateEloChange(int playerElo, double opponentAvgElo,
                                                boolean won, MatchType matchType) {
+        loadConfigIfNeeded();
+
         Rank currentRank = Rank.getRankByElo(playerElo);
 
         // Calcular cambio base
@@ -35,33 +103,38 @@ public class ProgressiveEloCalculator {
         // Aplicar modificadores de rango
         int rankModifiedChange = applyRankModifiers(baseChange, currentRank, won);
 
-        // Aplicar modificadores de tipo de partida
-        double multiplier = won ? matchType.getWinMultiplier() : matchType.getLossMultiplier();
-        int finalChange = (int) Math.round(rankModifiedChange * multiplier);
+        // Aplicar modificadores de tipo de partida (si está habilitado)
+        if (eloConfig.getBoolean("advanced.enable_match_type_multipliers", true)) {
+            double multiplier = won ? matchType.getWinMultiplier() : matchType.getLossMultiplier();
+            rankModifiedChange = (int) Math.round(rankModifiedChange * multiplier);
+        }
 
-        int newElo = Math.max(0, playerElo + finalChange);
+        int newElo = Math.max(eloConfig.getInt("advanced.minimum_elo", 0), playerElo + rankModifiedChange);
         Rank newRank = Rank.getRankByElo(newElo);
 
         boolean promoted = newRank.ordinal() > currentRank.ordinal();
         boolean demoted = newRank.ordinal() < currentRank.ordinal();
 
-        return new EloChange(finalChange, newElo, currentRank, newRank, promoted, demoted);
+        return new EloChange(rankModifiedChange, newElo, currentRank, newRank, promoted, demoted);
     }
 
     private static int calculateBaseChange(int playerElo, double opponentAvgElo, boolean won) {
+        loadConfigIfNeeded();
+
         double eloDifference = opponentAvgElo - playerElo;
 
-        // Fórmula ELO estándar
-        double expectedScore = 1.0 / (1.0 + Math.pow(10, eloDifference / 400.0));
+        // Fórmula ELO estándar con factor de división configurable
+        int divisionFactor = eloConfig.getInt("advanced.elo_division_factor", 400);
+        double expectedScore = 1.0 / (1.0 + Math.pow(10, eloDifference / divisionFactor));
         double actualScore = won ? 1.0 : 0.0;
 
-        // Factor K más alto para cambios significativos
+        // Factor K desde configuración
         int kFactor = getKFactor(playerElo);
 
         int baseChange = (int) Math.round(kFactor * (actualScore - expectedScore));
 
-        // Ajustar pérdidas mínimas según el rango
-        if (!won) {
+        // Ajustar pérdidas mínimas según el rango (si está habilitado)
+        if (!won && eloConfig.getBoolean("advanced.enable_minimum_losses", true)) {
             Rank currentRank = Rank.getRankByElo(playerElo);
             int minLoss = getMinimumLoss(currentRank);
 
@@ -74,55 +147,66 @@ public class ProgressiveEloCalculator {
         return baseChange;
     }
 
-
     private static int getKFactor(int elo) {
-        if (elo < 600) return 45;      // Cobre: cambios más rápidos para salir
-        if (elo < 900) return 40;      // Hierro: cambios altos
-        if (elo < 1200) return 35;     // Oro: cambios moderados-altos
-        if (elo < 1500) return 30;     // Diamante: cambios moderados
-        return 25;                     // Esmeralda: cambios menores pero significativos
+        loadConfigIfNeeded();
+
+        if (elo < 600) return eloConfig.getInt("k_factors.cobre", 45);
+        if (elo < 900) return eloConfig.getInt("k_factors.hierro", 40);
+        if (elo < 1200) return eloConfig.getInt("k_factors.oro", 35);
+        if (elo < 1500) return eloConfig.getInt("k_factors.diamante", 30);
+        return eloConfig.getInt("k_factors.esmeralda", 25);
     }
+
     private static int getMinimumLoss(Rank rank) {
+        loadConfigIfNeeded();
+
         return switch (rank) {
-            case COBRE_3, COBRE_2, COBRE_1 -> -5;          // Mínimo -5 en cobre
-            case HIERRO_3, HIERRO_2, HIERRO_1 -> -10;      // Mínimo -10 en hierro
-            case ORO_3, ORO_2, ORO_1 -> -18;               // Mínimo -18 en oro
-            case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> -25; // Mínimo -25 en diamante
-            case ESMERALDA -> -30;                          // Mínimo -30 en esmeralda
+            case COBRE_3, COBRE_2, COBRE_1 -> eloConfig.getInt("minimum_losses.cobre", -5);
+            case HIERRO_3, HIERRO_2, HIERRO_1 -> eloConfig.getInt("minimum_losses.hierro", -10);
+            case ORO_3, ORO_2, ORO_1 -> eloConfig.getInt("minimum_losses.oro", -18);
+            case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> eloConfig.getInt("minimum_losses.diamante", -25);
+            case ESMERALDA -> eloConfig.getInt("minimum_losses.esmeralda", -30);
         };
     }
 
-
     private static int applyRankModifiers(int baseChange, Rank currentRank, boolean won) {
+        loadConfigIfNeeded();
+
+        // Verificar si los modificadores de rango están habilitados
+        if (!eloConfig.getBoolean("advanced.enable_rank_multipliers", true)) {
+            return baseChange;
+        }
+
         double multiplier = 1.0;
+        String winLossKey = won ? "win" : "loss";
 
         switch (currentRank) {
             case COBRE_3:
             case COBRE_2:
             case COBRE_1:
-                multiplier = won ? 1.2 : 1.2;  // Pérdidas mínimas en cobre
+                multiplier = eloConfig.getDouble("rank_multipliers.cobre." + winLossKey, won ? 1.3 : 0.8);
                 break;
 
             case HIERRO_3:
             case HIERRO_2:
             case HIERRO_1:
-                multiplier = won ? 1.0 : 1.5;  // Pérdidas moderadas
+                multiplier = eloConfig.getDouble("rank_multipliers.hierro." + winLossKey, won ? 1.1 : 1.2);
                 break;
 
             case ORO_3:
             case ORO_2:
             case ORO_1:
-                multiplier = won ? 0.9 : 2.3;  // Pérdidas significativas
+                multiplier = eloConfig.getDouble("rank_multipliers.oro." + winLossKey, won ? 1.0 : 1.5);
                 break;
 
             case DIAMANTE_3:
             case DIAMANTE_2:
             case DIAMANTE_1:
-                multiplier = won ? 0.8 : 4.0;  // Pérdidas severas (40-50 puntos)
+                multiplier = eloConfig.getDouble("rank_multipliers.diamante." + winLossKey, won ? 0.9 : 1.8);
                 break;
 
             case ESMERALDA:
-                multiplier = won ? 0.7 : 5;  // Pérdidas extremas (50-60 puntos)
+                multiplier = eloConfig.getDouble("rank_multipliers.esmeralda." + winLossKey, won ? 0.8 : 1.6);
                 break;
         }
 

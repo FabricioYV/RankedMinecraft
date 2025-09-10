@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.fabricioyv.RankedMinecraft;
+import org.fabricioyv.config.StatsOptimizationConfig;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MatchFinisher;
@@ -713,12 +714,23 @@ public class PGMMatchListener implements Listener{
             if (killerState != null && killerState.getPlayer().isPresent()) {
                 MatchPlayer killer = killerState.getPlayer().get();
                 killerUUID = killer.getId();
-                // Convertir Component a String usando PlainTextComponentSerializer
-                killerName = PlainTextComponentSerializer.plainText().serialize(killer.getName());
+                // Usar el nombre del jugador de Bukkit en lugar del Component de PGM
+                Player killerBukkitPlayer = killer.getBukkit();
+                if (killerBukkitPlayer != null) {
+                    killerName = killerBukkitPlayer.getName();
+                } else {
+                    killerName = killer.getId().toString(); // Fallback al UUID si no hay jugador Bukkit
+                }
             }
 
-            // 1. ACTUALIZAR SISTEMA PLAYERMATCHSTATS (PARA LA BASE DE DATOS)
-            MatchStatsListener.recordPlayerDeath(activeMatch.getMatchId(), victimUUID, killerUUID);
+            // 1. ACTUALIZAR SISTEMA PLAYERMATCHSTATS (OPTIMIZADO)
+            if (StatsOptimizationConfig.shouldUseOptimizedStats()) {
+                // Usar sistema optimizado (sin lag)
+                OptimizedMatchStatsListener.recordPlayerDeath(activeMatch.getMatchId(), victimUUID, killerUUID);
+            } else {
+                // Usar sistema legacy
+                MatchStatsListener.recordPlayerDeath(activeMatch.getMatchId(), victimUUID, killerUUID);
+            }
 
             // 2. ACTUALIZAR SISTEMA PLAYERDATA (PARA CÁLCULOS DE ELO/MMR)
             PlayerData victimData = activeMatch.getPlayerByUUID(victimUUID);

@@ -170,12 +170,6 @@ public class MatchLogsIntegration {
         );
     }
 
-    /**
-     * Obtiene estadísticas en tiempo real de una partida activa
-     */
-    public static MatchLogsManager.PlayerMatchStats getCurrentPlayerStats(String matchId, UUID playerUuid) {
-        return MatchStatsListener.getPlayerStats(matchId, playerUuid);
-    }
 
     /**
      * Registra un evento personalizado en la partida
@@ -199,17 +193,7 @@ public class MatchLogsIntegration {
                 winnerTeam.name(), durationSeconds));
     }
 
-    public static void logForfeit(String matchId, UUID playerUuid, String reason) {
-        logCustomEvent(matchId, "FORFEIT", playerUuid, reason);
-    }
 
-    public static void logPlayerReconnect(String matchId, UUID playerUuid) {
-        logCustomEvent(matchId, "PLAYER_RECONNECT", playerUuid, "Jugador se reconectó a la partida");
-    }
-
-    public static void logPlayerDisconnect(String matchId, UUID playerUuid) {
-        logCustomEvent(matchId, "PLAYER_DISCONNECT", playerUuid, "Jugador se desconectó de la partida");
-    }
 
     /**
      * Log detallado del resumen de la partida
@@ -244,18 +228,4 @@ public class MatchLogsIntegration {
         Bukkit.getConsoleSender().sendMessage("§a" + "=".repeat(50));
     }
 
-    /**
-     * Método para obtener estadísticas históricas de un jugador
-     */
-    public static CompletableFuture<List<MatchLogsManager.MatchSummary>> getPlayerMatchHistory(
-            String playerUuid, int limit) {
-        return MatchLogsManager.getPlayerRecentMatches(playerUuid, limit);
-    }
-
-    /**
-     * Método para obtener estadísticas de una partida específica
-     */
-    public static CompletableFuture<MatchLogsManager.MatchSummary> getMatchDetails(String matchId) {
-        return MatchLogsManager.getMatchStats(matchId);
-    }
 }

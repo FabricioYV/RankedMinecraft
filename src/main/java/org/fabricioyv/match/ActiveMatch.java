@@ -257,16 +257,16 @@ public class ActiveMatch {
                 try {
                     logger.info("Setting Permissions", "Configurando permisos para canal " + team.getDisplayName());
 
-                    // PASO 1: Configurar permisos para @everyone - PERMITIR VER pero DENEGAR conectar y hablar
+                    // PASO 1: Configurar permisos para @everyone - PERMITIR VER y hablar pero DENEGAR conectar
                     channel.getManager()
                             .putPermissionOverride(guild.getPublicRole(),
-                                    EnumSet.of(Permission.VIEW_CHANNEL), // Permitir ver el canal
-                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
+                                    EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_SPEAK), // Permitir ver el canal y hablar
+                                    EnumSet.of(Permission.VOICE_CONNECT, // NO pueden conectarse/entrar
                                              Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
                                              Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
                             .queue(
                                 success -> {
-                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER pero NO conectar/hablar");
+                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER y HABLAR pero NO conectar");
                                     // PASO 2: Configurar permisos para el rol @Queue
                                     setupQueueRolePermissions(channel, team, teamPlayers);
                                 },

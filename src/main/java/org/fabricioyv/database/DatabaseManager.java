@@ -274,10 +274,7 @@ public class DatabaseManager {
         return getConnection(databaseName);
     }
 
-    public static boolean isDatabaseConnected(String databaseName) {
-        HikariDataSource dataSource = dataSources.get(databaseName);
-        return dataSource != null && !dataSource.isClosed();
-    }
+
 
     public static PlayerData getPlayerByDiscordId(String discordId) {
         String query = "SELECT * FROM ranked_players WHERE discord_id = ?";
@@ -438,32 +435,7 @@ public class DatabaseManager {
         }
     }
 
-    public static boolean registerPlayer(String minecraftUuid, String discordId) {
-        String query = "INSERT INTO ranked_players (minecraft_uuid, discord_id) VALUES (?, ?) " +
-                "ON DUPLICATE KEY UPDATE discord_id = VALUES(discord_id)";
 
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try (Connection conn = getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(query)) {
-
-                stmt.setString(1, minecraftUuid);
-                stmt.setString(2, discordId);
-
-                int affectedRows = stmt.executeUpdate();
-                return affectedRows > 0;
-
-            } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error registrando jugador después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Intento " + attempt + " fallido registrando jugador, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
-            }
-        }
-        return false;
-    }
 
     public static void close() {
         for (HikariDataSource dataSource : dataSources.values()) {
