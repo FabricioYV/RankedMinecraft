@@ -36,17 +36,26 @@ public class MapManager {
 
         // Cargar mapas para 5v5
         List<String> maps5v5 = mapsConfig.getStringList("pools.5v5");
+        plugin.getLogger().info("🔍 Mapas 5v5 cargados desde archivo: " + maps5v5.size() + " mapas");
+        plugin.getLogger().info("📋 Lista 5v5: " + String.join(", ", maps5v5));
+
         if (maps5v5.isEmpty()) {
-            // Mapas por defecto para 5v5
-            maps5v5 = Arrays.asList("Coconut┈Mald", "Summit", "Warlock", "Temple of Kotmogu", "Rage Quit");
+            // Mapas por defecto para 5v5 - actualizados para coincidir con maps.yml
+            maps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
+                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+            plugin.getLogger().warning("⚠️ No se encontraron mapas 5v5 en el archivo, usando mapas por defecto");
         }
         mapPools.put("5v5", maps5v5);
 
         // Cargar mapas para 8v8
         List<String> maps8v8 = mapsConfig.getStringList("pools.8v8");
+        plugin.getLogger().info("🔍 Mapas 8v8 cargados desde archivo: " + maps8v8.size() + " mapas");
+        plugin.getLogger().info("📋 Lista 8v8: " + String.join(", ", maps8v8));
+
         if (maps8v8.isEmpty()) {
             // Mapas por defecto para 8v8
-            maps8v8 = Arrays.asList("Golden Drought III", "Battlefront", "Senex", "Bamboo Valley", "Fortress Battles");
+            maps8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
+            plugin.getLogger().warning("⚠️ No se encontraron mapas 8v8 en el archivo, usando mapas por defecto");
         }
         mapPools.put("8v8", maps8v8);
 
@@ -82,16 +91,18 @@ public class MapManager {
      */
     public static String getRandomMap(String matchType) {
         List<String> allMaps = getAvailableMaps(matchType);
+
+        // Log para debugging
+        plugin.getLogger().info("🔍 Seleccionando mapa aleatorio para " + matchType + " - Total mapas disponibles: " + allMaps.size());
+
         if (allMaps.isEmpty()) {
-            return "Warlock"; // Mapa fallback
+            plugin.getLogger().severe("❌ ERROR: No hay mapas configurados para " + matchType + ". Revisa el archivo maps.yml");
+            // Fallback usando mapas por defecto del mismo tipo
+            return getFallbackMap(matchType);
         }
 
         // Obtener mapas recientes para este tipo de partida
-        Queue<String> recentMapsForType = recentMaps.get(matchType);
-        if (recentMapsForType == null) {
-            recentMapsForType = new ConcurrentLinkedQueue<>();
-            recentMaps.put(matchType, recentMapsForType);
-        }
+        Queue<String> recentMapsForType = recentMaps.computeIfAbsent(matchType, k -> new ConcurrentLinkedQueue<>());
 
         // Crear lista de mapas disponibles (excluyendo los recientes)
         List<String> availableMaps = new ArrayList<>();
@@ -101,9 +112,12 @@ public class MapManager {
             }
         }
 
-        // Si no hay mapas disponibles (todos están en recientes), usar todos los mapas
+        plugin.getLogger().info("🎯 Mapas disponibles después de filtrar recientes: " + availableMaps.size() + "/" + allMaps.size());
+        plugin.getLogger().info("🚫 Mapas recientes excluidos: " + String.join(", ", recentMapsForType));
+
+        // Si no hay mapas disponibles (todos están en recientes), reiniciar la lista de recientes
         if (availableMaps.isEmpty()) {
-            plugin.getLogger().warning("⚠️ Todos los mapas de " + matchType + " están en la lista de recientes. Reiniciando lista.");
+            plugin.getLogger().warning("⚠️ Todos los mapas de " + matchType + " están en la lista de recientes. Reiniciando lista de recientes.");
             availableMaps = new ArrayList<>(allMaps);
             recentMapsForType.clear(); // Limpiar la lista de recientes
         }
@@ -114,10 +128,29 @@ public class MapManager {
         // Registrar el mapa como usado
         recordMapUsage(matchType, selectedMap);
 
-        plugin.getLogger().info("🎲 Mapa seleccionado para " + matchType + ": " + selectedMap +
-                               " (Evitados: " + recentMapsForType.size() + " mapas recientes)");
+        plugin.getLogger().info("🎲 Mapa seleccionado para " + matchType + ": " + selectedMap);
+        plugin.getLogger().info("📊 Estado actual - Recientes: " + recentMapsForType.size() + "/" + MAX_RECENT_MAPS);
 
         return selectedMap;
+    }
+
+    /**
+     * Obtiene un mapa fallback basado en los mapas configurados en maps.yml
+     */
+    private static String getFallbackMap(String matchType) {
+        // Usar mapas hardcodeados que coinciden con los del maps.yml como último recurso
+        if (matchType.equals("8v8")) {
+            List<String> fallback8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
+            String selected = fallback8v8.get(new Random().nextInt(fallback8v8.size()));
+            plugin.getLogger().warning("⚠️ Usando mapa fallback 8v8: " + selected);
+            return selected;
+        } else {
+            List<String> fallback5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
+                                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+            String selected = fallback5v5.get(new Random().nextInt(fallback5v5.size()));
+            plugin.getLogger().warning("⚠️ Usando mapa fallback 5v5: " + selected);
+            return selected;
+        }
     }
 
     /**
@@ -155,59 +188,17 @@ public class MapManager {
     }
 
     /**
-     * Selecciona mapas para votación, evitando los mapas recientes
+     * Selecciona mapas para votación, evitando mapas recientes si es necesario
+     * Los jugadores pueden votar por cualquier mapa disponible
      */
-    public static List<String> getRandomMapsForVoting(String matchType, int count) {
+    public static List<String> getMapsForVoting(String matchType, int count) {
         List<String> allMaps = getAvailableMaps(matchType);
-        if (allMaps.isEmpty()) {
-            return Arrays.asList("Warlock"); // Fallback
+        if (allMaps.size() <= count) {
+            return allMaps;
         }
-
-        // Obtener mapas recientes
-        Queue<String> recentMapsForType = recentMaps.getOrDefault(matchType, new ConcurrentLinkedQueue<>());
-
-        // Filtrar mapas recientes
-        List<String> availableMaps = new ArrayList<>();
-        for (String map : allMaps) {
-            if (!recentMapsForType.contains(map)) {
-                availableMaps.add(map);
-            }
-        }
-
-        // Si no hay suficientes mapas disponibles, agregar algunos de los recientes
-        if (availableMaps.size() < count) {
-            plugin.getLogger().warning("⚠️ No hay suficientes mapas nuevos para votación en " + matchType +
-                                     ". Agregando algunos mapas recientes.");
-
-            // Agregar mapas de la lista de recientes hasta completar el count
-            List<String> recentMapsList = new ArrayList<>(recentMapsForType);
-            Collections.shuffle(recentMapsList);
-
-            for (String recentMap : recentMapsList) {
-                if (availableMaps.size() >= count) break;
-                if (!availableMaps.contains(recentMap)) {
-                    availableMaps.add(recentMap);
-                }
-            }
-        }
-
-        // Si aún no hay suficientes, usar todos los mapas disponibles
-        if (availableMaps.size() < count) {
-            availableMaps = new ArrayList<>(allMaps);
-        }
-
-        // Mezclar y seleccionar
-        Collections.shuffle(availableMaps);
-        List<String> selectedMaps = new ArrayList<>();
-        for (int i = 0; i < Math.min(count, availableMaps.size()); i++) {
-            selectedMaps.add(availableMaps.get(i));
-        }
-
-        plugin.getLogger().info("🗳️ Mapas seleccionados para votación " + matchType + ": " +
-                               String.join(", ", selectedMaps) +
-                               " (Evitados " + recentMapsForType.size() + " mapas recientes)");
-
-        return selectedMaps;
+        
+        Collections.shuffle(allMaps);
+        return allMaps.subList(0, count);
     }
 
     /**

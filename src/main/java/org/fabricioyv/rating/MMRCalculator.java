@@ -39,9 +39,20 @@ public class MMRCalculator {
 
     /**
      * Sistema MMR mejorado centrado en daño para PvP 5v5
+     * Detecta automáticamente si el jugador está en placement matches
      */
     public static MMRChange calculateMMRChange(PlayerData player, boolean won,
                                                double teamAvgMMR, double opponentAvgMMR) {
+        
+        // Si el jugador está en placement matches, usar el calculador especializado
+        if (player.isInPlacement()) {
+            MMRChange placementResult = PlacementMMRCalculator.calculatePlacementMMRChange(
+                player, won, teamAvgMMR, opponentAvgMMR);
+            
+            return placementResult;
+        }
+        
+        // Código normal para jugadores post-placement
         double oldMMR = player.getMmr();
         double mmrChange = 0.0;
         StringBuilder breakdown = new StringBuilder();

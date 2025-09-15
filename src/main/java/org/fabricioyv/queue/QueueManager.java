@@ -31,6 +31,9 @@ public class QueueManager {
     // Tracking de jugadores en cola para evitar duplicados
     private final Set<String> playersInQueue = ConcurrentHashMap.newKeySet();
 
+    // Instancia estática para acceso global
+    private static QueueManager instance;
+
     public QueueManager(JDA jda, RankedMinecraft plugin, String guildId) {
         this.jda = jda;
         this.plugin = plugin;
@@ -42,6 +45,7 @@ public class QueueManager {
         logger.info("QueueManager Inicializado",
                 "Sistema de colas iniciado para el servidor: " + guild.getName());
 
+        instance = this; // Establecer instancia estática
     }
 
     /**
@@ -218,7 +222,7 @@ public class QueueManager {
 
                             Player mcPlayer = Bukkit.getPlayer(UUID.fromString(disconnected.getMinecraftUuid()));
                             if (mcPlayer != null && mcPlayer.isOnline()) {
-                                mcPlayer.sendMessage("§c❌ Has sido removido de la cola por no estar conectado al servidor.");
+                                mcPlayer.sendMessage("§c❌ Has sido removido de la cola por no estar conectado al servidor de Minecraft.");
                             }
 
                             logger.queueEvent(
@@ -325,91 +329,98 @@ public class QueueManager {
         return names.toString();
     }
     /**
-     * Maneja a los jugadores desconectados al final del countdown
+     * Método estático para limpiar SOLO el tracking de jugadores cuando termina una partida
+     * Los jugadores ya fueron removidos de las colas cuando inició la partida
      */
-//    private void handleDisconnectedPlayers(List<PlayerData> disconnectedPlayers, QueueType queueType) {
-//        for (PlayerData player : disconnectedPlayers) {
-//            // Remover del tracking de cola
-//            playersInQueue.remove(player.getMinecraftUuid());
-//
-//            // Mover a waiting room si está en Discord
-//            Member member = guild.getMemberById(player.getDiscordId());
-//            if (member != null && member.getVoiceState().getChannel() != null) {
-//                movePlayerToWaitingRoom(player.getDiscordId());
-//            }
-//
-//            // Notificar en Minecraft si está conectado
-//            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(player.getMinecraftUuid()));
-//            if (mcPlayer != null && mcPlayer.isOnline()) {
-//                mcPlayer.sendMessage("§c❌ Has sido removido de la cola por no cumplir los requisitos al momento de iniciar la partida.");
-//            }
-//
-//            logger.queueEvent(
-//                    getPlayerDisplayName(player),
-//                    player.getDiscordId(),
-//                    "Removido de Cola",
-//                    "Jugador removido de cola " + getQueueTypeName(queueType) + " por no estar conectado al final del countdown"
-//            );
-//        }
-//
-//        if (!disconnectedPlayers.isEmpty()) {
-//            logger.info("Jugadores Removidos",
-//                    disconnectedPlayers.size() + " jugadores removidos de la cola " + getQueueTypeName(queueType) +
-//                            " por no estar conectados/en canal correcto");
-//        }
-//    }
-    /**
-     * Valida que todos los jugadores sigan conectados a Minecraft y en el canal correcto
-     */
-//    private List<PlayerData> validatePlayersConnection(List<PlayerData> players, QueueType queueType) {
-//        List<PlayerData> connectedPlayers = new ArrayList<>();
-//
-//        for (PlayerData playerData : players) {
-//            // Verificar Minecraft
-//            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-//            if (mcPlayer == null || !mcPlayer.isOnline()) {
-//                continue;
-//            }
-//
-//            // Verificar Discord (canal de voz correcto)
-//            if (!isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType)) {
-//                // Mover a sala de espera
-//                movePlayerToWaitingRoom(playerData.getDiscordId());
-//                continue;
-//            }
-//
-//            connectedPlayers.add(playerData);
-//        }
-//
-//        return connectedPlayers;
-//    }
+    public static void cleanupPlayerTrackingAfterMatch(List<PlayerData> players) {
+        if (instance == null) {
+            return; // No hay instancia activa
+        }
+
+        int cleanedCount = 0;
+        for (PlayerData player : players) {
+            // SOLO limpiar el tracking, NO las colas (ya fueron removidos al iniciar partida)
+            boolean wasTracked = instance.playersInQueue.remove(player.getMinecraftUuid());
+            if (wasTracked) {
+                cleanedCount++;
+            }
+        }
+
+        if (cleanedCount > 0) {
+            Bukkit.getLogger().info("[QueueManager] Limpiado tracking de " + cleanedCount +
+                " jugadores tras finalizar partida (colas no afectadas)");
+        }
+    }
 
     /**
-     * Cancela una partida y limpia las colas
+     * DEPRECATED: Usar cleanupPlayerTrackingAfterMatch() en su lugar
+     * Método estático para limpiar jugadores de la cola cuando termina una partida
+     * Debe ser llamado desde MatchFinisher
      */
-//    private void cancelMatch(List<PlayerData> players, QueueType queueType, String reason) {
-//        MatchState.endMatch();
-//
-//        // Notificar a jugadores en Minecraft
-//        for (PlayerData playerData : players) {
-//            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-//            if (mcPlayer != null && mcPlayer.isOnline()) {
-//                mcPlayer.sendMessage("§cPartida " + getQueueTypeName(queueType) + " cancelada: " + reason);
-//            }
-//
-//            // Mover jugadores que no están en el canal correcto a sala de espera
-//            if (!isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType)) {
-//                movePlayerToWaitingRoom(playerData.getDiscordId());
-//            }
-//        }
-//
-//        // Remover jugadores del tracking
-//        for (PlayerData player : players) {
-//            playersInQueue.remove(player.getMinecraftUuid());
-//        }
-//
-//        // TODO: Eliminar canales temporales creados
-//    }
+    @Deprecated
+    public static void removePlayersFromQueueAfterMatch(List<PlayerData> players) {
+        if (instance == null) {
+            return; // No hay instancia activa
+        }
+
+        for (PlayerData player : players) {
+            boolean removed = instance.removePlayerFromQueue(player.getMinecraftUuid());
+            if (removed) {
+                Bukkit.getLogger().info("[QueueManager] Jugador " + player.getMinecraftUuid().substring(0, 8) +
+                        " removido de cola tras finalizar partida");
+            }
+        }
+    }
+
+    /**
+     * Limpia completamente el estado de cola de un jugador específico
+     * Útil para casos de desconexión o errores
+     */
+    public static void forceRemovePlayerFromQueue(String minecraftUuid) {
+        if (instance == null) {
+            return;
+        }
+
+        boolean removed = instance.removePlayerFromQueue(minecraftUuid);
+        if (removed) {
+            Bukkit.getLogger().info("[QueueManager] Jugador " + minecraftUuid.substring(0, 8) +
+                    " forzadamente removido de cola");
+        }
+    }
+
+    /**
+     * Verifica y limpia jugadores que están marcados en cola pero ya no están en partida
+     * Método de limpieza preventiva
+     */
+    public static void cleanupStaleQueueEntries() {
+        if (instance == null) {
+            return;
+        }
+
+        List<String> toRemove = new ArrayList<>();
+
+        // Verificar cola 5v5
+        for (PlayerData player : instance.queue5v5) {
+            if (!player.isInMatch() && instance.playersInQueue.contains(player.getMinecraftUuid())) {
+                // Jugador no está en partida pero está marcado en cola - posible estado inconsistente
+                toRemove.add(player.getMinecraftUuid());
+            }
+        }
+
+        // Verificar cola 8v8
+        for (PlayerData player : instance.queue8v8) {
+            if (!player.isInMatch() && instance.playersInQueue.contains(player.getMinecraftUuid())) {
+                toRemove.add(player.getMinecraftUuid());
+            }
+        }
+
+        // Remover entradas obsoletas
+        for (String uuid : toRemove) {
+            instance.removePlayerFromQueue(uuid);
+            Bukkit.getLogger().info("[QueueManager] Limpieza: Removido jugador " + uuid.substring(0, 8) +
+                    " con estado inconsistente");
+        }
+    }
 
 
     private void movePlayerToWaitingRoom(String discordId) {

@@ -27,6 +27,7 @@ public class MapVoting {
         this.logger = logger;
         this.players = players;
         this.matchType = matchType;
+        // Usar TODOS los mapas disponibles para votación (sin límite de cantidad)
         this.availableMaps = MapManager.getAvailableMaps(matchType);
         this.votes = new ConcurrentHashMap<>();
         this.eligibleVoters = players.stream()

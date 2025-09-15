@@ -157,13 +157,24 @@ public class MatchManager {
         String nextmap = "sn " + mapName;
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), nextmap);
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "cycle 1");
-        // Esperar 6 segundos y luego iniciar cuenta regresiva final
+
+        // Esperar 6 segundos y luego asignar jugadores a equipos
         RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
         new BukkitRunnable() {
             @Override
             public void run() {
-                startFinalCountdown(activeMatch, logger);
+                // NUEVO: Asignar jugadores a equipos después de 6 segundos
+                logger.info("Asignando Equipos Post-Cycle",
+                        "Asignando jugadores a equipos después del ciclado de mapa");
 
+                activeMatch.assignPlayersInMinecraft();
+
+                // Anunciar que los equipos han sido asignados
+                announceToPlayers(activeMatch.getAllPlayers(),
+                        "§a⚔️ Equipos asignados! Preparándose para iniciar...");
+
+                // Ahora iniciar la cuenta regresiva final de 2 minutos
+                startFinalCountdown(activeMatch, logger);
             }
         }.runTaskLater(plugin, 120L); // 6 segundos (120 ticks)
     }
@@ -172,13 +183,13 @@ public class MatchManager {
      */
     private static void startFinalCountdown(ActiveMatch activeMatch, DiscordLogger logger) {
         logger.info("Cuenta Regresiva Final",
-                "Iniciando cuenta regresiva final para partida " + activeMatch.getMatchId());
+                "Iniciando cuenta regresiva final de 2 minutos para partida " + activeMatch.getMatchId());
 
         RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
         new BukkitRunnable() {
 
-            //This countdown from start match.
-            int countdown = 10;
+            // MODIFICADO: Countdown de 2 minutos (120 segundos)
+            int countdown = 120;
 
             @Override
             public void run() {
@@ -196,11 +207,39 @@ public class MatchManager {
                     return;
                 }
 
-                // Anunciar cuenta regresiva
-                String message = "§6⚔️ §ePartida iniciando en §c" + countdown + " §esegundo" +
-                        (countdown == 1 ? "" : "s") + "...";
+                // Anunciar cuenta regresiva cada 30 segundos, cada 10 segundos en los últimos 30, y cada segundo en los últimos 10
+                boolean shouldAnnounce = false;
+                String message = "";
 
-                announceToPlayers(activeMatch.getAllPlayers(), message);
+                if (countdown > 30) {
+                    // Cada 30 segundos cuando quedan más de 30 segundos
+                    if (countdown % 30 == 0) {
+                        shouldAnnounce = true;
+                        int minutes = countdown / 60;
+                        int seconds = countdown % 60;
+                        if (minutes > 0 && seconds == 0) {
+                            message = "§6⚔️ §ePartida iniciando en §c" + minutes + " §eminuto" + (minutes == 1 ? "" : "s") + "...";
+                        } else {
+                            message = "§6⚔️ §ePartida iniciando en §c" + minutes + ":" + String.format("%02d", seconds) + "...";
+                        }
+                    }
+                } else if (countdown > 10) {
+                    // Cada 10 segundos cuando quedan entre 30 y 10 segundos
+                    if (countdown % 10 == 0) {
+                        shouldAnnounce = true;
+                        message = "§6⚔️ §ePartida iniciando en §c" + countdown + " §esegundos...";
+                    }
+                } else {
+                    // Cada segundo en los últimos 10 segundos
+                    shouldAnnounce = true;
+                    message = "§6⚔️ §ePartida iniciando en §c" + countdown + " §esegundo" +
+                            (countdown == 1 ? "" : "s") + "...";
+                }
+
+                if (shouldAnnounce) {
+                    announceToPlayers(activeMatch.getAllPlayers(), message);
+                }
+
                 countdown--;
             }
         }.runTaskTimer(plugin, 0L, 20L); // Cada segundo
@@ -233,8 +272,8 @@ public class MatchManager {
 
         // Actualizar estado de jugadores en base de datos
         updatePlayersMatchStatus(activeMatch.getAllPlayers(), activeMatch.getMatchId(), true);
-        activeMatch.assignPlayersInMinecraft();
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 240");
+
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 120");
         // TODO: Configurar listeners para eventos de la partida (kills, deaths, objectives, etc.)
         // TODO: Inicializar sistema de estadísticas
         // TODO: Configurar sistema de detección de finalización de partida

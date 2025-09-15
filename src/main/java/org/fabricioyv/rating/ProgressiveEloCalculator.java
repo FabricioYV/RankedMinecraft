@@ -86,10 +86,15 @@ public class ProgressiveEloCalculator {
             loadConfigIfNeeded();
             return eloConfig.getString("match_types." + configKey + ".display_name", configKey);
         }
+
+        public double getMultiplier() {
+            loadConfigIfNeeded();
+            return eloConfig.getDouble("match_types." + configKey + ".multiplier", 1.0);
+        }
     }
 
     /**
-     * Calcula los cambios de ELO con sistema progresivo
+     * Calcula los cambios de ELO con sistema fijo por rango
      */
     public static EloChange calculateEloChange(int playerElo, double opponentAvgElo,
                                                boolean won, MatchType matchType) {
@@ -97,26 +102,69 @@ public class ProgressiveEloCalculator {
 
         Rank currentRank = Rank.getRankByElo(playerElo);
 
-        // Calcular cambio base
-        int baseChange = calculateBaseChange(playerElo, opponentAvgElo, won);
+        int eloChange;
 
-        // Aplicar modificadores de rango
-        int rankModifiedChange = applyRankModifiers(baseChange, currentRank, won);
+        // Verificar si usar sistema fijo o dinámico
+        if (eloConfig.getBoolean("system.use_fixed_elo", true)) {
+            eloChange = calculateFixedEloChange(currentRank, won, matchType);
+        } else {
+            // Mantener el sistema anterior como respaldo
+            int baseChange = calculateBaseChange(playerElo, opponentAvgElo, won);
+            int rankModifiedChange = applyRankModifiers(baseChange, currentRank, won);
 
-        // Aplicar modificadores de tipo de partida (si está habilitado)
-        if (eloConfig.getBoolean("advanced.enable_match_type_multipliers", true)) {
-            double multiplier = won ? matchType.getWinMultiplier() : matchType.getLossMultiplier();
-            rankModifiedChange = (int) Math.round(rankModifiedChange * multiplier);
+            if (eloConfig.getBoolean("system.enable_match_type_multipliers", false)) {
+                double multiplier = won ? matchType.getWinMultiplier() : matchType.getLossMultiplier();
+                rankModifiedChange = (int) Math.round(rankModifiedChange * multiplier);
+            }
+
+            eloChange = rankModifiedChange;
         }
 
-        int newElo = Math.max(eloConfig.getInt("advanced.minimum_elo", 0), playerElo + rankModifiedChange);
+        int newElo = Math.max(eloConfig.getInt("system.minimum_elo", 0), playerElo + eloChange);
         Rank newRank = Rank.getRankByElo(newElo);
 
         boolean promoted = newRank.ordinal() > currentRank.ordinal();
         boolean demoted = newRank.ordinal() < currentRank.ordinal();
 
-        return new EloChange(rankModifiedChange, newElo, currentRank, newRank, promoted, demoted);
+        return new EloChange(eloChange, newElo, currentRank, newRank, promoted, demoted);
     }
+
+    /**
+     * Calcula el cambio de ELO usando valores fijos por rango
+     */
+    private static int calculateFixedEloChange(Rank currentRank, boolean won, MatchType matchType) {
+        loadConfigIfNeeded();
+
+        String rankKey = getRankConfigKey(currentRank);
+        String changeType = won ? "win" : "loss";
+
+        int baseChange = eloConfig.getInt("fixed_elo_changes." + rankKey + "." + changeType,
+                won ? 20 : -20); // valores por defecto
+
+        // Aplicar multiplicador de tipo de partida si está habilitado
+        if (eloConfig.getBoolean("system.enable_match_type_multipliers", false)) {
+            double multiplier = matchType.getMultiplier();
+            baseChange = (int) Math.round(baseChange * multiplier);
+        }
+
+        return baseChange;
+    }
+
+    /**
+     * Convierte el rango a la clave de configuración correspondiente
+     */
+    private static String getRankConfigKey(Rank rank) {
+        return switch (rank) {
+            case COBRE_3, COBRE_2, COBRE_1 -> "cobre";
+            case HIERRO_3, HIERRO_2, HIERRO_1 -> "hierro";
+            case ORO_3, ORO_2, ORO_1 -> "oro";
+            case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> "diamante";
+            case ESMERALDA -> "esmeralda";
+            case PLACEMENT -> "cobre"; // Usar configuración base para placement (aunque no se debería usar)
+        };
+    }
+
+
 
     private static int calculateBaseChange(int playerElo, double opponentAvgElo, boolean won) {
         loadConfigIfNeeded();
@@ -150,11 +198,11 @@ public class ProgressiveEloCalculator {
     private static int getKFactor(int elo) {
         loadConfigIfNeeded();
 
-        if (elo < 600) return eloConfig.getInt("k_factors.cobre", 45);
-        if (elo < 900) return eloConfig.getInt("k_factors.hierro", 40);
-        if (elo < 1200) return eloConfig.getInt("k_factors.oro", 35);
-        if (elo < 1500) return eloConfig.getInt("k_factors.diamante", 30);
-        return eloConfig.getInt("k_factors.esmeralda", 25);
+        if (elo < 300) return eloConfig.getInt("k_factors.cobre", 45);      // Cobre
+        if (elo < 600) return eloConfig.getInt("k_factors.hierro", 40);     // Hierro
+        if (elo < 900) return eloConfig.getInt("k_factors.oro", 35);        // Oro
+        if (elo < 1200) return eloConfig.getInt("k_factors.diamante", 30);  // Diamante
+        return eloConfig.getInt("k_factors.esmeralda", 25);                 // Esmeralda
     }
 
     private static int getMinimumLoss(Rank rank) {
@@ -166,6 +214,7 @@ public class ProgressiveEloCalculator {
             case ORO_3, ORO_2, ORO_1 -> eloConfig.getInt("minimum_losses.oro", -18);
             case DIAMANTE_3, DIAMANTE_2, DIAMANTE_1 -> eloConfig.getInt("minimum_losses.diamante", -25);
             case ESMERALDA -> eloConfig.getInt("minimum_losses.esmeralda", -30);
+            case PLACEMENT -> 0; // Los jugadores en placement no deberían perder ELO
         };
     }
 
@@ -208,6 +257,10 @@ public class ProgressiveEloCalculator {
             case ESMERALDA:
                 multiplier = eloConfig.getDouble("rank_multipliers.esmeralda." + winLossKey, won ? 0.8 : 1.6);
                 break;
+
+            case PLACEMENT:
+                // Los jugadores en placement no deberían usar modificadores, retornar sin cambios
+                return baseChange;
         }
 
         return (int) Math.round(baseChange * multiplier);

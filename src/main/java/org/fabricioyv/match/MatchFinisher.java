@@ -10,10 +10,14 @@ import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.config.VoiceChannelConfig;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.database.MatchLogsIntegration;
+import org.fabricioyv.database.MatchLogsManager;
+import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.MMRCalculator;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
+import org.fabricioyv.rating.Rank;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -25,46 +29,113 @@ public class MatchFinisher {
         String matchId = activeMatch.getMatchId();
         long startTime = System.currentTimeMillis();
 
-        // ESTABLECER EL GANADOR EN ACTIVEMATCH PARA PO DER GUARDARLO DESPUÉS
+        // ESTABLECER EL GANADOR EN ACTIVEMATCH
         activeMatch.setWinnerTeam(winnerTeam);
 
         logger.matchEvent(matchId, "Finalizando Partida",
                 "Iniciando proceso de finalización", activeMatch.getAllPlayers().size());
-        // EJECUTAR OPERACIONES PESADAS DE FORMA ASÍNCRONA
+
+        // ========================================
+        // OPERACIONES CRÍTICAS INSTANTÁNEAS (MAIN THREAD)
+        // Usando métodos existentes para no duplicar código
+        // ========================================
+
+        try {
+            // 1. INMEDIATO: Marcar jugadores como NO en partida y listos para otra
+            List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+            for (PlayerData player : allPlayers) {
+                player.setInMatch(false);
+                player.setCurrentMatchId(null);
+                // OPTIMIZACIÓN: Actualizar cache usando BatchProcessor
+                try {
+                    DatabaseManager.updatePlayerMatchStatusAsync(
+                        player.getMinecraftUuid(), false, null);
+                } catch (Exception e) {
+                    // Log warning pero continúa
+                    logger.warning("Cache Update Failed",
+                        "Error actualizando cache para " + player.getMinecraftUuid());
+                }
+            }
+
+            // 2. INMEDIATO: Limpiar jugadores de la cola (REUTILIZAR método existente)
+            cleanupPlayersFromQueue(activeMatch, logger);
+
+            // 3. INMEDIATO: Notificar resultado básico en Minecraft (mensaje simple)
+            String winMessage = "§a✅ PARTIDA TERMINADA - Ganó " + winnerTeam.getDisplayName();
+            String availableMessage = "§e⚡ Estás disponible para una nueva partida";
+
+            Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
+            for (List<PlayerData> teamPlayers : teams.values()) {
+                for (PlayerData playerData : teamPlayers) {
+                    try {
+                        Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                        if (mcPlayer != null && mcPlayer.isOnline()) {
+                            mcPlayer.sendMessage(winMessage);
+                            mcPlayer.sendMessage(availableMessage);
+                        }
+                    } catch (Exception e) {
+                        // Continúa si hay error con un jugador específico
+                        logger.warning("Player Message Failed",
+                            "Error enviando mensaje a " + playerData.getMinecraftUuid());
+                    }
+                }
+            }
+
+            // 4. INMEDIATO: Mover jugadores de Discord (REUTILIZAR método existente)
+            try {
+                movePlayersToWaitingRoom(activeMatch, plugin, logger);
+            } catch (Exception e) {
+                logger.warning("Discord Move Failed",
+                    "Error moviendo jugadores a sala de espera: " + e.getMessage());
+            }
+
+            // 5. INMEDIATO: Finalizar estado de partida
+            activeMatch.setStatus(ActiveMatch.MatchStatus.FINISHED);
+            // CORREGIDO: Usar el método correcto para remover la partida activa
+            activeMatch.cleanup(); // Este método debería manejar la remoción
+            MatchState.endMatch();
+
+            logger.success("Critical Operations Complete",
+                    "Operaciones críticas completadas en " + (System.currentTimeMillis() - startTime) + "ms");
+
+        } catch (Exception e) {
+            logger.systemError("MatchFinisher", "Error en operaciones críticas " + matchId, e.getMessage());
+            emergencyCleanup(activeMatch, plugin, logger);
+            return;
+        }
+
+        // ========================================
+        // OPERACIONES SECUNDARIAS ASÍNCRONAS
+        // Reutilizando métodos existentes
+        // ========================================
+
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                // 1. Calcular duración de la partida
+                // Calcular duración de la partida
                 Duration matchDuration = Duration.between(activeMatch.getStartTime(), LocalDateTime.now());
                 long durationSeconds = matchDuration.getSeconds();
 
-                // 2. Actualizar estadísticas y ELO (ASÍNCRONO)
-                Map<String, Integer> eloChanges = updatePlayerStatistics(activeMatch, winnerTeam, logger);
+                // ASYNC: Actualizar ELO y MMR (REUTILIZAR método existente)
+                Map<String, Integer> eloChanges = updatePlayerStatistics(activeMatch, winnerTeam, logger, plugin);
 
-                // 3. Enviar mensaje de finalización a Discord (ASÍNCRONO)
+                // ASYNC: Enviar resultados completos a Discord (REUTILIZAR método existente)
                 sendDiscordResults(activeMatch, winnerTeam, eloChanges, durationSeconds, logger);
 
-                // OPERACIONES SÍNCRONAS EN EL MAIN THREAD
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    // 4. Notificar jugadores en Minecraft (SÍNCRONO - UI)
+                // ASYNC: Notificar jugadores con detalles completos (REUTILIZAR método existente)
+                Bukkit.getScheduler().runTask(plugin, () -> {
                     notifyPlayersInMinecraft(activeMatch, winnerTeam, eloChanges);
+                });
 
-                    // 5. Mover jugadores de Discord (SÍNCRONO - API Discord)
-                    movePlayersToWaitingRoom(activeMatch, plugin, logger);
-
-                    // 6. Limpiar canales y recursos (RETRASADO)
+                // ASYNC: Limpiar recursos no críticos (REUTILIZAR método existente)
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     cleanupMatchResources(activeMatch, plugin, logger);
+                }, 60L); // Esperar 3 segundos antes de limpiar canales
 
-                    // 7. Finalizar estado de partida
-                    finalizeMatchState(activeMatch, logger);
-                },20L); // Esperar un tick
+                // ASYNC: Finalizar estado completo (REUTILIZAR método existente)
+                finalizeMatchState(activeMatch, logger);
 
             } catch (Exception e) {
-                logger.systemError("MatchFinisher", "Error crítico finalizando partida " + matchId, e.getMessage());
-
-                // Cleanup en main thread si hay error
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    emergencyCleanup(activeMatch, plugin, logger);
-                });
+                logger.systemError("MatchFinisher", "Error en operaciones secundarias " + matchId, e.getMessage());
             }
         });
     }
@@ -72,10 +143,14 @@ public class MatchFinisher {
      * Actualiza estadísticas de todos los jugadores y calcula cambios de ELO y MMR
      */
     private static Map<String, Integer> updatePlayerStatistics(ActiveMatch activeMatch,
-                                                               Team winnerTeam, DiscordLogger logger) {
+                                                               Team winnerTeam, DiscordLogger logger,
+                                                               RankedMinecraft plugin) {
         Map<String, Integer> eloChanges = new HashMap<>();
         Map<String, ProgressiveEloCalculator.EloChange> detailedChanges = new HashMap<>(); // Nuevo
+        // Lista para updates normales y placement
         List<DatabaseManager.PlayerStatUpdate> batchUpdates = new ArrayList<>();
+        List<DatabaseManager.PlayerStatUpdateWithPlacement> placementBatchUpdates = new ArrayList<>();
+
         Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
 
         // Obtener tipo de partida
@@ -107,73 +182,147 @@ public class MatchFinisher {
                     int oldElo = player.getElo();
                     double oldMmr = player.getMmr();
 
-                    // 1. Calcular cambio de ELO (visible para el jugador)
-                    // Calcular cambio de ELO con modificadores de tipo de partida
-                    ProgressiveEloCalculator.EloChange eloChange =
-                            ProgressiveEloCalculator.calculateEloChange(
-                                    player.getElo(), opponentAvgMMR, won, matchType);
+                    // ARREGLO: Verificar si está en placement ANTES de calcular ELO
+                    ProgressiveEloCalculator.EloChange eloChange;
+                    MMRCalculator.MMRChange mmrChange;
 
-                    // 2. Calcular cambio de MMR (interno para balanceo)
-                    MMRCalculator.MMRChange mmrChange =
-                            MMRCalculator.calculateMMRChange(player, won, teamAvgMMR, opponentAvgMMR);
+                    if (player.isInPlacement()) {
+                        // Jugador en placement: NO cambiar ELO, usar rango especial PLACEMENT
+                        eloChange = new ProgressiveEloCalculator.EloChange(
+                            0,                                                              // eloChange = 0
+                            oldElo,                                                         // newElo = mismo ELO
+                            Rank.PLACEMENT,                                                 // oldRank = En Evaluación
+                            Rank.PLACEMENT,                                                 // newRank = En Evaluación
+                            false,                                                          // promoted = false
+                            false                                                           // demoted = false
+                        );
+
+                        // Calcular MMR especializado para placement
+                        mmrChange = MMRCalculator.calculateMMRChange(player, won, teamAvgMMR, opponentAvgMMR);
+                    } else {
+                        // Jugador establecido: calcular ELO y MMR normales
+                        eloChange = ProgressiveEloCalculator.calculateEloChange(
+                                player.getElo(), opponentAvgMMR, won, matchType);
+
+                        mmrChange = MMRCalculator.calculateMMRChange(player, won, teamAvgMMR, opponentAvgMMR);
+                    }
 
                     eloChanges.put(player.getMinecraftUuid(), eloChange.getEloChange());
-                    detailedChanges.put(player.getMinecraftUuid(), eloChange); // Guardar cambios detallados
+                    detailedChanges.put(player.getMinecraftUuid(), eloChange);
 
-                    // ACTUALIZAR CAMBIOS DE RATING EN LOS LOGS (SOLO REGISTRAR, NO MODIFICAR)
+                    // ACTUALIZAR CAMBIOS DE RATING EN LOS LOGS
                     MatchLogsIntegration.updatePlayerRating(
                         activeMatch.getMatchId(),
                         player,
-                        oldElo,                    // ELO anterior (antes de la partida)
-                        oldMmr,                    // MMR anterior (antes de la partida)
-                        eloChange.getNewElo(),     // ELO nuevo (después de la partida)
-                        mmrChange.getNewMMR()      // MMR nuevo (después de la partida)
+                        oldElo,
+                        oldMmr,
+                        eloChange.getNewElo(),
+                        mmrChange.getNewMMR()
                     );
 
-                    // 3. Actualizar en base de datos (ELO, MMR y estadísticas)
-                    // PREPARAR PARA BATCH UPDATE - ASEGURANDO KILLS Y DEATHS
+                    // 3. Actualizar en base de datos
                     int matchKills = player.getCurrentMatchKills();
                     int matchDeaths = player.getCurrentMatchDeaths();
 
-                    batchUpdates.add(new DatabaseManager.PlayerStatUpdate(
-                            player.getMinecraftUuid(),
-                            won,
-                            eloChange.getNewElo(),
-                            mmrChange.getNewMMR(),
-                            matchKills,    // KILLS de esta partida
-                            matchDeaths    // DEATHS de esta partida
-                    ));
+                    if (player.isInPlacement()) {
+                        // Jugador en placement: usar update especializado
+                        // CORREGIR: Incrementar placement matches correctamente
+                        int newPlacementCount = player.getPlacementMatchesPlayed() + 1;
 
-                    // 4. Actualizar objeto en memoria
+                        placementBatchUpdates.add(new DatabaseManager.PlayerStatUpdateWithPlacement(
+                                player.getMinecraftUuid(),
+                                won,
+                                eloChange.getNewElo(), // Mantiene el ELO igual
+                                mmrChange.getNewMMR(),
+                                matchKills,
+                                matchDeaths,
+                                newPlacementCount < PlayerData.getPlacementMatchesRequired(), // isInPlacement actualizado
+                                newPlacementCount // Contador correcto
+                        ));
+
+                        // CRÍTICO: Actualizar objeto en memoria inmediatamente
+                        player.incrementPlacementMatches();
+                    } else {
+                        // Jugador normal: usar update tradicional
+                        batchUpdates.add(new DatabaseManager.PlayerStatUpdate(
+                                player.getMinecraftUuid(),
+                                won,
+                                eloChange.getNewElo(),
+                                mmrChange.getNewMMR(),
+                                matchKills,
+                                matchDeaths
+                        ));
+                    }
+
+                    // Actualizar PlayerData en memoria
                     player.setElo(eloChange.getNewElo());
                     player.setMmr(mmrChange.getNewMMR());
-                    player.setInMatch(false);
-                    player.setCurrentMatchId(null);
 
-                    // 5. Log detallado de cambios
-                    String playerName = getPlayerName(player);
-                    logger.info("Player Stats Updated",
-                            String.format("%s | %s | %s | Result: %s",
-                                    playerName,
-                                    eloChange.getChangeMessage(),
-                                    mmrChange.getDetailedMessage(),
-                                    won ? "VICTORIA" : "DERROTA"));
+                    // Incrementar partidas jugadas para placement
+                    if (player.isInPlacement()) {
+                        int newPlacementMatches = player.getPlacementMatchesPlayed() + 1;
+                        player.setPlacementMatchesPlayed(newPlacementMatches);
 
-                    // 6. Resetear estadísticas de partida para próxima partida
-                    player.resetMatchStats();
+                        // Verificar si completó placement matches
+                        if (newPlacementMatches >= PlayerData.getPlacementMatchesRequired()) {
+                            player.setInPlacement(false);
+                            logger.info("Placement Completed",
+                                player.getMinecraftUuid() + " completó placement matches");
+                        }
+                    }
+
+
+                    // OPTIMIZACIÓN: Usar BatchProcessor para updates asíncronos
+                    if (player.isInPlacement()) {
+                        // Update con datos de placement
+                        DatabaseManager.PlayerStatUpdateWithPlacement placementUpdate =
+                            new DatabaseManager.PlayerStatUpdateWithPlacement(
+                                player.getMinecraftUuid(),
+                                won,
+                                eloChange.getNewElo(),
+                                mmrChange.getNewMMR(),
+                                matchKills,
+                                matchDeaths,
+                                player.isInPlacement(),
+                                player.getPlacementMatchesPlayed()
+                            );
+                        placementBatchUpdates.add(placementUpdate);
+                    } else {
+                        // Update normal
+                        DatabaseManager.PlayerStatUpdate normalUpdate =
+                            new DatabaseManager.PlayerStatUpdate(
+                                player.getMinecraftUuid(),
+                                won,
+                                eloChange.getNewElo(),
+                                mmrChange.getNewMMR(),
+                                matchKills,
+                                matchDeaths
+                            );
+                        batchUpdates.add(normalUpdate);
+                    }
+
+                    // OPTIMIZACIÓN: Actualizar estado de partida usando BatchProcessor
+                    DatabaseManager.updatePlayerMatchStatusAsync(
+                        player.getMinecraftUuid(), false, null);
 
                 } catch (Exception e) {
                     logger.systemError("MatchFinisher",
-                            "Error updating player statistics: " + player.getMinecraftUuid(),
-                            e.getMessage());
+                        "Error actualizando jugador " + player.getMinecraftUuid(), e.getMessage());
                 }
             }
         }
-        // EJECUTAR BATCH UPDATE UNA SOLA VEZ
+
+        // OPTIMIZACIÓN: Ejecutar batch updates asíncrono
         if (!batchUpdates.isEmpty()) {
-            DatabaseManager.updatePlayerStats(batchUpdates);
-            logger.success("Database Updated",
-                    "Actualizadas estadísticas de " + batchUpdates.size() + " jugadores en batch");
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                DatabaseManager.updatePlayerStats(batchUpdates);
+            });
+        }
+
+        if (!placementBatchUpdates.isEmpty()) {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                DatabaseManager.updatePlayerStatsWithPlacement(placementBatchUpdates);
+            });
         }
 
         // GUARDAR DATOS COMPLETOS DE LA PARTIDA EN LA BASE DE DATOS MATCH_LOGS
@@ -232,13 +381,33 @@ public class MatchFinisher {
                     mcPlayer.sendMessage(winnerMessage);
                     mcPlayer.sendMessage(mapMessage);
 
-                    // Mensaje personalizado con cambio de ELO
-                    Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
-                    if (eloChange != null) {
-                        String eloMessage = eloChange > 0 ?
-                                "§a📈 +" + eloChange + " ELO!" :
-                                "§c📉 " + eloChange + " ELO";
-                        mcPlayer.sendMessage(eloMessage);
+                    // NUEVO: Mensaje personalizado dependiendo del estado del jugador
+                    if (playerData.isInPlacement()) {
+                        // Mensaje para jugadores en placement
+                        int matchesPlayed = playerData.getPlacementMatchesPlayed();
+                        int totalRequired = PlayerData.getPlacementMatchesRequired();
+                        int remaining = totalRequired - matchesPlayed;
+
+                        mcPlayer.sendMessage("§b🔍 PERÍODO DE EVALUACIÓN");
+                        mcPlayer.sendMessage("§e📊 Progreso: §f" + matchesPlayed + "/" + totalRequired + " partidas");
+
+                        if (remaining > 0) {
+                            mcPlayer.sendMessage("§a✨ Te faltan §e" + remaining + "§a partidas para obtener tu rango inicial");
+                        } else {
+                            mcPlayer.sendMessage("§a🎉 ¡Completaste todas las partidas de evaluación! Tu rango se asignará pronto.");
+                        }
+
+                        mcPlayer.sendMessage("§7💡 Durante la evaluación no pierdes ni ganas ELO");
+                    } else {
+                        // Mensaje normal con cambio de ELO
+                        Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
+                        if (eloChange != null) {
+                            String eloMessage = eloChange > 0 ?
+                                    "§a📈 +" + eloChange + " ELO!" :
+                                    "§c📉 " + eloChange + " ELO";
+                            mcPlayer.sendMessage(eloMessage);
+                            mcPlayer.sendMessage("§7💰 ELO actual: §f" + (playerData.getElo() + eloChange));
+                        }
                     }
 
                     mcPlayer.sendMessage("§6§l========================");
@@ -369,11 +538,23 @@ public class MatchFinisher {
                 "Ejecutando limpieza de emergencia para partida " + activeMatch.getMatchId());
 
         // Limpiar estado de jugadores
+        List<PlayerData> allPlayers = new ArrayList<>();
         for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
             for (PlayerData playerData : teamPlayers) {
                 playerData.setInMatch(false);
                 playerData.setCurrentMatchId(null);
+                allPlayers.add(playerData);
             }
+        }
+
+        // TAMBIÉN LIMPIAR DE LA COLA EN EMERGENCIA
+        try {
+            QueueManager.removePlayersFromQueueAfterMatch(allPlayers);
+            logger.info("Emergency Queue Cleanup",
+                    "Limpiados " + allPlayers.size() + " jugadores de cola en limpieza de emergencia");
+        } catch (Exception e) {
+            logger.systemError("MatchFinisher",
+                    "Error en limpieza de emergencia de cola", e.getMessage());
         }
 
         // Finalizar estado global
@@ -566,11 +747,6 @@ public class MatchFinisher {
         );
     }
 
-    /**
-     * Notifica a los jugadores en Minecraft sobre el empate
-     */
-
-
 
     /**
      * NUEVO: Guarda los datos completos de la partida en la base de datos match_logs
@@ -597,6 +773,30 @@ public class MatchFinisher {
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
                 "Error guardando datos de partida " + activeMatch.getMatchId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Limpia a los jugadores de la cola después de que termine la partida
+     */
+    private static void cleanupPlayersFromQueue(ActiveMatch activeMatch, DiscordLogger logger) {
+        try {
+            // Obtener todos los jugadores de la partida
+            List<PlayerData> allPlayers = new ArrayList<>();
+            for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
+                allPlayers.addAll(teamPlayers);
+            }
+
+            // NUEVO: Solo limpiar tracking, no remover de colas (ya fueron removidos al iniciar partida)
+            QueueManager.cleanupPlayerTrackingAfterMatch(allPlayers);
+
+            logger.info("Queue Tracking Cleanup",
+                    "Limpiado tracking de " + allPlayers.size() + " jugadores tras finalizar partida " +
+                    activeMatch.getMatchId() + " (jugadores en espera no afectados)");
+
+        } catch (Exception e) {
+            logger.systemError("MatchFinisher",
+                    "Error limpiando tracking de cola tras partida", e.getMessage());
         }
     }
 }

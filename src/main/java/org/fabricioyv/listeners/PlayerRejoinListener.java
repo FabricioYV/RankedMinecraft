@@ -15,6 +15,7 @@ import org.fabricioyv.logging.DiscordLogger;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Listener para manejar el rejoin de jugadores a partidas activas
@@ -29,32 +30,32 @@ public class PlayerRejoinListener implements Listener {
         this.logger = logger;
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerUuid = player.getUniqueId();
 
-        // Verificar si el jugador estaba en una partida activa
-        ActiveMatch activeMatch = findActiveMatchForPlayer(playerUuid);
+        // OPTIMIZACIÓN: Mover búsqueda a thread asíncrono para no bloquear main thread
+        CompletableFuture.runAsync(() -> {
+            // Verificar si el jugador estaba en una partida activa
+            ActiveMatch activeMatch = findActiveMatchForPlayer(playerUuid);
 
-        if (activeMatch != null) {
-            // Encontrar el equipo del jugador
-            Team playerTeam = findPlayerTeam(activeMatch, playerUuid);
+            if (activeMatch != null) {
+                // Encontrar el equipo del jugador
+                Team playerTeam = findPlayerTeam(activeMatch, playerUuid);
 
-            if (playerTeam != null) {
-                logger.info("Rejoin Detectado",
-                    String.format("Jugador %s reconectándose a partida %s en equipo %s",
-                        player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
+                if (playerTeam != null) {
+                    logger.info("Rejoin Detectado",
+                        String.format("Jugador %s reconectándose a partida %s en equipo %s",
+                            player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
 
-                // Esperar un poco para que el jugador cargue completamente
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
+                    // Volver al main thread para operaciones de Bukkit
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
                         handlePlayerRejoin(player, activeMatch, playerTeam);
-                    }
-                }.runTaskLater(plugin, 60L); // 3 segundos de espera
+                    }, 60L); // 3 segundos de espera
+                }
             }
-        }
+        });
     }
 
     /**

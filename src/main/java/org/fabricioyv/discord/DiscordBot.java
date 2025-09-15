@@ -72,7 +72,7 @@ public class DiscordBot {
                     MatchDetailsCommand.getSlashCommand()
                 )
                 .queue(
-                    success -> logger.info("Match Commands Registered", "Comandos de partidas registrados exitosamente"),
+                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
                     error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
                 );
 

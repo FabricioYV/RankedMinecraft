@@ -1,28 +1,21 @@
 # Configuración de pools de mapas para RankedMinecraft
 pools:
   5v5:
-    - "Warlock"
-    - "Senex"
-    - "BlockRAGE"
-    - "Antiquis"
-    - "Avalon"
-    - "Battle of Tenjin"
-    - "Cargo"
-    - "Desert Sanctuary"
-    - "Frozen Myst"
-    - "Justice"
+    - "Siege"
+    - "Smoke┈KotH┈5v5"
+    - "Topaz"
+    - "Willow"
+    - "Factori"
+    - "Revolution"
+    - "Space┈Race┈1969"
+    - "Rusteze┈5v5"
 
   8v8:
-    - "Battle of Lyndanisse"
-    - "Bamboo Valley"
-    - "Deepwind Jungle"
-    - "Fractal Descent"
-    - "Golden Drought III"
-    - "Harb"
-    - "Icebound"
-    - "King of the Ladder"
-    - "Medieval Warfare"
-    - "Race for Victory 3"
+    - "Java II"
+    - "Jurassic"
+    - "NextGen"
+    - "Gobi"
+    - "Oriental"
 
 # Configuración adicional
 voting:

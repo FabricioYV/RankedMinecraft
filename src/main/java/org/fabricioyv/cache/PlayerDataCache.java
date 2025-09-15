@@ -30,7 +30,7 @@ public class PlayerDataCache {
             6000L, // 5 minutos inicial
             6000L  // cada 5 minutos
         );
-        
+
         Bukkit.getConsoleSender().sendMessage("§a✅ PlayerDataCache inicializado con limpieza automática");
     }
 
@@ -49,17 +49,15 @@ public class PlayerDataCache {
                     playerCacheByDiscordId.remove(key.substring(8));
                 } else if (key.startsWith("uuid:")) {
                     playerCacheByUuid.remove(key.substring(5));
+
                 }
                 return true;
             }
             return false;
         });
         
-        if (cleanedEntries > 0) {
-            Bukkit.getConsoleSender().sendMessage(
-                String.format("§7🧹 Cache limpiado: %d entradas expiradas removidas", cleanedEntries)
-            );
-        }
+        // ELIMINADO: Log innecesario de limpieza de cache que se ejecuta cada 5 minutos
+        // Solo limpiar en silencio, no spam en consola
     }
 
     /**
@@ -133,9 +131,8 @@ public class PlayerDataCache {
         for (PlayerData player : players) {
             cachePlayer(player);
         }
-        Bukkit.getConsoleSender().sendMessage(
-            String.format("§a📦 Cache pre-cargado con %d jugadores", players.size())
-        );
+        // ELIMINADO: Log innecesario de pre-carga de cache
+        // Solo cargar en silencio, no spam por cada partida
     }
 
     /**

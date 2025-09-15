@@ -1,56 +1,36 @@
 # Configuración del sistema ELO para RankedMinecraft
-# ELO inicial para nuevos jugadores
-starting_elo: 500
+# ELO inicial para nuevos jugadores (cambiado de 500 a 0)
+starting_elo: 0
 
-# Factores K por rango
-k_factors:
-  cobre: 45
-  hierro: 40
-  oro: 35
-  diamante: 30
-  esmeralda: 25
+# Ganancia/Pérdida fija por rango (valores ajustados para ELO inicial 0)
+fixed_elo_changes:
+  cobre:
+    win: 15
+    loss: -10
+  hierro:
+    win: 12
+    loss: -15
+  oro:
+    win: 10
+    loss: -18
+  diamante:
+    win: 8
+    loss: -20
+  esmeralda:
+    win: 5
+    loss: -25
 
-# Tipos de partida
+# Tipos de partida (opcional para futuros ajustes)
 match_types:
   ranked_5v5:
     display_name: "Ranked 5v5"
-    win_multiplier: 1.0
-    loss_multiplier: 1.0
+    multiplier: 1.0
   ranked_8v8:
     display_name: "Ranked 8v8"
-    win_multiplier: 1.0
-    loss_multiplier: 1.0
+    multiplier: 1.0
 
-# Pérdidas mínimas por rango
-minimum_losses:
-  cobre: -5
-  hierro: -10
-  oro: -18
-  diamante: -25
-  esmeralda: -30
-
-# Multiplicadores por rango
-rank_multipliers:
-  cobre:
-    win: 1.3
-    loss: 0.8
-  hierro:
-    win: 1.1
-    loss: 1.2
-  oro:
-    win: 1.0
-    loss: 1.5
-  diamante:
-    win: 0.9
-    loss: 1.8
-  esmeralda:
-    win: 0.8
-    loss: 1.6
-
-# Configuración avanzada
-advanced:
-  enable_match_type_multipliers: true
+# Configuración del sistema
+system:
+  use_fixed_elo: true
   minimum_elo: 0
-  elo_division_factor: 400
-  enable_minimum_losses: true
-  enable_rank_multipliers: true
+  enable_match_type_multipliers: false

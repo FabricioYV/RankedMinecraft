@@ -7,10 +7,10 @@ import org.fabricioyv.commands.ForfeitCommand;
 import org.fabricioyv.commands.ReadyCommand;
 import org.fabricioyv.commands.VoteCommand;
 import org.fabricioyv.database.DatabaseManager;
+import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
-import org.fabricioyv.listeners.OptimizedMatchStatsListener;
-import org.fabricioyv.listeners.PGMMatchListener;
+import org.fabricioyv.listeners.PGMMatchListener; // Descomentado - disponible cuando instales PGM
 import org.fabricioyv.match.MapManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
@@ -71,12 +71,18 @@ public final class RankedMinecraft extends JavaPlugin {
                 discordBot.shutdown();
             }
 
+            // OPTIMIZACIÓN: Cerrar MatchStatsListener correctamente
+            MatchStatsListener.shutdown();
+
+            // OPTIMIZACIÓN: Cerrar BatchProcessor y procesar operaciones pendientes
+            BatchProcessor.shutdown();
+
             // Cerrar base de datos
             DatabaseManager.close();
 
             getLogger().info("RankedMinecraft deshabilitado correctamente!");
-            OptimizedMatchStatsListener.shutdown();
-            // 5. Cancel all Bukkit tasks
+
+            // Cancel all Bukkit tasks
             Bukkit.getScheduler().cancelTasks(this);
         } catch (Exception e) {
             getLogger().severe("Error durante el cierre: " + e.getMessage());

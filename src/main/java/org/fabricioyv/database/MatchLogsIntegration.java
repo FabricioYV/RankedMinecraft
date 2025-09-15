@@ -196,36 +196,11 @@ public class MatchLogsIntegration {
 
 
     /**
-     * Log detallado del resumen de la partida
+     * Log detallado del resumen de la partida - ELIMINADO para evitar spam
      */
     private static void logMatchSummary(MatchLogsManager.MatchSummary matchSummary) {
-        Bukkit.getConsoleSender().sendMessage("§a" + "=".repeat(50));
-        Bukkit.getConsoleSender().sendMessage("§a✅ PARTIDA GUARDADA EN BASE DE DATOS");
-        Bukkit.getConsoleSender().sendMessage("§7ID: §f" + matchSummary.getMatchId());
-        Bukkit.getConsoleSender().sendMessage("§7Tipo: §f" + matchSummary.getMatchType());
-        Bukkit.getConsoleSender().sendMessage("§7Mapa: §f" + matchSummary.getMapName());
-        Bukkit.getConsoleSender().sendMessage("§7Ganador: §f" + matchSummary.getWinnerTeam());
-        Bukkit.getConsoleSender().sendMessage("§7Duración: §f" + matchSummary.getDurationSeconds() + " segundos");
-        Bukkit.getConsoleSender().sendMessage("§7Jugadores: §f" + matchSummary.getPlayerStats().size());
-
-        // Estadísticas resumidas
-        int totalKills = 0;
-        int totalDeaths = 0;
-        double totalDamage = 0;
-        int totalArrows = 0;
-
-        for (MatchLogsManager.PlayerMatchStats stats : matchSummary.getPlayerStats().values()) {
-            totalKills += stats.getKills();
-            totalDeaths += stats.getDeaths();
-            totalDamage += stats.getDamageDealt();
-            totalArrows += stats.getArrowsShot();
-        }
-
-        Bukkit.getConsoleSender().sendMessage("§7Total Kills: §f" + totalKills);
-        Bukkit.getConsoleSender().sendMessage("§7Total Deaths: §f" + totalDeaths);
-        Bukkit.getConsoleSender().sendMessage("§7Total Damage: §f" + String.format("%.1f", totalDamage));
-        Bukkit.getConsoleSender().sendMessage("§7Total Arrows: §f" + totalArrows);
-        Bukkit.getConsoleSender().sendMessage("§a" + "=".repeat(50));
+        // ELIMINADO: Logs excesivos que generaban spam por cada partida
+        // Solo mantener el registro en base de datos, no spam en consola
     }
 
 }

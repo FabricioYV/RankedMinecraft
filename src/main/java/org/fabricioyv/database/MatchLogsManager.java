@@ -194,6 +194,18 @@ public class MatchLogsManager {
             this.arrowsHit++;
             calculateArrowAccuracy();
         }
+
+        /**
+         * Método de conveniencia para establecer todos los cambios de rating a la vez
+         */
+        public void setRatingChanges(int oldElo, int newElo, double oldMmr, double newMmr) {
+            this.oldElo = oldElo;
+            this.newElo = newElo;
+            this.eloChange = newElo - oldElo;
+            this.oldMmr = oldMmr;
+            this.newMmr = newMmr;
+            this.mmrChange = newMmr - oldMmr;
+        }
     }
 
     /**

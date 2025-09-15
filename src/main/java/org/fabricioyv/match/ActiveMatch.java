@@ -71,31 +71,49 @@ public class ActiveMatch {
     }
 
     /**
-     * Balancea los equipos por ELO usando algoritmo "snake pick"
+     * Balancea los equipos considerando partidas de prueba y MMR usando algoritmo avanzado
      */
     public void balanceTeams() {
-        logger.info("Iniciando Balance", "Iniciando balanceo inteligente de equipos para " + allPlayers.size() + " jugadores");
+        logger.info("Iniciando Balance", "Iniciando balanceo inteligente con predicción de MMR para " + allPlayers.size() + " jugadores");
 
         try {
-            // Usar el nuevo sistema de balanceo
-            TeamBalancer.BalanceResult result = TeamBalancer.balanceTeams(allPlayers);
+            // Contar jugadores en placement
+            long placementCount = allPlayers.stream().filter(PlayerData::isInPlacement).count();
 
-            // Asignar equipos
-            teams.put(Team.BLUE, new ArrayList<>(result.getTeam1()));
-            teams.put(Team.RED, new ArrayList<>(result.getTeam2()));
+            if (placementCount > 0) {
+                logger.info("Placement Detectado",
+                    String.format("Detectados %d jugadores en partidas de prueba - Aplicando algoritmo de predicción de MMR", placementCount));
 
-            // Generar reporte detallado
-            String balanceReport = TeamBalancer.generateBalanceReport(result);
-            logger.info("Balance Completado", balanceReport);
+                // Usar el nuevo sistema de matchmaking inteligente
+                SmartPlacementMatchmaking.BalancedTeams balancedTeams =
+                    SmartPlacementMatchmaking.balanceTeamsWithPrediction(allPlayers);
 
-            // Log resumido para Discord
-            String statusMessage = result.isBalanced() ? "✅ BALANCEADO" : "⚠️ MEJOR INTENTO";
-            logger.success("Equipos Formados",
-                    String.format("%s - Diferencia: %.1f\nEquipo Azul: %.1f promedio vs Equipo Rojo: %.1f promedio",
-                            statusMessage, result.getDifference(), result.getTeam1Average(), result.getTeam2Average()));
+                // Asignar equipos
+                teams.put(Team.BLUE, new ArrayList<>(balancedTeams.team1));
+                teams.put(Team.RED, new ArrayList<>(balancedTeams.team2));
 
-            // Log en consola para debugging
-            logger.debug("Balance Detallado", balanceReport);
+                // Generar reporte especializado
+                String smartReport = SmartPlacementMatchmaking.generateSmartMatchmakingReport(balancedTeams);
+                logger.success("Balance Inteligente", smartReport);
+
+            } else {
+                // Usar el sistema tradicional para jugadores post-placement
+                TeamBalancer.BalanceResult result = TeamBalancer.balanceTeams(allPlayers);
+
+                // Asignar equipos
+                teams.put(Team.BLUE, new ArrayList<>(result.getTeam1()));
+                teams.put(Team.RED, new ArrayList<>(result.getTeam2()));
+
+                // Generar reporte detallado
+                String balanceReport = TeamBalancer.generateBalanceReport(result);
+                logger.info("Balance Completado", balanceReport);
+
+                // Log resumido para Discord
+                String statusMessage = result.isBalanced() ? "✅ BALANCEADO" : "⚠️ MEJOR INTENTO";
+                logger.success("Equipos Formados",
+                        String.format("%s - Diferencia: %.1f\nEquipo Azul: %.1f promedio vs Equipo Rojo: %.1f promedio",
+                                statusMessage, result.getDifference(), result.getTeam1Average(), result.getTeam2Average()));
+            }
 
         } catch (Exception e) {
             logger.systemError("TeamBalancer", "Error en balanceo inteligente", e.getMessage());
@@ -257,16 +275,15 @@ public class ActiveMatch {
                 try {
                     logger.info("Setting Permissions", "Configurando permisos para canal " + team.getDisplayName());
 
-                    // PASO 1: Configurar permisos para @everyone - PERMITIR VER pero DENEGAR conectar y hablar
+                    // PASO 1: Configurar permisos para @everyone - PERMITIR VER Y HABLAR, PERO NO CONECTAR
                     channel.getManager()
                             .putPermissionOverride(guild.getPublicRole(),
-                                    EnumSet.of(Permission.VIEW_CHANNEL), // Permitir ver el canal
-                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
-                                             Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                    EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_SPEAK), // Permitir ver y hablar, pero NO conectar
+                                    EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
                                              Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
                             .queue(
                                 success -> {
-                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER pero NO conectar/hablar");
+                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER y HABLAR, pero NO CONECTAR");
                                     // PASO 2: Configurar permisos para el rol @Queue
                                     setupQueueRolePermissions(channel, team, teamPlayers);
                                 },

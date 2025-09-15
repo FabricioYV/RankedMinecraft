@@ -13,6 +13,7 @@ import org.fabricioyv.model.PlayerData;
 import java.awt.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -60,6 +61,7 @@ public class DiscordLogger {
 
         // Equipos y estadísticas
         StringBuilder teamsInfo = new StringBuilder();
+        int placementPlayersCount = 0;
 
         for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
             Team team = entry.getKey();
@@ -73,26 +75,52 @@ public class DiscordLogger {
             for (PlayerData player : players) {
                 String playerName = getPlayerDisplayName(player);
                 Integer eloChange = eloChanges.get(player.getMinecraftUuid());
-                String eloText = "";
+                String statusText = "";
 
-                if (eloChange != null) {
-                    eloText = " (" + (eloChange > 0 ? "+" : "") + eloChange + ")";
+                // NUEVO: Verificar si el jugador está en placement
+                if (player.isInPlacement()) {
+                    placementPlayersCount++;
+                    int matchesPlayed = player.getPlacementMatchesPlayed();
+                    int totalRequired = PlayerData.getPlacementMatchesRequired();
+                    statusText = String.format(" 🔍 [%d/%d Evaluación]", matchesPlayed, totalRequired);
+                } else if (eloChange != null) {
+                    // Jugador normal con cambio de ELO
+                    statusText = " (" + (eloChange > 0 ? "+" : "") + eloChange + ")";
+                } else {
+                    // Fallback: no debería pasar pero por seguridad
+                    statusText = " (Sin cambios)";
                 }
 
-                teamsInfo.append("• ").append(playerName).append(eloText).append("\n");
+                teamsInfo.append("• ").append(playerName).append(statusText).append("\n");
             }
             teamsInfo.append("\n");
         }
 
         embed.addField("👥 Equipos", teamsInfo.toString(), false);
 
-        // Estadísticas de ELO
-        int totalEloGained = eloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
-        int totalEloLost = Math.abs(eloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
+        // Estadísticas de ELO (solo para jugadores no-placement)
+        Map<String, Integer> rankedEloChanges = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
+            // Buscar el jugador para verificar si está en placement
+            PlayerData player = findPlayerByUuid(teams, entry.getKey());
+            if (player != null && !player.isInPlacement()) {
+                rankedEloChanges.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
 
         embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
         embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
         embed.addField("⚖️ ELO Neto", "0", true);
+
+        // NUEVO: Información de placement si hay jugadores en evaluación
+        if (placementPlayersCount > 0) {
+            embed.addField("🔍 En Evaluación",
+                placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
+                " en período de evaluación", false);
+        }
 
         embed.setTimestamp(java.time.Instant.now());
         embed.setFooter("Partida completada");
@@ -448,5 +476,19 @@ public class DiscordLogger {
         public String getEmoji() {
             return emoji;
         }
+    }
+
+    /**
+     * Busca un jugador por UUID en los equipos
+     */
+    private PlayerData findPlayerByUuid(Map<Team, List<PlayerData>> teams, String uuid) {
+        for (List<PlayerData> teamPlayers : teams.values()) {
+            for (PlayerData player : teamPlayers) {
+                if (player.getMinecraftUuid().equals(uuid)) {
+                    return player;
+                }
+            }
+        }
+        return null;
     }
 }

@@ -1,23 +1,26 @@
 package org.fabricioyv.rating;
 
 public enum Rank {
-    COBRE_3("Cobre III", "§c", 0, 399),
-    COBRE_2("Cobre II", "§c", 400, 499),
-    COBRE_1("Cobre I", "§c", 500, 599),
+    COBRE_3("Cobre III", "§c", 0, 99),
+    COBRE_2("Cobre II", "§c", 100, 199),
+    COBRE_1("Cobre I", "§c", 200, 299),
 
-    HIERRO_3("Hierro III", "§7", 600, 699),
-    HIERRO_2("Hierro II", "§7", 700, 799),
-    HIERRO_1("Hierro I", "§7", 800, 899),
+    HIERRO_3("Hierro III", "§7", 300, 399),
+    HIERRO_2("Hierro II", "§7", 400, 499),
+    HIERRO_1("Hierro I", "§7", 500, 599),
 
-    ORO_3("Oro III", "§6", 900, 999),
-    ORO_2("Oro II", "§6", 1000, 1099),
-    ORO_1("Oro I", "§6", 1100, 1199),
+    ORO_3("Oro III", "§6", 600, 699),
+    ORO_2("Oro II", "§6", 700, 799),
+    ORO_1("Oro I", "§6", 800, 899),
 
-    DIAMANTE_3("Diamante III", "§b", 1200, 1299),
-    DIAMANTE_2("Diamante II", "§b", 1300, 1399),
-    DIAMANTE_1("Diamante I", "§b", 1400, 1499),
+    DIAMANTE_3("Diamante III", "§b", 900, 999),
+    DIAMANTE_2("Diamante II", "§b", 1000, 1099),
+    DIAMANTE_1("Diamante I", "§b", 1100, 1199),
 
-    ESMERALDA("Esmeralda", "§a", 1500, Integer.MAX_VALUE);
+    ESMERALDA("Esmeralda", "§a", 1200, Integer.MAX_VALUE),
+
+    // Rango especial para jugadores en placement matches
+    PLACEMENT("En Evaluación", "§e", -1, -1);
 
     private final String displayName;
     private final String colorCode;

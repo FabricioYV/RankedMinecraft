@@ -19,6 +19,11 @@ public class PlayerData {
     private int totalKills;
     private int totalDeaths;
 
+    // Sistema de partidas de prueba (placement matches)
+    private boolean isInPlacement;
+    private int placementMatchesPlayed;
+    private static final int PLACEMENT_MATCHES_REQUIRED = 8; // 8 partidas de prueba
+
 
     public PlayerData(String minecraftUuid, String discordId, int elo, boolean isInMatch, String currentMatchId ,double mmr,int wins ,int losses,int gamesPlayed,int totalKills,int totalDeaths ) {
         this.minecraftUuid = minecraftUuid;
@@ -35,6 +40,10 @@ public class PlayerData {
         this.gamesPlayed = gamesPlayed;
         this.totalKills = totalKills;
         this.totalDeaths = totalDeaths;
+
+        // Inicializar sistema de placement
+        this.isInPlacement = gamesPlayed < PLACEMENT_MATCHES_REQUIRED;
+        this.placementMatchesPlayed = Math.min(gamesPlayed, PLACEMENT_MATCHES_REQUIRED);
     }
 
     // Getters y setters
@@ -124,4 +133,42 @@ public class PlayerData {
         return minecraftUuid.hashCode();
     }
 
+    /**
+     * Métodos para el sistema de placement matches
+     */
+    public boolean isInPlacement() {
+        return isInPlacement;
+    }
+
+    public void setInPlacement(boolean inPlacement) {
+        this.isInPlacement = inPlacement;
+    }
+
+    public int getPlacementMatchesPlayed() {
+        return placementMatchesPlayed;
+    }
+
+    public void setPlacementMatchesPlayed(int placementMatchesPlayed) {
+        this.placementMatchesPlayed = placementMatchesPlayed;
+    }
+
+    public void incrementPlacementMatches() {
+        this.placementMatchesPlayed++;
+        // Si completó todas las partidas de placement, salir del sistema
+        if (this.placementMatchesPlayed >= PLACEMENT_MATCHES_REQUIRED) {
+            this.isInPlacement = false;
+        }
+    }
+
+    public static int getPlacementMatchesRequired() {
+        return PLACEMENT_MATCHES_REQUIRED;
+    }
+
+    /**
+     * Método para establecer datos de placement (usado en DatabaseManager)
+     */
+    public void setPlacementData(boolean isInPlacement, int placementMatchesPlayed) {
+        this.isInPlacement = isInPlacement;
+        this.placementMatchesPlayed = placementMatchesPlayed;
+    }
 }

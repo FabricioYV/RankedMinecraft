@@ -3,6 +3,7 @@ package org.fabricioyv.database;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.bukkit.Bukkit;
+import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.cache.PlayerDataCache;
 import org.fabricioyv.model.PlayerData;
 
@@ -17,10 +18,10 @@ public class DatabaseManager {
     // Mapa para almacenar múltiples datasources
     private static final Map<String, HikariDataSource> dataSources = new HashMap<>();
 
-    // Configuración de pools y timeouts
-    private static final int MAX_POOL_SIZE = 8;
-    private static final int MIN_IDLE = 2;
-    private static final long CONNECTION_TIMEOUT = 10000; // 10 segundos
+    // Configuración de pools y timeouts OPTIMIZADAS para PvP
+    private static final int MAX_POOL_SIZE = 12; // Incrementado para mejor concurrencia
+    private static final int MIN_IDLE = 4; // Más conexiones idle para respuesta rápida
+    private static final long CONNECTION_TIMEOUT = 5000; // Reducido para fallar rápido
     private static final long IDLE_TIMEOUT = 300000; // 5 minutos
     private static final long MAX_LIFETIME = 1800000; // 30 minutos
 
@@ -70,6 +71,15 @@ public class DatabaseManager {
 
         // OPTIMIZACIÓN: Inicializar cache de PlayerData
         PlayerDataCache.initialize();
+
+        // Ejecutar migración de placement matches si es necesario
+        if (!PlacementMigration.isMigrationApplied()) {
+            Bukkit.getConsoleSender().sendMessage("§e⚡ Ejecutando migración de placement matches...");
+            PlacementMigration.executePlacementMigration();
+            Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches inicializado");
+        } else {
+            Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches ya está configurado");
+        }
 
         return success;
     }
@@ -177,7 +187,7 @@ public class DatabaseManager {
             discord_id VARCHAR(20),
             is_verified TINYINT(1) DEFAULT 0,
             elo INT DEFAULT 500,
-            mmr DOUBLE DEFAULT 1000.0,
+            mmr DOUBLE DEFAULT 950.0,
             is_in_match TINYINT(1) DEFAULT 0,
             current_match_id VARCHAR(50),
             wins INT DEFAULT 0,
@@ -337,6 +347,18 @@ public class DatabaseManager {
                                 rs.getInt("total_deaths")
                         );
 
+                        // Cargar datos de placement si existen las columnas
+                        try {
+                            boolean isInPlacement = rs.getBoolean("is_in_placement");
+                            int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
+                        } catch (SQLException e) {
+                            // Si las columnas no existen aún, usar valores por defecto
+                            boolean isInPlacement = player.getGamesPlayed() < PlayerData.getPlacementMatchesRequired();
+                            int placementMatchesPlayed = Math.min(player.getGamesPlayed(), PlayerData.getPlacementMatchesRequired());
+                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
+                        }
+
                         // OPTIMIZACIÓN: Cache el resultado
                         PlayerDataCache.cachePlayer(player);
                         return player;
@@ -398,7 +420,7 @@ public class DatabaseManager {
 
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        return new PlayerData(
+                        PlayerData player = new PlayerData(
                                 rs.getString("minecraft_uuid"),
                                 rs.getString("discord_id"),
                                 rs.getInt("elo"),
@@ -411,6 +433,20 @@ public class DatabaseManager {
                                 rs.getInt("total_kills"),
                                 rs.getInt("total_deaths")
                         );
+
+                        // Cargar datos de placement si existen las columnas
+                        try {
+                            boolean isInPlacement = rs.getBoolean("is_in_placement");
+                            int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
+                        } catch (SQLException e) {
+                            // Si las columnas no existen aún, usar valores por defecto
+                            boolean isInPlacement = player.getGamesPlayed() < PlayerData.getPlacementMatchesRequired();
+                            int placementMatchesPlayed = Math.min(player.getGamesPlayed(), PlayerData.getPlacementMatchesRequired());
+                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
+                        }
+
+                        return player;
                     }
                 }
 
@@ -471,9 +507,7 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 if (attempt == 3) {
                     System.err.println("❌ Error en batch update después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
                 } else {
-                    System.err.println("⚠️ Batch update intento " + attempt + " fallido, reintentando...");
                     try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 }
             }
@@ -506,7 +540,143 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Actualiza los datos de placement matches de un jugador
+     */
+    public static void updatePlayerPlacementData(String minecraftUuid, boolean isInPlacement, int placementMatchesPlayed) {
+        String query = "UPDATE ranked_players SET is_in_placement = ?, placement_matches_played = ? WHERE minecraft_uuid = ?";
 
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(query)) {
+
+                stmt.setBoolean(1, isInPlacement);
+                stmt.setInt(2, placementMatchesPlayed);
+                stmt.setString(3, minecraftUuid);
+
+                int rowsAffected = stmt.executeUpdate();
+
+                if (rowsAffected > 0) {
+                    // Invalidar cache para forzar reload con datos actualizados
+                    // Necesitamos obtener el discordId primero
+                    PlayerData player = getPlayerByMinecraftUuidFromDB(minecraftUuid);
+                    if (player != null) {
+                        PlayerDataCache.invalidatePlayer(minecraftUuid, player.getDiscordId());
+                    }
+                    return;
+                }
+
+            } catch (SQLException e) {
+                if (attempt == 3) {
+                    System.err.println("❌ Error actualizando datos de placement después de 3 intentos: " + e.getMessage());
+                    e.printStackTrace();
+                } else {
+                    System.err.println("⚠️ Intento " + attempt + " fallido actualizando placement, reintentando...");
+                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            }
+        }
+    }
+
+    /**
+     * Actualiza las estadísticas del jugador incluyendo datos de placement
+     */
+    public static void updatePlayerStatsWithPlacement(List<PlayerStatUpdateWithPlacement> updates) {
+        String query = "UPDATE ranked_players SET " +
+                "elo = ?, " +
+                "mmr = ?, " +
+                "wins = wins + ?, " +
+                "losses = losses + ?, " +
+                "games_played = games_played + 1, " +
+                "total_kills = total_kills + ?, " +
+                "total_deaths = total_deaths + ?, " +
+                "is_in_match = ?, " +
+                "current_match_id = ?, " +
+                "is_in_placement = ?, " +
+                "placement_matches_played = ? " +
+                "WHERE minecraft_uuid = ?";
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try (Connection conn = getConnection()) {
+                conn.setAutoCommit(false);
+
+                try (PreparedStatement stmt = conn.prepareStatement(query)) {
+                    for (PlayerStatUpdateWithPlacement update : updates) {
+                        stmt.setInt(1, update.newElo);
+                        stmt.setDouble(2, update.newMMR);
+                        stmt.setInt(3, update.won ? 1 : 0);
+                        stmt.setInt(4, update.won ? 0 : 1);
+                        stmt.setInt(5, update.matchKills);
+                        stmt.setInt(6, update.matchDeaths);
+                        stmt.setBoolean(7, false);
+                        stmt.setString(8, null);
+                        stmt.setBoolean(9, update.isInPlacement);
+                        stmt.setInt(10, update.placementMatchesPlayed);
+                        stmt.setString(11, update.minecraftUuid);
+                        stmt.addBatch();
+                    }
+
+                    stmt.executeBatch();
+                    conn.commit();
+
+                    // Invalidar cache para todos los jugadores actualizados
+                    for (PlayerStatUpdateWithPlacement update : updates) {
+                        PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
+                    }
+
+                    System.out.println("✅ Batch update con placement exitoso: " + updates.size() + " jugadores actualizados");
+                    return;
+
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                }
+
+            } catch (SQLException e) {
+                if (attempt == 3) {
+                    System.err.println("❌ Error en batch update con placement después de 3 intentos: " + e.getMessage());
+                    e.printStackTrace();
+                } else {
+                    System.err.println("⚠️ Batch update placement intento " + attempt + " fallido, reintentando...");
+                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtiene estadísticas de placement matches del servidor
+     */
+    public static PlacementStats getPlacementStats() {
+        String query = """
+            SELECT 
+                COUNT(*) as total_players,
+                COUNT(CASE WHEN is_in_placement = 1 THEN 1 END) as placement_players,
+                AVG(CASE WHEN is_in_placement = 1 THEN placement_matches_played END) as avg_placement_progress,
+                AVG(CASE WHEN is_in_placement = 0 THEN mmr END) as avg_established_mmr
+            FROM ranked_players 
+            WHERE games_played > 0
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query);
+             ResultSet rs = stmt.executeQuery()) {
+
+            if (rs.next()) {
+                return new PlacementStats(
+                    rs.getInt("total_players"),
+                    rs.getInt("placement_players"),
+                    rs.getDouble("avg_placement_progress"),
+                    rs.getDouble("avg_established_mmr")
+                );
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error obteniendo estadísticas de placement: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return new PlacementStats(0, 0, 0.0, 1000.0);
+    }
 
     public static void close() {
         for (HikariDataSource dataSource : dataSources.values()) {
@@ -533,6 +703,76 @@ public class DatabaseManager {
             this.newMMR = newMMR;
             this.matchKills = matchKills;
             this.matchDeaths = matchDeaths;
+        }
+    }
+
+    public static class PlayerStatUpdateWithPlacement {
+        public final String minecraftUuid;
+        public final boolean won;
+        public final int newElo;
+        public final double newMMR;
+        public final int matchKills;
+        public final int matchDeaths;
+        public final boolean isInPlacement;
+        public final int placementMatchesPlayed;
+
+        public PlayerStatUpdateWithPlacement(String minecraftUuid, boolean won, int newElo,
+                                             double newMMR, int matchKills, int matchDeaths,
+                                             boolean isInPlacement, int placementMatchesPlayed) {
+            this.minecraftUuid = minecraftUuid;
+            this.won = won;
+            this.newElo = newElo;
+            this.newMMR = newMMR;
+            this.matchKills = matchKills;
+            this.matchDeaths = matchDeaths;
+            this.isInPlacement = isInPlacement;
+            this.placementMatchesPlayed = placementMatchesPlayed;
+        }
+    }
+
+    public static class PlacementStats {
+        public final int totalPlayers;
+        public final int placementPlayers;
+        public final double avgPlacementProgress;
+        public final double avgEstablishedMMR;
+
+        public PlacementStats(int totalPlayers, int placementPlayers, double avgPlacementProgress, double avgEstablishedMMR) {
+            this.totalPlayers = totalPlayers;
+            this.placementPlayers = placementPlayers;
+            this.avgPlacementProgress = avgPlacementProgress;
+            this.avgEstablishedMMR = avgEstablishedMMR;
+        }
+    }
+
+    /**
+     * OPTIMIZACIÓN: Actualizar estadísticas de jugador usando batch processing
+     * No bloquea el main thread
+     */
+    public static void updatePlayerStatsAsync(PlayerStatUpdate update) {
+        // Usar BatchProcessor para agrupar operaciones
+        boolean enqueued = BatchProcessor.enqueuePlayerStatsUpdate(update);
+
+        if (!enqueued) {
+            // Fallback: ejecutar síncronamente si la cola está llena
+            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+                List<PlayerStatUpdate> singleUpdate = List.of(update);
+                updatePlayerStats(singleUpdate);
+            });
+        }
+    }
+
+    /**
+     * OPTIMIZACIÓN: Actualizar estado de partida usando batch processing
+     */
+    public static void updatePlayerMatchStatusAsync(String minecraftUuid, boolean isInMatch, String currentMatchId) {
+        // Usar BatchProcessor para no bloquear main thread
+        boolean enqueued = BatchProcessor.enqueueMatchStatusUpdate(minecraftUuid, isInMatch, currentMatchId);
+
+        if (!enqueued) {
+            // Fallback: ejecutar síncronamente
+            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+                updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
+            });
         }
     }
 }
