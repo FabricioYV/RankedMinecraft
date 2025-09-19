@@ -372,55 +372,7 @@ public class QueueManager {
         }
     }
 
-    /**
-     * Limpia completamente el estado de cola de un jugador específico
-     * Útil para casos de desconexión o errores
-     */
-    public static void forceRemovePlayerFromQueue(String minecraftUuid) {
-        if (instance == null) {
-            return;
-        }
 
-        boolean removed = instance.removePlayerFromQueue(minecraftUuid);
-        if (removed) {
-            Bukkit.getLogger().info("[QueueManager] Jugador " + minecraftUuid.substring(0, 8) +
-                    " forzadamente removido de cola");
-        }
-    }
-
-    /**
-     * Verifica y limpia jugadores que están marcados en cola pero ya no están en partida
-     * Método de limpieza preventiva
-     */
-    public static void cleanupStaleQueueEntries() {
-        if (instance == null) {
-            return;
-        }
-
-        List<String> toRemove = new ArrayList<>();
-
-        // Verificar cola 5v5
-        for (PlayerData player : instance.queue5v5) {
-            if (!player.isInMatch() && instance.playersInQueue.contains(player.getMinecraftUuid())) {
-                // Jugador no está en partida pero está marcado en cola - posible estado inconsistente
-                toRemove.add(player.getMinecraftUuid());
-            }
-        }
-
-        // Verificar cola 8v8
-        for (PlayerData player : instance.queue8v8) {
-            if (!player.isInMatch() && instance.playersInQueue.contains(player.getMinecraftUuid())) {
-                toRemove.add(player.getMinecraftUuid());
-            }
-        }
-
-        // Remover entradas obsoletas
-        for (String uuid : toRemove) {
-            instance.removePlayerFromQueue(uuid);
-            Bukkit.getLogger().info("[QueueManager] Limpieza: Removido jugador " + uuid.substring(0, 8) +
-                    " con estado inconsistente");
-        }
-    }
 
 
     private void movePlayerToWaitingRoom(String discordId) {

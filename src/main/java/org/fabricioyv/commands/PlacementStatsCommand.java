@@ -82,7 +82,7 @@ public class PlacementStatsCommand implements CommandExecutor {
             viewer.sendMessage("§7ELO actual: §f" + playerData.getElo() + " §7(No cambia durante placement)");
 
             if (remaining == 0) {
-                viewer.sendMessage("§a✨ ¡Placement completo! Esperando asignación de rango.");
+                viewer.sendMessage("§a✨ ¡Placement completo! Esperando asignación de rango y ELO definitivo.");
             } else {
                 viewer.sendMessage("§e💡 Durante placement no pierdes ni ganas ELO");
             }
