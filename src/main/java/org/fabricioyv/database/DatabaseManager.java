@@ -11,6 +11,7 @@ import java.sql.*;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -18,12 +19,13 @@ public class DatabaseManager {
     // Mapa para almacenar múltiples datasources
     private static final Map<String, HikariDataSource> dataSources = new HashMap<>();
 
-    // Configuración de pools y timeouts OPTIMIZADAS para PvP
-    private static final int MAX_POOL_SIZE = 12; // Incrementado para mejor concurrencia
-    private static final int MIN_IDLE = 4; // Más conexiones idle para respuesta rápida
-    private static final long CONNECTION_TIMEOUT = 5000; // Reducido para fallar rápido
+    // Configuración de pools y timeouts OPTIMIZADAS para PvP y Discord
+    private static final int MAX_POOL_SIZE = 15; // Incrementado para Discord + PvP
+    private static final int MIN_IDLE = 6; // Más conexiones idle para evitar timeouts
+    private static final long CONNECTION_TIMEOUT = 8000; // Incrementado para conexiones lentas
     private static final long IDLE_TIMEOUT = 300000; // 5 minutos
     private static final long MAX_LIFETIME = 1800000; // 30 minutos
+    private static final long VALIDATION_TIMEOUT = 3000; // Timeout para validación de conexión
 
     // Configuraciones de bases de datos
     public static class DatabaseConfig {
@@ -88,7 +90,7 @@ public class DatabaseManager {
         try {
             HikariConfig hikariConfig = new HikariConfig();
 
-            // URL de conexión con configuración optimizada
+            // URL de conexión con configuraci��n optimizada
             String url = "jdbc:mysql://" + config.host + ":" + config.port + "/" + config.database +
                     "?useSSL=false" +
                     "&autoReconnect=true" +
@@ -138,7 +140,7 @@ public class DatabaseManager {
 
             // Test de conexión
             hikariConfig.setConnectionTestQuery("SELECT 1");
-            hikariConfig.setValidationTimeout(5000);
+            hikariConfig.setValidationTimeout(VALIDATION_TIMEOUT);
 
             HikariDataSource dataSource = new HikariDataSource(hikariConfig);
 
@@ -164,7 +166,7 @@ public class DatabaseManager {
         }
     }
 
-    // Método para obtener conexión de una base de datos específica
+    // Método para obtener conexi��n de una base de datos específica
     private static Connection getConnection(String databaseName) throws SQLException {
         HikariDataSource dataSource = dataSources.get(databaseName);
         if (dataSource == null || dataSource.isClosed()) {
@@ -195,6 +197,9 @@ public class DatabaseManager {
             games_played INT DEFAULT 0,
             total_kills INT DEFAULT 0,
             total_deaths INT DEFAULT 0,
+            -- Placement columns (required for placement matches tracking)
+            is_in_placement TINYINT(1) DEFAULT 1,
+            placement_matches_played INT DEFAULT 0,
             verification_code VARCHAR(8),
             verification_expiry BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -773,6 +778,93 @@ public class DatabaseManager {
             Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
                 updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
             });
+        }
+    }
+
+    /**
+     * NUEVO: Obtiene el historial de placement matches de un jugador para evaluación final
+     * Usado cuando un jugador completa sus 8 partidas de placement
+     */
+    public static List<PlacementMatchData> getPlayerPlacementMatches(String playerUuid) {
+        List<PlacementMatchData> placementHistory = new ArrayList<>();
+
+        String query = """
+            SELECT won, kills, deaths, damage, created_at
+            FROM placement_match_history
+            WHERE player_uuid = ?
+            ORDER BY created_at ASC
+            LIMIT 8
+            """;
+
+        try (Connection conn = getConnection("ranked");
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    boolean won = rs.getBoolean("won");
+                    int kills = rs.getInt("kills");
+                    int deaths = rs.getInt("deaths");
+                    double damage = rs.getDouble("damage");
+
+                    placementHistory.add(new PlacementMatchData(won, kills, deaths, damage));
+                }
+            }
+
+        } catch (SQLException e) {
+            Bukkit.getConsoleSender().sendMessage("§c❌ Error obteniendo historial de placement para " + playerUuid + ": " + e.getMessage());
+        }
+
+        return placementHistory;
+    }
+
+    /**
+     * Clase para datos de placement matches
+     */
+    public static class PlacementMatchData {
+        public final boolean won;
+        public final int kills;
+        public final int deaths;
+        public final double damage;
+
+        public PlacementMatchData(boolean won, int kills, int deaths, double damage) {
+            this.won = won;
+            this.kills = kills;
+            this.deaths = deaths;
+            this.damage = damage;
+        }
+    }
+
+    public static void setPlayerEloAndMmr(String minecraftUuid, int elo, double mmr) {
+        String query = "UPDATE ranked_players SET elo = ?, mmr = ? WHERE minecraft_uuid = ?";
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(query)) {
+
+                stmt.setInt(1, elo);
+                stmt.setDouble(2, mmr);
+                stmt.setString(3, minecraftUuid);
+
+                int rows = stmt.executeUpdate();
+                if (rows > 0) {
+                    // Invalidate cache so next reads reflect updated elo/mmr
+                    PlayerData player = getPlayerByMinecraftUuidFromDB(minecraftUuid);
+                    if (player != null) {
+                        PlayerDataCache.invalidatePlayer(minecraftUuid, player.getDiscordId());
+                    }
+                }
+
+                return;
+            } catch (SQLException e) {
+                if (attempt == 3) {
+                    System.err.println("❌ Error actualizando elo/mmr después de 3 intentos: " + e.getMessage());
+                    e.printStackTrace();
+                } else {
+                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            }
         }
     }
 }

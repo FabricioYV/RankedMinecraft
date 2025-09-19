@@ -1,85 +1,105 @@
 package org.fabricioyv.commands;
 
-import net.dv8tion.jda.api.EmbedBuilder;
-import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
-import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.model.PlayerData;
-
-import java.awt.*;
-import java.time.Instant;
 
 /**
  * Comando para mostrar estadísticas del sistema de placement matches
  */
-public class PlacementStatsCommand extends ListenerAdapter {
+public class PlacementStatsCommand implements CommandExecutor {
 
     @Override
-    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!event.getName().equals("placement-stats")) return;
-
-        // Verificar permisos de administrador
-        if (!event.getMember().hasPermission(net.dv8tion.jda.api.Permission.ADMINISTRATOR)) {
-            event.reply("❌ No tienes permisos para usar este comando.")
-                    .setEphemeral(true).queue();
-            return;
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("§cEste comando solo puede ser usado por jugadores.");
+            return true;
         }
 
-        event.deferReply().queue();
+        Player player = (Player) sender;
 
         try {
-            // Obtener estadísticas de placement
-            DatabaseManager.PlacementStats stats = DatabaseManager.getPlacementStats();
-            
-            // Crear embed con estadísticas
-            EmbedBuilder embed = new EmbedBuilder()
-                    .setTitle("📊 Estadísticas del Sistema de Placement Matches")
-                    .setColor(Color.CYAN)
-                    .setTimestamp(Instant.now());
+            // Si no se especifica jugador, mostrar stats del propio jugador
+            PlayerData playerData;
+            String targetPlayerName;
 
-            // Estadísticas generales
-            embed.addField("👥 Jugadores Totales", 
-                    String.valueOf(stats.totalPlayers), true);
-            
-            embed.addField("🎯 En Placement Matches", 
-                    String.format("%d (%.1f%%)", 
-                            stats.placementPlayers,
-                            stats.totalPlayers > 0 ? (stats.placementPlayers * 100.0 / stats.totalPlayers) : 0),
-                    true);
-            
-            embed.addField("📈 Progreso Promedio", 
-                    String.format("%.1f/8 partidas", stats.avgPlacementProgress), true);
+            if (args.length > 0) {
+                // Buscar jugador por nombre especificado
+                targetPlayerName = args[0];
 
-            // Información del sistema
-            embed.addField("⚙️ Configuración",
-                    String.format("• **Partidas requeridas:** %d\n" +
-                                 "• **MMR inicial:** 1000\n" +
-                                 "• **Cambios amplificados:** Sí\n" +
-                                 "• **MMR promedio establecido:** %.0f",
-                            PlayerData.getPlacementMatchesRequired(),
-                            stats.avgEstablishedMMR),
-                    false);
-
-            // Estado del sistema
-            String systemStatus;
-            if (stats.placementPlayers > stats.totalPlayers * 0.7) {
-                systemStatus = "🟡 **Alta actividad** - Muchos jugadores en placement";
-            } else if (stats.placementPlayers > stats.totalPlayers * 0.3) {
-                systemStatus = "🟢 **Normal** - Balance saludable de jugadores";
+                // Intentar obtener el UUID del jugador por nombre
+                Player targetPlayer = player.getServer().getPlayer(targetPlayerName);
+                if (targetPlayer != null) {
+                    // Jugador está online - usar su UUID
+                    playerData = DatabaseManager.getPlayerByMinecraftUuid(targetPlayer.getUniqueId().toString());
+                } else {
+                    // Jugador no está online - buscar en jugadores que han estado en el servidor
+                    org.bukkit.OfflinePlayer offlinePlayer = player.getServer().getOfflinePlayer(targetPlayerName);
+                    if (offlinePlayer.hasPlayedBefore()) {
+                        playerData = DatabaseManager.getPlayerByMinecraftUuid(offlinePlayer.getUniqueId().toString());
+                    } else {
+                        player.sendMessage("§cJugador no encontrado: " + targetPlayerName);
+                        return true;
+                    }
+                }
             } else {
-                systemStatus = "🔵 **Estable** - Mayoría de jugadores con MMR establecido";
+                // Mostrar stats del propio jugador
+                targetPlayerName = player.getName();
+                playerData = DatabaseManager.getPlayerByMinecraftUuid(player.getUniqueId().toString());
             }
 
-            embed.addField("📊 Estado del Sistema", systemStatus, false);
+            if (playerData == null) {
+                player.sendMessage("§cNo se encontraron datos para el jugador: " + targetPlayerName);
+                return true;
+            }
 
-            // Información adicional
-            embed.setFooter("Sistema de Placement Matches v2.0 • Actualizado automáticamente");
-
-            event.getHook().editOriginalEmbeds(embed.build()).queue();
+            // Mostrar estadísticas de placement
+            displayPlacementStats(player, playerData, targetPlayerName);
 
         } catch (Exception e) {
-            event.getHook().editOriginal("❌ Error obteniendo estadísticas: " + e.getMessage()).queue();
+            player.sendMessage("§cError al obtener estadísticas: " + e.getMessage());
             e.printStackTrace();
         }
+
+        return true;
+    }
+
+    private void displayPlacementStats(Player viewer, PlayerData playerData, String targetName) {
+        viewer.sendMessage("§6§l=== ESTADÍSTICAS DE PLACEMENT ===");
+        viewer.sendMessage("§eJugador: §f" + targetName);
+
+        if (playerData.isInPlacement()) {
+            int played = playerData.getPlacementMatchesPlayed();
+            int required = PlayerData.getPlacementMatchesRequired();
+            int remaining = required - played;
+
+            viewer.sendMessage("§b🔍 EN PERÍODO DE EVALUACIÓN");
+            viewer.sendMessage("§7Partidas jugadas: §e" + played + "§7/§e" + required);
+            viewer.sendMessage("§7Partidas restantes: §a" + remaining);
+            viewer.sendMessage("§7ELO actual: §f" + playerData.getElo() + " §7(No cambia durante placement)");
+
+            if (remaining == 0) {
+                viewer.sendMessage("§a✨ ¡Placement completo! Esperando asignación de rango.");
+            } else {
+                viewer.sendMessage("§e💡 Durante placement no pierdes ni ganas ELO");
+            }
+        } else {
+            viewer.sendMessage("§a✅ PLACEMENT COMPLETADO");
+            viewer.sendMessage("§7ELO actual: §f" + playerData.getElo());
+            viewer.sendMessage("§7Partidas de placement: §e" + playerData.getPlacementMatchesPlayed() + "§7/§e" + PlayerData.getPlacementMatchesRequired());
+        }
+
+        // Mostrar estadísticas generales
+        int wins = playerData.getWins();
+        int losses = playerData.getLosses();
+        int totalGames = wins + losses;
+        double winRate = totalGames > 0 ? (double) wins / totalGames * 100 : 0;
+
+        viewer.sendMessage("§7Partidas totales: §f" + totalGames + " §7(§a" + wins + "W §c" + losses + "L§7)");
+        viewer.sendMessage("§7Ratio de victoria: §f" + String.format("%.1f%%", winRate));
+        viewer.sendMessage("§6§l==============================");
     }
 }

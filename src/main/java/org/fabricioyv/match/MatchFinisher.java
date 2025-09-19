@@ -46,16 +46,26 @@ public class MatchFinisher {
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
                 player.setCurrentMatchId(null);
-                // OPTIMIZACIÓN: Actualizar cache usando BatchProcessor
+
+                // CRÍTICO: Actualizar base de datos SÍNCRONAMENTE para evitar problemas de timing
                 try {
-                    DatabaseManager.updatePlayerMatchStatusAsync(
-                        player.getMinecraftUuid(), false, null);
+                    DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
+                    logger.debug("DB Sync Update", "Estado actualizado síncronamente para " + player.getMinecraftUuid().substring(0, 8));
                 } catch (Exception e) {
-                    // Log warning pero continúa
-                    logger.warning("Cache Update Failed",
-                        "Error actualizando cache para " + player.getMinecraftUuid());
+                    logger.warning("DB Sync Failed", "Error en actualización síncrona para " + player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
+                    // Intentar async como fallback
+                    DatabaseManager.updatePlayerMatchStatusAsync(player.getMinecraftUuid(), false, null);
                 }
             }
+
+            // NUEVO: Invalidar cache de Discord DESPUÉS de actualizar BD para que la próxima consulta sea correcta
+            java.util.List<String> discordIds = allPlayers.stream()
+                    .map(PlayerData::getDiscordId)
+                    .collect(java.util.stream.Collectors.toList());
+
+            org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
+            logger.info("Cache Discord Invalidado",
+                    "Cache invalidado para " + discordIds.size() + " jugadores DESPUÉS de actualizar BD - pueden entrar a colas inmediatamente");
 
             // 2. INMEDIATO: Limpiar jugadores de la cola (REUTILIZAR método existente)
             cleanupPlayersFromQueue(activeMatch, logger);
@@ -178,6 +188,48 @@ public class MatchFinisher {
 
             for (PlayerData player : players) {
                 try {
+                    // **CRÍTICO**: Establecer el match ID actual ANTES de los cálculos
+                    player.setCurrentMatchId(activeMatch.getMatchId());
+
+                    // **MEJORADO**: Obtener estadísticas finales con sincronización robusta
+                    MatchLogsManager.PlayerMatchStats finalStats = getFinalPlayerStatsWithSync(
+                        activeMatch.getMatchId(),
+                        UUID.fromString(player.getMinecraftUuid()),
+                        logger
+                    );
+
+                    // **CRÍTICO**: Actualizar PlayerData con las estadísticas finales completas
+                    if (finalStats != null) {
+                        // Sincronizar estadísticas finales
+                        player.setCurrentMatchKills(finalStats.getKills());
+                        player.setCurrentMatchDeaths(finalStats.getDeaths());
+                        player.setCurrentMatchDamage(finalStats.getDamageDealt());
+
+                        // **MEJORADO**: Log detallado para debugging y monitoreo
+                        logger.info("Stats Sync Complete",
+                            String.format("✅ %s | Daño: %.1f | K/D: %d/%d | Team: %s",
+                                player.getMinecraftName(),
+                                finalStats.getDamageDealt(),
+                                finalStats.getKills(),
+                                finalStats.getDeaths(),
+                                finalStats.getTeam()));
+                    } else {
+                        // **MEJORADO**: Fallback con estadísticas actuales y logging detallado
+                        logger.warning("Stats Sync Fallback",
+                            String.format("⚠️ %s | Usando stats locales: K/D: %d/%d | Daño: %.1f",
+                                player.getMinecraftName(),
+                                player.getCurrentMatchKills(),
+                                player.getCurrentMatchDeaths(),
+                                player.getCurrentMatchDamage()));
+
+                        // Validar si las estadísticas locales están vacías
+                        if (player.getCurrentMatchKills() == 0 && player.getCurrentMatchDeaths() == 0 && player.getCurrentMatchDamage() == 0.0) {
+                            logger.error("Stats Sync Critical Error",
+                                String.format("❌ %s | NO HAY ESTADÍSTICAS - Posible error en tracking",
+                                    player.getMinecraftName()));
+                        }
+                    }
+
                     // Guardar ELO/MMR antiguos para logs
                     int oldElo = player.getElo();
                     double oldMmr = player.getMmr();
@@ -224,24 +276,72 @@ public class MatchFinisher {
                     int matchKills = player.getCurrentMatchKills();
                     int matchDeaths = player.getCurrentMatchDeaths();
 
+                    // LÓGICA CONSOLIDADA: Manejar placement matches una sola vez
+                    boolean finalizedPlacement = false; // NEW: track if we've finalized this player's placement
                     if (player.isInPlacement()) {
-                        // Jugador en placement: usar update especializado
-                        // CORREGIR: Incrementar placement matches correctamente
+                        // Calcular nuevo contador de placement
                         int newPlacementCount = player.getPlacementMatchesPlayed() + 1;
+                        boolean stillInPlacement = newPlacementCount < PlayerData.getPlacementMatchesRequired();
 
+                        // **CRÍTICO**: Si completa las 8 partidas, asignar ELO y rango final
+                        if (!stillInPlacement) {
+                            // ¡Jugador completó placement! Asignar ELO y rango final
+                            assignFinalPlacementRank(player, activeMatch.getMatchId(), logger, won, RankedMinecraft.getInstance().getDiscordBot());
+                            finalizedPlacement = true;
+                            // Asegurar que la tabla ranked_players refleje que ya no está en placement
+                            try {
+                                DatabaseManager.updatePlayerPlacementData(player.getMinecraftUuid(), false, PlayerData.getPlacementMatchesRequired());
+                            } catch (Exception e) {
+                                logger.warning("Placement DB Flag Failed", "No se pudo actualizar placement flags en DB: " + e.getMessage());
+                            }
+
+                            // Asignar rol en Discord por si no se asignó correctamente en el método
+                            try {
+                                Rank assignedRank = Rank.getRankByElo(player.getElo());
+                                String discordId = player.getDiscordId();
+                                if (discordId != null && !discordId.isEmpty()) {
+                                    RankedMinecraft.getInstance().getDiscordBot().assignRankRole(discordId, assignedRank);
+                                }
+                            } catch (Exception e) {
+                                logger.warning("Discord Role Assignment Failed", "No se pudo asignar el rol de Discord tras placement: " + e.getMessage());
+                            }
+                        }
+
+                        // Actualizar base de datos con placement data
                         placementBatchUpdates.add(new DatabaseManager.PlayerStatUpdateWithPlacement(
                                 player.getMinecraftUuid(),
                                 won,
-                                eloChange.getNewElo(), // Mantiene el ELO igual
-                                mmrChange.getNewMMR(),
+                                // Use the PlayerData values (which may have sido updated by assignFinalPlacementRank)
+                                player.getElo(),
+                                player.getMmr(),
                                 matchKills,
                                 matchDeaths,
-                                newPlacementCount < PlayerData.getPlacementMatchesRequired(), // isInPlacement actualizado
-                                newPlacementCount // Contador correcto
+                                stillInPlacement,
+                                newPlacementCount
                         ));
 
-                        // CRÍTICO: Actualizar objeto en memoria inmediatamente
-                        player.incrementPlacementMatches();
+                        // Actualizar objeto en memoria UNA SOLA VEZ
+                        player.setPlacementMatchesPlayed(newPlacementCount);
+                        player.setInPlacement(stillInPlacement);
+
+                        // Log de progreso de placement
+                        if (!stillInPlacement) {
+                            logger.success("Placement Completed",
+                                String.format("🎉 %s completó placement matches (%d/%d) - ELO final: %d | Rango: %s",
+                                    player.getMinecraftName(),
+                                    newPlacementCount,
+                                    PlayerData.getPlacementMatchesRequired(),
+                                    player.getElo(),
+                                    Rank.getRankByElo(player.getElo()).getDisplayName()));
+
+                            // Also log to server console so it's immediately visible without checking Discord
+                            Bukkit.getConsoleSender().sendMessage("[RankedMC] Player completed placements: "
+                                    + player.getMinecraftName() + " (uuid=" + player.getMinecraftUuid() + ") -> ELO=" + player.getElo()
+                                    + " | Rank=" + Rank.getRankByElo(player.getElo()).getDisplayName());
+                        } else {
+                            logger.info("Placement Progress",
+                                "📊 " + player.getMinecraftName() + " progreso placement: " + newPlacementCount + "/" + PlayerData.getPlacementMatchesRequired());
+                        }
                     } else {
                         // Jugador normal: usar update tradicional
                         batchUpdates.add(new DatabaseManager.PlayerStatUpdate(
@@ -255,51 +355,12 @@ public class MatchFinisher {
                     }
 
                     // Actualizar PlayerData en memoria
-                    player.setElo(eloChange.getNewElo());
-                    player.setMmr(mmrChange.getNewMMR());
-
-                    // Incrementar partidas jugadas para placement
-                    if (player.isInPlacement()) {
-                        int newPlacementMatches = player.getPlacementMatchesPlayed() + 1;
-                        player.setPlacementMatchesPlayed(newPlacementMatches);
-
-                        // Verificar si completó placement matches
-                        if (newPlacementMatches >= PlayerData.getPlacementMatchesRequired()) {
-                            player.setInPlacement(false);
-                            logger.info("Placement Completed",
-                                player.getMinecraftUuid() + " completó placement matches");
-                        }
+                    // Si se finalizó el placement, NO sobreescribir el ELO/MMR ya asignado por assignFinalPlacementRank
+                    if (!finalizedPlacement) {
+                        player.setElo(eloChange.getNewElo());
+                        player.setMmr(mmrChange.getNewMMR());
                     }
 
-
-                    // OPTIMIZACIÓN: Usar BatchProcessor para updates asíncronos
-                    if (player.isInPlacement()) {
-                        // Update con datos de placement
-                        DatabaseManager.PlayerStatUpdateWithPlacement placementUpdate =
-                            new DatabaseManager.PlayerStatUpdateWithPlacement(
-                                player.getMinecraftUuid(),
-                                won,
-                                eloChange.getNewElo(),
-                                mmrChange.getNewMMR(),
-                                matchKills,
-                                matchDeaths,
-                                player.isInPlacement(),
-                                player.getPlacementMatchesPlayed()
-                            );
-                        placementBatchUpdates.add(placementUpdate);
-                    } else {
-                        // Update normal
-                        DatabaseManager.PlayerStatUpdate normalUpdate =
-                            new DatabaseManager.PlayerStatUpdate(
-                                player.getMinecraftUuid(),
-                                won,
-                                eloChange.getNewElo(),
-                                mmrChange.getNewMMR(),
-                                matchKills,
-                                matchDeaths
-                            );
-                        batchUpdates.add(normalUpdate);
-                    }
 
                     // OPTIMIZACIÓN: Actualizar estado de partida usando BatchProcessor
                     DatabaseManager.updatePlayerMatchStatusAsync(
@@ -403,7 +464,7 @@ public class MatchFinisher {
                         Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
                         if (eloChange != null) {
                             String eloMessage = eloChange > 0 ?
-                                    "§a📈 +" + eloChange + " ELO!" :
+                                    "§a��� +" + eloChange + " ELO!" :
                                     "§c📉 " + eloChange + " ELO";
                             mcPlayer.sendMessage(eloMessage);
                             mcPlayer.sendMessage("§7💰 ELO actual: §f" + (playerData.getElo() + eloChange));
@@ -797,6 +858,383 @@ public class MatchFinisher {
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
                     "Error limpiando tracking de cola tras partida", e.getMessage());
+        }
+    }
+
+    /**
+     * **MÉTODO MEJORADO**: Obtiene estadísticas finales con sincronización robusta
+     * Soluciona problemas de datos incompletos y cálculo incorrecto de daño
+     */
+    private static MatchLogsManager.PlayerMatchStats getFinalPlayerStatsWithSync(String matchId, UUID playerUuid, DiscordLogger logger) {
+        try {
+            // **PASO 1**: Forzar procesamiento de eventos pendientes
+            int attemptCount = 0;
+            int maxAttempts = 3;
+            MatchLogsManager.PlayerMatchStats finalStats = null;
+
+            while (attemptCount < maxAttempts && finalStats == null) {
+                attemptCount++;
+
+                // Obtener estadísticas actuales
+                finalStats = MatchStatsListener.getFinalPlayerStats(matchId, playerUuid);
+
+                if (finalStats != null) {
+                    // **PASO 2**: Validar que las estadísticas no estén vacías
+                    boolean hasValidStats = finalStats.getKills() > 0 ||
+                                          finalStats.getDeaths() > 0 ||
+                                          finalStats.getDamageDealt() > 0.0;
+
+                    if (hasValidStats) {
+                        logger.info("Stats Sync Success",
+                            String.format("📊 Intento %d/%d - Stats válidas obtenidas para %s",
+                                attemptCount, maxAttempts, finalStats.getPlayerName()));
+                        break;
+                    } else {
+                        logger.warning("Stats Sync Empty",
+                            String.format("⚠️ Intento %d/%d - Stats vacías, reintentando para %s",
+                                attemptCount, maxAttempts, finalStats.getPlayerName()));
+                        finalStats = null; // Reintentar
+                    }
+                }
+
+                if (finalStats == null && attemptCount < maxAttempts) {
+                    logger.warning("Stats Sync Retry",
+                        String.format("⏳ Intento %d/%d - Esperando sincronización para jugador %s",
+                            attemptCount, maxAttempts, playerUuid.toString().substring(0, 8)));
+
+                    // **PASO 3**: Esperar procesamiento de eventos pendientes
+                    try {
+                        Thread.sleep(100 * attemptCount); // Espera incremental: 100ms, 200ms, 300ms
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+
+            // **PASO 4**: Log final del resultado
+            if (finalStats != null) {
+                logger.success("Stats Sync Final",
+                    String.format("✅ Sincronización exitosa - %s | K/D: %d/%d | Daño: %.1f",
+                        finalStats.getPlayerName(),
+                        finalStats.getKills(),
+                        finalStats.getDeaths(),
+                        finalStats.getDamageDealt()));
+            } else {
+                logger.error("Stats Sync Failed",
+                    String.format("❌ Falló sincronización después de %d intentos para jugador %s",
+                        maxAttempts, playerUuid.toString().substring(0, 8)));
+            }
+
+            return finalStats;
+
+        } catch (Exception e) {
+            logger.systemError("MatchFinisher",
+                "Error crítico en getFinalPlayerStatsWithSync: " + e.getMessage(), e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Asigna ELO y rango final cuando un jugador completa placement matches
+     * Implementa el sistema completo de evaluación basado en las 8 partidas
+     */
+    private static void assignFinalPlacementRank(PlayerData player, String matchId, DiscordLogger logger, boolean wonLastMatch, org.fabricioyv.discord.DiscordBot discordBot) {
+        try {
+            logger.info("Placement Evaluation Start",
+                String.format("🔍 Iniciando evaluación final para %s tras completar 8 partidas",
+                    player.getMinecraftName()));
+
+            // PASO 1: Obtener historial completo de placement matches desde la base de datos
+            List<PlacementMatchData> placementHistory = getPlayerPlacementHistory(player.getMinecraftUuid());
+
+            if (placementHistory.size() < PlayerData.getPlacementMatchesRequired()) {
+                logger.error("Placement History Incomplete",
+                    String.format("❌ %s - Solo se encontraron %d partidas, se requieren %d",
+                        player.getMinecraftName(), placementHistory.size(), PlayerData.getPlacementMatchesRequired()));
+                // Fallback: asignar ELO base
+                assignFallbackElo(player, logger);
+                return;
+            }
+
+            // PASO 2: Calcular métricas de rendimiento
+            PlacementMetrics metrics = calculatePlayerPlacementMetrics(placementHistory);
+
+            // PASO 3: Determinar ELO base según win rate
+            int baseElo = calculateBaseEloFromWinRate(metrics.winRate);
+
+            // PASO 4: Aplicar modificadores por rendimiento individual
+            double performanceMultiplier = calculatePerformanceMultiplier(metrics);
+
+            // PASO 5: Aplicar modificadores por consistencia
+            double consistencyMultiplier = calculateConsistencyMultiplier(metrics);
+
+            // PASO 6: Calcular ELO final
+            int finalElo = (int) Math.round(baseElo * performanceMultiplier * consistencyMultiplier);
+
+            // PASO 7: Limitar a rangos válidos del sistema
+            finalElo = Math.max(100, Math.min(1200, finalElo)); // 100-1200 ELO válido
+
+            // PASO 8: Determinar rango correspondiente
+            Rank assignedRank = Rank.getRankByElo(finalElo);
+
+            // PASO 9: Calcular MMR correspondiente para matchmaking equilibrado
+            double finalMMR = convertEloToMMR(finalElo, metrics);
+
+            // PASO 10: Actualizar PlayerData
+            int oldElo = player.getElo();
+            player.setElo(finalElo);
+            player.setMmr(finalMMR);
+            // PASO 11: Actualizar solo el ELO en la base de datos principal
+            DatabaseManager.PlayerStatUpdate update = new DatabaseManager.PlayerStatUpdate(
+            player.getMinecraftUuid(), wonLastMatch, finalElo, finalMMR, player.getCurrentMatchKills(), player.getCurrentMatchDeaths());
+            DatabaseManager.updatePlayerStats(java.util.Collections.singletonList(update));
+            // Ensure persistence: directly set elo/mmr (in case batch updates run later)
+            try {
+                DatabaseManager.setPlayerEloAndMmr(player.getMinecraftUuid(), finalElo, finalMMR);
+            } catch (Exception e) {
+                logger.warning("Placement Direct ELO Persist Failed", "No se pudo persistir directamente elo/mmr: " + e.getMessage());
+            }
+        // PASO 12: Asignar rol en Discord usando el nombre del rango calculado por el ELO
+        try {
+            if (discordBot != null && player.getDiscordId() != null && !player.getDiscordId().isEmpty()) {
+                discordBot.assignRankRole(player.getDiscordId(), assignedRank);
+            }
+        } catch (Exception e) {
+            logger.warning("Discord Role Assignment Failed", "No se pudo asignar el rol de Discord: " + e.getMessage());
+        }
+            // PASO 13: Logs detallados del resultado
+            logger.success("Placement Final Assignment",
+                String.format("🎉 %s | ELO: %d→%d | Rango: %s | WR: %.1f%% | K/D: %.2f | Daño Avg: %.1f",
+                    player.getMinecraftName(),
+                    oldElo,
+                    finalElo,
+                    assignedRank.getDisplayName(),
+                    metrics.winRate,
+                    metrics.kdRatio,
+                    metrics.avgDamage));
+
+            // PASO 14: Log de análisis detallado
+            logger.info("Placement Analysis",
+                String.format("📊 %s | Base: %d | Perf: x%.2f | Cons: x%.2f | MMR: %.1f",
+                    player.getMinecraftName(),
+                    baseElo,
+                    performanceMultiplier,
+                    consistencyMultiplier,
+                    finalMMR));
+
+        } catch (Exception e) {
+            logger.systemError("MatchFinisher",
+                String.format("Error asignando placement final para %s: %s",
+                    player.getMinecraftName(), e.getMessage()), e.toString());
+
+            // Fallback en caso de error
+            assignFallbackElo(player, logger);
+        }
+    }
+
+    /**
+     * Obtiene el historial de placement matches de un jugador desde la base de datos
+     */
+    private static List<PlacementMatchData> getPlayerPlacementHistory(String playerUuid) {
+        List<PlacementMatchData> history = new ArrayList<>();
+
+        try {
+            // Obtener las 8 partidas de placement desde match_logs usando DatabaseManager
+            List<DatabaseManager.PlacementMatchData> dbHistory = DatabaseManager.getPlayerPlacementMatches(playerUuid);
+
+            // Convertir de DatabaseManager.PlacementMatchData a MatchFinisher.PlacementMatchData
+            for (DatabaseManager.PlacementMatchData dbMatch : dbHistory) {
+                history.add(new PlacementMatchData(dbMatch.won, dbMatch.kills, dbMatch.deaths, dbMatch.damage));
+            }
+
+        } catch (Exception e) {
+            // Error obteniendo historial - usar lista vacía
+        }
+
+        return history;
+    }
+
+    /**
+     * Calcula métricas de rendimiento durante placement matches
+     */
+    private static PlacementMetrics calculatePlayerPlacementMetrics(List<PlacementMatchData> matches) {
+        int wins = 0;
+        int totalKills = 0;
+        int totalDeaths = 0;
+        double totalDamage = 0.0;
+
+        for (PlacementMatchData match : matches) {
+            if (match.won) wins++;
+            totalKills += match.kills;
+            totalDeaths += match.deaths;
+            totalDamage += match.damage;
+        }
+
+        double winRate = (double) wins / matches.size() * 100.0;
+        double avgKills = (double) totalKills / matches.size();
+        double avgDeaths = (double) totalDeaths / matches.size();
+        double avgDamage = totalDamage / matches.size();
+        double kdRatio = totalDeaths > 0 ? (double) totalKills / totalDeaths : totalKills;
+
+        return new PlacementMetrics(winRate, avgKills, avgDeaths, avgDamage, kdRatio,
+                                   calculateConsistency(matches), wins, matches.size());
+    }
+
+    /**
+     * Calcula ELO base según win rate (sistema equilibrado)
+     */
+    private static int calculateBaseEloFromWinRate(double winRate) {
+        if (winRate >= 87.5) {       // 7-8 wins - Rendimiento excepcional
+            return 700; // ORO II
+        } else if (winRate >= 75.0) { // 6 wins - Rendimiento sólido
+            return 600; // ORO III
+        } else if (winRate >= 62.5) { // 5 wins - Rendimiento bueno
+            return 500; // PLATA II
+        } else if (winRate >= 50.0) { // 4 wins - Rendimiento promedio
+            return 400; // HIERRO I
+        } else if (winRate >= 37.5) { // 3 wins - Rendimiento bajo
+            return 300; // HIERRO II
+        } else if (winRate >= 25.0) { // 2 wins - Rendimiento muy bajo
+            return 250; // HIERRO III
+        } else {                     // 0-1 wins - Rendimiento malo
+            return 200; // COBRE I
+        }
+    }
+
+    /**
+     * Calcula multiplicador por rendimiento individual
+     */
+    private static double calculatePerformanceMultiplier(PlacementMetrics metrics) {
+        double multiplier = 1.0;
+
+        // Bonus por K/D alto
+        if (metrics.kdRatio >= 2.0) {
+            multiplier += 0.15; // +15%
+        } else if (metrics.kdRatio >= 1.5) {
+            multiplier += 0.10; // +10%
+        } else if (metrics.kdRatio >= 1.0) {
+            multiplier += 0.05; // +5%
+        } else if (metrics.kdRatio < 0.5) {
+            multiplier -= 0.10; // -10%
+        }
+
+        // Bonus por daño alto
+        if (metrics.avgDamage >= 1000) {
+            multiplier += 0.10; // +10%
+        } else if (metrics.avgDamage >= 700) {
+            multiplier += 0.05; // +5%
+        } else if (metrics.avgDamage < 300) {
+            multiplier -= 0.05; // -5%
+        }
+
+        return Math.max(0.7, Math.min(1.3, multiplier)); // Límites: 70%-130%
+    }
+
+    /**
+     * Calcula multiplicador por consistencia
+     */
+    private static double calculateConsistencyMultiplier(PlacementMetrics metrics) {
+        // Mayor consistencia = mejor multiplicador
+        if (metrics.consistency >= 0.8) {
+            return 1.05; // +5%
+        } else if (metrics.consistency >= 0.6) {
+            return 1.0; // Normal
+        } else {
+            return 0.95; // -5%
+        }
+    }
+
+    /**
+     * Convierte ELO a MMR para matchmaking equilibrado
+     */
+    private static double convertEloToMMR(int elo, PlacementMetrics metrics) {
+        // Base MMR similar al ELO
+        double baseMMR = elo * 0.8 + 200; // ELO 500 → MMR 600
+
+        // Ajustar MMR según rendimiento para mejor matchmaking
+        if (metrics.kdRatio > 1.5) {
+            baseMMR += 50; // MMR más alto para mejores jugadores
+        } else if (metrics.kdRatio < 0.8) {
+            baseMMR -= 50; // MMR más bajo para jugadores que necesitan práctica
+        }
+
+        return Math.max(400, Math.min(1400, baseMMR));
+    }
+
+    /**
+     * Calcula consistencia del jugador basada en variación de rendimiento
+     */
+    private static double calculateConsistency(List<PlacementMatchData> matches) {
+        if (matches.size() < 2) return 1.0;
+
+        // Calcular variación en damage (como métrica principal de consistencia)
+        double[] damages = matches.stream().mapToDouble(m -> m.damage).toArray();
+        double mean = Arrays.stream(damages).average().orElse(0.0);
+        double variance = Arrays.stream(damages)
+            .map(d -> Math.pow(d - mean, 2))
+            .average().orElse(0.0);
+        double stdDev = Math.sqrt(variance);
+
+        // Convertir a score de consistencia (0-1, donde 1 = muy consistente)
+        double coefficientOfVariation = mean > 0 ? stdDev / mean : 1.0;
+        return Math.max(0.0, Math.min(1.0, 1.0 - coefficientOfVariation));
+    }
+
+    /**
+     * Asigna ELO de fallback en caso de errores
+     */
+    private static void assignFallbackElo(PlayerData player, DiscordLogger logger) {
+        int fallbackElo = 400; // HIERRO I como base segura
+        double fallbackMMR = 600;
+
+        player.setElo(fallbackElo);
+        player.setMmr(fallbackMMR);
+
+        logger.warning("Placement Fallback Applied",
+            String.format("⚠️ %s - ELO fallback asignado: %d | Rango: %s",
+                player.getMinecraftName(),
+                fallbackElo,
+                Rank.getRankByElo(fallbackElo).getDisplayName()));
+    }
+
+    /**
+     * Clases de apoyo para datos de placement
+     */
+    private static class PlacementMatchData {
+        final boolean won;
+        final int kills;
+        final int deaths;
+        final double damage;
+
+        PlacementMatchData(boolean won, int kills, int deaths, double damage) {
+            this.won = won;
+            this.kills = kills;
+            this.deaths = deaths;
+            this.damage = damage;
+        }
+    }
+
+    private static class PlacementMetrics {
+        final double winRate;
+        final double avgKills;
+        final double avgDeaths;
+        final double avgDamage;
+        final double kdRatio;
+        final double consistency;
+        final int wins;
+        final int totalMatches;
+
+        PlacementMetrics(double winRate, double avgKills, double avgDeaths, double avgDamage,
+                        double kdRatio, double consistency, int wins, int totalMatches) {
+            this.winRate = winRate;
+            this.avgKills = avgKills;
+            this.avgDeaths = avgDeaths;
+            this.avgDamage = avgDamage;
+            this.kdRatio = kdRatio;
+            this.consistency = consistency;
+            this.wins = wins;
+            this.totalMatches = totalMatches;
         }
     }
 }

@@ -272,6 +272,8 @@ public class TeamBalancer {
         return bestResult;
     }
 
+
+
     /**
      * Genera reporte detallado del balance para 5v5
      */

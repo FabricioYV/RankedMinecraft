@@ -491,4 +491,29 @@ public class DiscordLogger {
         }
         return null;
     }
+
+    /**
+     * Log específico para errores con excepción
+     */
+    public void logError(String message, Throwable throwable) {
+        String errorDetails = message;
+        if (throwable != null) {
+            errorDetails += "\nError: " + throwable.getMessage();
+
+            // Obtener stack trace limitado
+            java.io.StringWriter sw = new java.io.StringWriter();
+            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+            throwable.printStackTrace(pw);
+            String stackTrace = sw.toString();
+
+            // Limitar el stack trace para Discord
+            if (stackTrace.length() > 800) {
+                stackTrace = stackTrace.substring(0, 800) + "...";
+            }
+
+            errorDetails += "\nStack Trace:\n```\n" + stackTrace + "\n```";
+        }
+
+        error("Error del Sistema", errorDetails);
+    }
 }

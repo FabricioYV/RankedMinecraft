@@ -56,7 +56,7 @@ public class MatchManager {
             // Fase 3: Crear canales de equipos en Discord
             activeMatch.createTeamChannels();
 
-            // Fase 4: Iniciar votación de mapas
+            // Fase 5: Iniciar votación de mapas
             startMapVoting(activeMatch, logger);
 
         } catch (Exception e) {
@@ -175,6 +175,7 @@ public class MatchManager {
 
                 // Ahora iniciar la cuenta regresiva final de 2 minutos
                 startFinalCountdown(activeMatch, logger);
+
             }
         }.runTaskLater(plugin, 120L); // 6 segundos (120 ticks)
     }
@@ -189,7 +190,7 @@ public class MatchManager {
         new BukkitRunnable() {
 
             // MODIFICADO: Countdown de 2 minutos (120 segundos)
-            int countdown = 120;
+            int countdown = 30;
 
             @Override
             public void run() {
@@ -200,6 +201,9 @@ public class MatchManager {
                         this.cancel();
                         return;
                     }
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 60");
+
+                    // Ejecutar comando start 120 antes de iniciar oficialmente
 
                     // Oficialmente iniciar la partida
                     startOfficialMatch(activeMatch, logger);
@@ -273,7 +277,7 @@ public class MatchManager {
         // Actualizar estado de jugadores en base de datos
         updatePlayersMatchStatus(activeMatch.getAllPlayers(), activeMatch.getMatchId(), true);
 
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 120");
+
         // TODO: Configurar listeners para eventos de la partida (kills, deaths, objectives, etc.)
         // TODO: Inicializar sistema de estadísticas
         // TODO: Configurar sistema de detección de finalización de partida

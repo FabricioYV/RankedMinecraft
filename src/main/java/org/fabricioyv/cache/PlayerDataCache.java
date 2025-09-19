@@ -124,35 +124,4 @@ public class PlayerDataCache {
         }
     }
 
-    /**
-     * Pre-cargar jugadores en cache al inicio de partida
-     */
-    public static void preloadPlayers(java.util.List<PlayerData> players) {
-        for (PlayerData player : players) {
-            cachePlayer(player);
-        }
-        // ELIMINADO: Log innecesario de pre-carga de cache
-        // Solo cargar en silencio, no spam por cada partida
-    }
-
-    /**
-     * Obtener estadísticas del cache
-     */
-    public static String getCacheStats() {
-        return String.format("Cache Stats - Discord: %d, UUID: %d, Timestamps: %d", 
-            playerCacheByDiscordId.size(), 
-            playerCacheByUuid.size(), 
-            cacheTimestamps.size()
-        );
-    }
-
-    /**
-     * Limpiar todo el cache (para testing o reinicio)
-     */
-    public static void clearAll() {
-        playerCacheByDiscordId.clear();
-        playerCacheByUuid.clear();
-        cacheTimestamps.clear();
-        Bukkit.getConsoleSender().sendMessage("§c🗑️ Cache completamente limpiado");
-    }
 }

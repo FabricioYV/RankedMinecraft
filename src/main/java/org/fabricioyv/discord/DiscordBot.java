@@ -11,6 +11,7 @@ import org.fabricioyv.commands.MatchDetailsCommand;
 import org.fabricioyv.commands.RecentMatchesCommand;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.rating.Rank;
 
 public class DiscordBot {
     private JDA jda;
@@ -41,6 +42,17 @@ public class DiscordBot {
 
             // REGISTRAR COMANDOS DE MATCH LOGS
             registerMatchCommands();
+            // Registrar DuoCommand
+            // Registrar comandos slash globalmente
+            jda.updateCommands()
+                .addCommands(
+                    RecentMatchesCommand.getSlashCommand(),
+                    MatchDetailsCommand.getSlashCommand()
+                )
+                .queue(
+                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
+                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                );
 
             logger.systemStart();
 
@@ -79,6 +91,28 @@ public class DiscordBot {
         } catch (Exception e) {
             logger.systemError("DiscordBot", "Error registrando comandos de partidas", e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Asigna el rol de Discord correspondiente al rango del jugador
+     */
+    public void assignRankRole(String discordId, Rank rank) {
+        if (jda == null || discordId == null || rank == null) return;
+        try {
+            var guild = jda.getGuilds().get(0); // Asume un solo guild
+            var member = guild.retrieveMemberById(discordId).complete();
+            if (member == null) return;
+            // Buscar el rol por nombre exacto del rango
+            var roles = guild.getRolesByName(rank.getDisplayName(), true);
+            if (!roles.isEmpty()) {
+                var role = roles.get(0);
+                guild.addRoleToMember(member, role).queue();
+            }
+        } catch (Exception e) {
+            if (logger != null) {
+                logger.error("DiscordBot", "Error asignando rol de rango: " + e.getMessage());
+            }
         }
     }
 

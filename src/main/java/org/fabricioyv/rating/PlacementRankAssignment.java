@@ -57,24 +57,26 @@ public class PlacementRankAssignment {
     }
 
     /**
-     * Calcula ELO base según win rate (ajustado para ser más equilibrado y justo)
+     * Calcula ELO base según win rate (NUEVO SISTEMA MÁS EQUILIBRADO Y CONSERVADOR)
      */
     private static double calculateBaseEloFromWinRate(double winRate) {
-        // SISTEMA MÁS EQUILIBRADO: Rango más comprimido y justo
+        // SISTEMA MEJORADO: Rangos más conservadores para evitar desequilibrios
+        // Objetivo: Colocar nuevos jugadores en rangos medios-bajos inicialmente
+
         if (winRate >= 87.5) {       // 7-8 wins - Rendimiento excepcional
-            return 700; // ORO II (en lugar de DIAMANTE II)
-        } else if (winRate >= 75.0) { // 6 wins - Rendimiento sólido
-            return 600; // ORO III (en lugar de ORO I)
+            return 550; // HIERRO I - Más conservador (antes 700)
+        } else if (winRate >= 75.0) { // 6 wins - Rendimiento muy bueno
+            return 450; // HIERRO II - Conservador pero justo
         } else if (winRate >= 62.5) { // 5 wins - Rendimiento bueno
-            return 500; // HIERRO II (en lugar de ORO III)
+            return 400; // HIERRO II - Rango estable
         } else if (winRate >= 50.0) { // 4 wins - Rendimiento promedio
-            return 400; // HIERRO II (en lugar de HIERRO II)
+            return 350; // HIERRO III - Punto de partida equilibrado
         } else if (winRate >= 37.5) { // 3 wins - Rendimiento bajo
-            return 300; // HIERRO III (en lugar de HIERRO III)
+            return 300; // HIERRO III - Necesita mejorar
         } else if (winRate >= 25.0) { // 2 wins - Rendimiento muy bajo
-            return 250; // COBRE I/HIERRO III (en lugar de COBRE I)
-        } else {                     // 0-1 wins - Rendimiento malo
-            return 200; // COBRE I (en lugar de COBRE II)
+            return 250; // COBRE I - Rango de aprendizaje
+        } else {                     // 0-1 wins - Rendimiento inicial
+            return 200; // COBRE I - Punto de partida más bajo
         }
     }
 

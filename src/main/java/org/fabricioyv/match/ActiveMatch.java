@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ActiveMatch {
     private static final Map<String, ActiveMatch> activeMatches = new ConcurrentHashMap<>();
@@ -99,11 +100,9 @@ public class ActiveMatch {
             } else {
                 // Usar el sistema tradicional para jugadores post-placement
                 TeamBalancer.BalanceResult result = TeamBalancer.balanceTeams(allPlayers);
-
                 // Asignar equipos
                 teams.put(Team.BLUE, new ArrayList<>(result.getTeam1()));
                 teams.put(Team.RED, new ArrayList<>(result.getTeam2()));
-
                 // Generar reporte detallado
                 String balanceReport = TeamBalancer.generateBalanceReport(result);
                 logger.info("Balance Completado", balanceReport);
@@ -148,6 +147,10 @@ public class ActiveMatch {
         try {
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH-mm"));
 
+            // Usar un contador para saber cuándo ambos canales están listos
+            final AtomicInteger channelsCreated = new AtomicInteger(0);
+            final Object lock = new Object();
+
             // Crear canal para equipo azul
             guild.createVoiceChannel("🔵 Equipo Azul " + timestamp)
                     .setParent(guild.getCategoryById(VoiceChannelConfig.TEAM_CHANNELS_CATEGORY_ID))
@@ -156,6 +159,16 @@ public class ActiveMatch {
                         logger.info("Canal Creado", "Canal azul creado: " + channel.getName());
 
                         setupChannelPermissions(channel, Team.BLUE);
+
+                        // Verificar si ambos canales están listos
+                        synchronized (lock) {
+                            if (channelsCreated.incrementAndGet() == 2) {
+                                // Ambos canales creados, ahora mover jugadores
+                                movePlayersToTeamChannels();
+                            }
+                        }
+                    }, error -> {
+                        logger.error("Error Canal Azul", "No se pudo crear canal azul: " + error.getMessage());
                     });
 
             // Crear canal para equipo rojo
@@ -166,6 +179,16 @@ public class ActiveMatch {
                         logger.info("Canal Creado", "Canal rojo creado: " + channel.getName());
 
                         setupChannelPermissions(channel, Team.RED);
+
+                        // Verificar si ambos canales están listos
+                        synchronized (lock) {
+                            if (channelsCreated.incrementAndGet() == 2) {
+                                // Ambos canales creados, ahora mover jugadores
+                                movePlayersToTeamChannels();
+                            }
+                        }
+                    }, error -> {
+                        logger.error("Error Canal Rojo", "No se pudo crear canal rojo: " + error.getMessage());
                     });
 
         } catch (Exception e) {
@@ -198,7 +221,7 @@ public class ActiveMatch {
         for (PlayerData playerData : teamPlayers) {
             try {
                 Member member = guild.getMemberById(playerData.getDiscordId());
-                if (member != null && member.getVoiceState().inAudioChannel()) {
+                if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
                     guild.moveVoiceMember(member, channel).queue(
                             success -> logger.info("Jugador Movido",
                                     member.getEffectiveName() + " movido al equipo " + team.getDisplayName()),
@@ -224,6 +247,11 @@ public class ActiveMatch {
 
         // Asignar equipo rojo
         assignTeamInMinecraft(Team.RED);
+
+        // NUEVO: Mover jugadores a canales de Discord después de asignación en Minecraft
+        // Esto asegura que los canales ya existan y evita problemas de timing
+        logger.info("Moviendo a Canales", "Moviendo jugadores a canales de Discord después de asignación en Minecraft");
+        movePlayersToTeamChannels();
     }
 
     private void assignTeamInMinecraft(Team team) {
@@ -256,6 +284,14 @@ public class ActiveMatch {
             player.setInMatch(false);
             player.setCurrentMatchId(null);
         }
+
+        // NUEVO: Invalidar cache de Discord para actualización instantánea
+        java.util.List<String> discordIds = allPlayers.stream()
+                .map(PlayerData::getDiscordId)
+                .collect(java.util.stream.Collectors.toList());
+
+        org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
+        logger.info("Cache Invalidado", "Cache de Discord invalidado para " + discordIds.size() + " jugadores - pueden volver a entrar a colas inmediatamente");
 
         // Remover de partidas activas
         activeMatches.remove(matchId);

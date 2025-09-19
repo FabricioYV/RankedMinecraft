@@ -3,9 +3,7 @@ package org.fabricioyv;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.fabricioyv.commands.ForfeitCommand;
-import org.fabricioyv.commands.ReadyCommand;
-import org.fabricioyv.commands.VoteCommand;
+import org.fabricioyv.commands.*;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.discord.DiscordBot;
@@ -33,7 +31,9 @@ public final class RankedMinecraft extends JavaPlugin {
             getCommand("ff").setExecutor(new ForfeitCommand(this));
             getCommand("ready").setExecutor(new ReadyCommand());
             getCommand("r").setExecutor(new ReadyCommand()); // Alias corto
-            getCommand("mapadmin").setExecutor(new org.fabricioyv.commands.MapAdminCommand()); // Comando para administrar mapas
+            getCommand("mapadmin").setExecutor(new MapAdminCommand()); // Comando para administrar mapas
+            getCommand("placement").setExecutor(new PlacementStatsCommand()); // Comando para estadísticas de placement
+            getCommand("testplacement").setExecutor(new TestPlacementAnalysisCommand()); // Comando de testing para análisis avanzado
 
             // Inicializar base de datos
             if(!DatabaseManager.initialize()) {

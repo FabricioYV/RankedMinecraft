@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.fabricioyv.RankedMinecraft;
+import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MatchFinisher;
@@ -57,6 +58,36 @@ public class PGMMatchListener implements Listener{
                         "Partida " + activeMatch.getMatchId() + " ya fue finalizada por forfeit - ignorando evento PGM");
                 return;
             }
+
+            // CRÍTICO: MARCADO INMEDIATO DE JUGADORES COMO DISPONIBLES
+            // Esto se ejecuta INMEDIATAMENTE cuando PGM detecta el final, antes de cualquier procesamiento asíncrono
+            logger.info("Immediate Player Release",
+                    "Marcando inmediatamente " + activeMatch.getAllPlayers().size() + " jugadores como disponibles");
+
+            List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+            for (PlayerData player : allPlayers) {
+                player.setInMatch(false);
+                player.setCurrentMatchId(null);
+
+                // Actualizar BD síncronamente para disponibilidad inmediata
+                try {
+                    DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
+                } catch (Exception e) {
+                    logger.warning("Immediate DB Update Failed",
+                            "Error en actualización inmediata para " + player.getMinecraftUuid().substring(0, 8));
+                    // Continuar con otros jugadores
+                }
+            }
+
+            // Invalidar cache de Discord inmediatamente
+            java.util.List<String> discordIds = allPlayers.stream()
+                    .map(PlayerData::getDiscordId)
+                    .collect(java.util.stream.Collectors.toList());
+
+            org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
+
+            logger.success("Players Immediately Available",
+                    "Jugadores marcados como disponibles INMEDIATAMENTE - pueden entrar a colas sin esperar");
 
             // OPTIMIZACIÓN: Mover la determinación del ganador a un thread asíncrono
             // para no bloquear el main thread con cálculos pesados
@@ -743,9 +774,9 @@ public class PGMMatchListener implements Listener{
                 updatePlayerDataAsync(activeMatch, victimUUID, killerUUID);
 
                 // 3. LOGGING ASÍNCRONO (no bloquea)
-                logger.success("Death Processed Async",
-                        String.format("Muerte procesada: %s → %s (match: %s)",
-                                victimName, killerName, matchId));
+                // Avoid spamming Discord logs for every death — log to server console only
+                Bukkit.getConsoleSender().sendMessage(String.format("[RankedMC] Death processed: %s → %s (match: %s)",
+                        victimName, killerName, matchId));
 
             } catch (Exception e) {
                 // Error handling silencioso para no afectar performance

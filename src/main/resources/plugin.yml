@@ -21,3 +21,11 @@ commands:
     description: Comandos administrativos para gestionar el sistema de mapas
     usage: /mapadmin <stats|recent|clear|list|test>
     permission: rankedmc.admin
+  placement:
+    description: Ver estadísticas de jugadores en placement matches
+    usage: /placement [jugador]
+    aliases: [stats, placementstats]
+  testplacement:
+    description: Comando de testing para analizar el historial completo de placement matches
+    usage: /testplacement <jugador>
+    permission: ranked.admin

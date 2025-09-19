@@ -18,50 +18,136 @@ public class MapManager {
 
     public static void initialize(RankedMinecraft plugin) {
         MapManager.plugin = plugin;
+
+        // ASEGURAR que la carpeta del plugin existe
+        if (!plugin.getDataFolder().exists()) {
+            boolean created = plugin.getDataFolder().mkdirs();
+            plugin.getLogger().info("📁 Creando carpeta de datos del plugin: " + plugin.getDataFolder().getPath() + 
+                                  (created ? " (exitoso)" : " (falló)"));
+        }
+
         loadMapPools();
         initializeRecentMapsTracking();
+
+        // VALIDACIÓN POST-CARGA
+        validateMapPools();
     }
 
     private static void loadMapPools() {
-        // Crear archivo de mapas por defecto si no existe
+        plugin.getLogger().info("🔄 Iniciando carga de pools de mapas...");
+
+        // Ruta del archivo de mapas
         File mapsFile = new File(plugin.getDataFolder(), "maps.yml");
+        plugin.getLogger().info("📍 Ruta del archivo maps.yml: " + mapsFile.getAbsolutePath());
+
+        // Si el archivo no existe en la carpeta del plugin, copiarlo desde recursos
         if (!mapsFile.exists()) {
-            plugin.saveResource("maps.yml", false);
+            plugin.getLogger().info("📄 Copiando archivo maps.yml desde recursos...");
+            try {
+                plugin.saveResource("maps.yml", false);
+                plugin.getLogger().info("✅ Archivo maps.yml copiado exitosamente");
+            } catch (Exception e) {
+                plugin.getLogger().severe("❌ Error copiando maps.yml desde recursos: " + e.getMessage());
+                plugin.getLogger().info("🔧 Usando mapas por defecto como fallback");
+                loadDefaultMaps();
+                return;
+            }
         }
 
-        FileConfiguration mapsConfig = YamlConfiguration.loadConfiguration(mapsFile);
+        // Cargar el archivo YAML
+        FileConfiguration mapsConfig;
+        try {
+            mapsConfig = YamlConfiguration.loadConfiguration(mapsFile);
+            plugin.getLogger().info("📋 Archivo maps.yml cargado exitosamente");
+        } catch (Exception e) {
+            plugin.getLogger().severe("❌ Error cargando maps.yml: " + e.getMessage());
+            plugin.getLogger().info("🔧 Usando mapas por defecto como fallback");
+            loadDefaultMaps();
+            return;
+        }
+
+        // DEBUGGING: Mostrar todas las keys del archivo
+        Set<String> keys = mapsConfig.getKeys(true);
+        plugin.getLogger().info("🔍 Keys encontradas en maps.yml: " + keys);
 
         // Cargar configuración de votación
         playerVotingEnabled = mapsConfig.getBoolean("voting.enable_player_voting", true);
+        plugin.getLogger().info("🗳️ Votación de jugadores: " + (playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
 
         // Cargar mapas para 5v5
         List<String> maps5v5 = mapsConfig.getStringList("pools.5v5");
-        plugin.getLogger().info("🔍 Mapas 5v5 cargados desde archivo: " + maps5v5.size() + " mapas");
-        plugin.getLogger().info("📋 Lista 5v5: " + String.join(", ", maps5v5));
+        plugin.getLogger().info("🔍 Mapas 5v5 encontrados en archivo: " + maps5v5.size() + " mapas");
 
-        if (maps5v5.isEmpty()) {
-            // Mapas por defecto para 5v5 - actualizados para coincidir con maps.yml
-            maps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
-                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
-            plugin.getLogger().warning("⚠️ No se encontraron mapas 5v5 en el archivo, usando mapas por defecto");
+        if (!maps5v5.isEmpty()) {
+            plugin.getLogger().info("📋 Lista 5v5: " + String.join(", ", maps5v5));
+            mapPools.put("5v5", new ArrayList<>(maps5v5));
+        } else {
+            plugin.getLogger().warning("⚠️ No se encontraron mapas 5v5 en pools.5v5, usando mapas por defecto");
+            List<String> defaultMaps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
+                                                       "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+            mapPools.put("5v5", defaultMaps5v5);
         }
-        mapPools.put("5v5", maps5v5);
 
         // Cargar mapas para 8v8
         List<String> maps8v8 = mapsConfig.getStringList("pools.8v8");
-        plugin.getLogger().info("🔍 Mapas 8v8 cargados desde archivo: " + maps8v8.size() + " mapas");
-        plugin.getLogger().info("📋 Lista 8v8: " + String.join(", ", maps8v8));
+        plugin.getLogger().info("🔍 Mapas 8v8 encontrados en archivo: " + maps8v8.size() + " mapas");
 
-        if (maps8v8.isEmpty()) {
-            // Mapas por defecto para 8v8
-            maps8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
-            plugin.getLogger().warning("⚠️ No se encontraron mapas 8v8 en el archivo, usando mapas por defecto");
+        if (!maps8v8.isEmpty()) {
+            plugin.getLogger().info("📋 Lista 8v8: " + String.join(", ", maps8v8));
+            mapPools.put("8v8", new ArrayList<>(maps8v8));
+        } else {
+            plugin.getLogger().warning("⚠️ No se encontraron mapas 8v8 en pools.8v8, usando mapas por defecto");
+            List<String> defaultMaps8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
+            mapPools.put("8v8", defaultMaps8v8);
         }
-        mapPools.put("8v8", maps8v8);
 
-        plugin.getLogger().info("✅ Cargados " + maps5v5.size() + " mapas para 5v5 y " + maps8v8.size() + " mapas para 8v8");
-        plugin.getLogger().info("🗳️ Votación de jugadores: " + (playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
+        int total5v5 = mapPools.get("5v5").size();
+        int total8v8 = mapPools.get("8v8").size();
+        plugin.getLogger().info("✅ Pools de mapas cargados exitosamente: " + total5v5 + " mapas 5v5, " + total8v8 + " mapas 8v8");
         plugin.getLogger().info("🔄 Sistema anti-repetición: Evitará repetir los últimos " + MAX_RECENT_MAPS + " mapas");
+    }
+
+    /**
+     * NUEVO: Carga mapas por defecto como fallback si el archivo no funciona
+     */
+    private static void loadDefaultMaps() {
+        plugin.getLogger().warning("🔧 Cargando mapas por defecto como fallback...");
+
+        List<String> defaultMaps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
+                                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+        List<String> defaultMaps8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
+
+        mapPools.put("5v5", new ArrayList<>(defaultMaps5v5));
+        mapPools.put("8v8", new ArrayList<>(defaultMaps8v8));
+
+        playerVotingEnabled = true;
+
+        plugin.getLogger().info("�� Mapas por defecto cargados: " + defaultMaps5v5.size() + " para 5v5, " + defaultMaps8v8.size() + " para 8v8");
+    }
+
+    /**
+     * NUEVO: Valida que los pools de mapas estén correctamente cargados
+     */
+    private static void validateMapPools() {
+        plugin.getLogger().info("🔍 Validando pools de mapas cargados...");
+
+        List<String> maps5v5 = mapPools.get("5v5");
+        List<String> maps8v8 = mapPools.get("8v8");
+
+        if (maps5v5 == null || maps5v5.isEmpty()) {
+            plugin.getLogger().severe("❌ ERROR CRÍTICO: Pool de mapas 5v5 está vacío!");
+            return;
+        }
+
+        if (maps8v8 == null || maps8v8.isEmpty()) {
+            plugin.getLogger().severe("❌ ERROR CRÍTICO: Pool de mapas 8v8 está vacío!");
+            return;
+        }
+
+        plugin.getLogger().info("✅ Validación exitosa:");
+        plugin.getLogger().info("   - Mapas 5v5: " + maps5v5.size() + " disponibles");
+        plugin.getLogger().info("   - Mapas 8v8: " + maps8v8.size() + " disponibles");
+        plugin.getLogger().info("   - Votación: " + (playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
     }
 
     /**
@@ -90,14 +176,23 @@ public class MapManager {
      * Selecciona un mapa aleatorio del pool, evitando los mapas recientes
      */
     public static String getRandomMap(String matchType) {
+        // Validar primero que el tipo de match sea válido
+        if (matchType == null || matchType.trim().isEmpty()) {
+            plugin.getLogger().severe("❌ ERROR: Tipo de match inválido (null o vacío)");
+            return getFallbackMap("5v5"); // Default fallback
+        }
+
         List<String> allMaps = getAvailableMaps(matchType);
 
-        // Log para debugging
-        plugin.getLogger().info("🔍 Seleccionando mapa aleatorio para " + matchType + " - Total mapas disponibles: " + allMaps.size());
+        // Log detallado para debugging
+        plugin.getLogger().info("🔍 Seleccionando mapa aleatorio para '" + matchType + "'");
+        plugin.getLogger().info("📊 Total mapas configurados: " + allMaps.size());
+        plugin.getLogger().info("📋 Mapas disponibles: " + String.join(", ", allMaps));
 
         if (allMaps.isEmpty()) {
-            plugin.getLogger().severe("❌ ERROR: No hay mapas configurados para " + matchType + ". Revisa el archivo maps.yml");
-            // Fallback usando mapas por defecto del mismo tipo
+            plugin.getLogger().severe("❌ ERROR CRÍTICO: No hay mapas configurados para '" + matchType + "'");
+            plugin.getLogger().severe("📁 Pools disponibles: " + mapPools.keySet());
+            plugin.getLogger().severe("🔧 Usando mapa de emergencia...");
             return getFallbackMap(matchType);
         }
 
@@ -112,14 +207,23 @@ public class MapManager {
             }
         }
 
-        plugin.getLogger().info("🎯 Mapas disponibles después de filtrar recientes: " + availableMaps.size() + "/" + allMaps.size());
-        plugin.getLogger().info("🚫 Mapas recientes excluidos: " + String.join(", ", recentMapsForType));
+        plugin.getLogger().info("🎯 Mapas después de filtrar recientes: " + availableMaps.size() + "/" + allMaps.size());
+        if (!recentMapsForType.isEmpty()) {
+            plugin.getLogger().info("🚫 Mapas recientes excluidos: " + String.join(", ", recentMapsForType));
+        }
 
         // Si no hay mapas disponibles (todos están en recientes), reiniciar la lista de recientes
         if (availableMaps.isEmpty()) {
-            plugin.getLogger().warning("⚠️ Todos los mapas de " + matchType + " están en la lista de recientes. Reiniciando lista de recientes.");
+            plugin.getLogger().warning("⚠️ Todos los mapas de '" + matchType + "' están en recientes. Reiniciando lista...");
             availableMaps = new ArrayList<>(allMaps);
-            recentMapsForType.clear(); // Limpiar la lista de recientes
+            recentMapsForType.clear();
+            plugin.getLogger().info("✅ Lista de recientes reiniciada. Mapas disponibles: " + availableMaps.size());
+        }
+
+        // Validación final antes de seleccionar
+        if (availableMaps.isEmpty()) {
+            plugin.getLogger().severe("❌ ERROR FATAL: No se pudieron obtener mapas disponibles para '" + matchType + "'");
+            return getFallbackMap(matchType);
         }
 
         // Seleccionar mapa aleatorio
@@ -128,7 +232,7 @@ public class MapManager {
         // Registrar el mapa como usado
         recordMapUsage(matchType, selectedMap);
 
-        plugin.getLogger().info("🎲 Mapa seleccionado para " + matchType + ": " + selectedMap);
+        plugin.getLogger().info("🎲 ✅ Mapa seleccionado para " + matchType + ": " + selectedMap);
         plugin.getLogger().info("📊 Estado actual - Recientes: " + recentMapsForType.size() + "/" + MAX_RECENT_MAPS);
 
         return selectedMap;
@@ -181,10 +285,7 @@ public class MapManager {
      */
     public static List<String> getRecentMaps(String matchType) {
         Queue<String> recentMapsForType = recentMaps.get(matchType);
-        if (recentMapsForType == null) {
-            return new ArrayList<>();
-        }
-        return new ArrayList<>(recentMapsForType);
+        return recentMapsForType == null ? new ArrayList<>() : new ArrayList<>(recentMapsForType);
     }
 
     /**
