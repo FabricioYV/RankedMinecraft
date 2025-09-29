@@ -122,63 +122,81 @@ public class MatchManager {
      * Callback cuando se selecciona un mapa
      */
     private static void onMapSelected(ActiveMatch activeMatch, String selectedMap, DiscordLogger logger) {
-        logger.success("Mapa Seleccionado",
-                "Mapa '" + selectedMap + "' seleccionado para partida " + activeMatch.getMatchId());
+        activeMatch.setSelectedMap(selectedMap);
 
-        activeMatch.setStatus(ActiveMatch.MatchStatus.STARTING);
+        logger.matchEvent(activeMatch.getMatchId(), "MAPA_SELECCIONADO",
+                "Mapa: " + selectedMap, activeMatch.getAllPlayers().size());
 
-        // Validar jugadores nuevamente antes de continuar
-        if (!validatePlayersConnection(activeMatch.getAllPlayers(), logger)) {
-            cancelMatch(activeMatch, "Jugadores desconectados durante la votación");
-            return;
-        }
+        announceToPlayers(activeMatch.getAllPlayers(),
+                "§a§lMapa seleccionado: §e" + selectedMap);
 
-        // Mover jugadores a canales de equipos
-        activeMatch.movePlayersToTeamChannels();
-
-        // Asignar equipos en Minecraft
-    //    activeMatch.assignPlayersInMinecraft();
-
-        // Ciclear el mapa
+        // Ciclar el mapa en PGM
         cycleMap(selectedMap, activeMatch, logger);
     }
+
     /**
      * Ejecuta el ciclo de mapa en PGM
      */
     private static void cycleMap(String mapName, ActiveMatch activeMatch, DiscordLogger logger) {
-        logger.info("Cargando Mapa",
-                "Ejecutando ciclo de mapa: " + mapName + " para partida " + activeMatch.getMatchId());
+        try {
+            // Ejecutar comando de ciclo de mapa
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pgm cycle " + mapName);
+            });
 
-        // Anunciar a los jugadores
-        announceToPlayers(activeMatch.getAllPlayers(),
-                "§6🗺️ Cargando mapa: §e" + mapName);
+            logger.info("Ciclo de Mapa", "Ciclando a mapa: " + mapName);
 
-        // Ejecutar comando de ciclo
-        String nextmap = "sn " + mapName;
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), nextmap);
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "cycle 1");
+            // NUEVA LÓGICA: Iniciar fase de picks después del ciclo
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                // Dar tiempo para que se cargue el mapa
+                startPickPhaseOrBalance(activeMatch, logger);
+            }, 120L); // 3 segundos de espera
 
-        // Esperar 6 segundos y luego asignar jugadores a equipos
-        RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                // NUEVO: Asignar jugadores a equipos después de 6 segundos
-                logger.info("Asignando Equipos Post-Cycle",
-                        "Asignando jugadores a equipos después del ciclado de mapa");
-
-                activeMatch.assignPlayersInMinecraft();
-
-                // Anunciar que los equipos han sido asignados
-                announceToPlayers(activeMatch.getAllPlayers(),
-                        "§a⚔️ Equipos asignados! Preparándose para iniciar...");
-
-                // Ahora iniciar la cuenta regresiva final de 2 minutos
-                startFinalCountdown(activeMatch, logger);
-
-            }
-        }.runTaskLater(plugin, 120L); // 6 segundos (120 ticks)
+        } catch (Exception e) {
+            logger.logError("Error ciclando mapa: " + mapName, e);
+            cancelMatch(activeMatch, "Error ciclando mapa");
+        }
     }
+    /**
+     * NUEVO MÉTODO: Decide entre sistema de picks o balanceo automático
+     */
+    private static void startPickPhaseOrBalance(ActiveMatch activeMatch, DiscordLogger logger) {
+        try {
+            // Intentar iniciar sistema de picks
+            CaptainPickSystem.startPickPhase(activeMatch, logger);
+
+        } catch (Exception e) {
+            logger.logError("Error en sistema de picks, usando balanceo automático", e);
+
+            // Fallback al balanceo automático
+            activeMatch.balanceTeams();
+            continueWithNormalFlow(activeMatch, logger);
+        }
+    }
+
+    /**
+     * Continúa con el flujo normal después del balanceo/picks
+     */
+    private static void continueWithNormalFlow(ActiveMatch activeMatch, DiscordLogger logger) {
+        try {
+            // Crear canales de equipo
+            activeMatch.createTeamChannels();
+
+            // Mover jugadores a canales
+            activeMatch.movePlayersToTeamChannels();
+
+            // Asignar equipos en Minecraft
+            activeMatch.assignPlayersInMinecraft();
+
+            // Iniciar cuenta regresiva final
+            startFinalCountdown(activeMatch, logger);
+
+        } catch (Exception e) {
+            logger.logError("Error en flujo normal", e);
+            cancelMatch(activeMatch, "Error técnico");
+        }
+    }
+
     /**
      * Inicia la cuenta regresiva final antes de comenzar la partida
      */

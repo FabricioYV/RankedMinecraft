@@ -683,6 +683,13 @@ public class ActiveMatch {
     }
 
     /**
+     * Obtiene la instancia de Guild
+     */
+    public Guild getGuild() {
+        return this.guild;
+    }
+
+    /**
      * Enum para los estados de la partida
      */
     public enum MatchStatus {

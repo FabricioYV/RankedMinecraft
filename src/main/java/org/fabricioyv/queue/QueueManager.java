@@ -371,6 +371,18 @@ public class QueueManager {
             }
         }
     }
+    public boolean removePlayerFromAllQueues(String minecraftUuid) {
+        boolean removed = false;
+
+        // Remover de ambas colas
+        removed |= queue5v5.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
+        removed |= queue8v8.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
+
+        // Remover del tracking
+        playersInQueue.remove(minecraftUuid);
+
+        return removed;
+    }
 
 
 
