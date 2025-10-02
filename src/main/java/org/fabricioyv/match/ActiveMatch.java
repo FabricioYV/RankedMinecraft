@@ -42,6 +42,11 @@ public class ActiveMatch {
     private boolean finishedByForfeit = false;
     private Team winnerTeam; // Campo para almacenar el equipo ganador
 
+    // NUEVO: Campos para sistema de picks
+    private boolean isPicksMatch = false;
+    private PlayerData blueCaptain = null;
+    private PlayerData redCaptain = null;
+
     public ActiveMatch(String matchId, List<PlayerData> players, JDA jda, Guild guild,
                        RankedMinecraft plugin, DiscordLogger logger) {
         this.matchId = matchId;
@@ -141,15 +146,27 @@ public class ActiveMatch {
         teams.put(Team.RED, redTeam);
     }
     /**
-     * Crea canales de voz para los equipos
+     * Crea canales de voz para los equipos - VERSIÓN CORREGIDA ANTI-DUPLICADOS
      */
     public void createTeamChannels() {
+        // CRÍTICO: Verificar si ya existen canales para evitar duplicados
+        if (blueTeamChannel != null || redTeamChannel != null) {
+            logger.info("Canales Existentes", "Los canales de equipo ya existen, saltando creación");
+            // Si ya existen, solo mover jugadores a los canales existentes
+            if (blueTeamChannel != null && redTeamChannel != null) {
+                movePlayersToTeamChannels();
+            }
+            return;
+        }
+
         try {
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH-mm"));
 
             // Usar un contador para saber cuándo ambos canales están listos
             final AtomicInteger channelsCreated = new AtomicInteger(0);
             final Object lock = new Object();
+
+            logger.info("Creando Canales", "Iniciando creación de canales de equipo finales");
 
             // Crear canal para equipo azul
             guild.createVoiceChannel("🔵 Equipo Azul " + timestamp)
@@ -164,6 +181,7 @@ public class ActiveMatch {
                         synchronized (lock) {
                             if (channelsCreated.incrementAndGet() == 2) {
                                 // Ambos canales creados, ahora mover jugadores
+                                logger.info("Canales Completos", "Ambos canales creados, moviendo jugadores");
                                 movePlayersToTeamChannels();
                             }
                         }
@@ -184,6 +202,7 @@ public class ActiveMatch {
                         synchronized (lock) {
                             if (channelsCreated.incrementAndGet() == 2) {
                                 // Ambos canales creados, ahora mover jugadores
+                                logger.info("Canales Completos", "Ambos canales creados, moviendo jugadores");
                                 movePlayersToTeamChannels();
                             }
                         }
@@ -293,10 +312,25 @@ public class ActiveMatch {
         org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
         logger.info("Cache Invalidado", "Cache de Discord invalidado para " + discordIds.size() + " jugadores - pueden volver a entrar a colas inmediatamente");
 
+        // CRÍTICO: Borrar canales de Discord si existen
+        if (blueTeamChannel != null) {
+            blueTeamChannel.delete().queue(
+                success -> logger.info("Canal Limpiado", "Canal azul borrado durante cleanup"),
+                error -> logger.warning("Error Limpieza Canal", "Error borrando canal azul en cleanup: " + error.getMessage())
+            );
+        }
+
+        if (redTeamChannel != null) {
+            redTeamChannel.delete().queue(
+                success -> logger.info("Canal Limpiado", "Canal rojo borrado durante cleanup"),
+                error -> logger.warning("Error Limpieza Canal", "Error borrando canal rojo en cleanup: " + error.getMessage())
+            );
+        }
+
         // Remover de partidas activas
         activeMatches.remove(matchId);
 
-        logger.success("Partida Limpiada", "Partida " + matchId + " limpiada exitosamente");
+        logger.success("Partida Limpiada", "Partida " + matchId + " limpiada exitosamente - canales borrados");
     }
     private void setupChannelPermissions(VoiceChannel channel, Team team) {
         try {
@@ -532,10 +566,37 @@ public class ActiveMatch {
     }
 
     /**
+     * NUEVOS MÉTODOS PARA SISTEMA DE ABANDONO
+     */
+
+    /**
+     * Busca una partida activa por UUID de jugador
+     */
+    public static ActiveMatch findActiveMatchForPlayer(String playerUuid) {
+        for (ActiveMatch match : activeMatches.values()) {
+            for (List<PlayerData> team : match.getTeams().values()) {
+                for (PlayerData player : team) {
+                    if (player.getMinecraftUuid().equals(playerUuid)) {
+                        return match;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Obtiene una partida activa por ID
+     */
+    public static ActiveMatch getActiveMatch(String matchId) {
+        return activeMatches.get(matchId);
+    }
+
+    /**
      * Obtiene todas las partidas activas
      */
     public static Map<String, ActiveMatch> getActiveMatches() {
-        return activeMatches;
+        return new ConcurrentHashMap<>(activeMatches);
     }
 
     /**
@@ -687,6 +748,56 @@ public class ActiveMatch {
      */
     public Guild getGuild() {
         return this.guild;
+    }
+
+    // NUEVO: Métodos para sistema de picks
+    /**
+     * Verifica si esta partida usó el sistema de picks
+     */
+    public boolean isPicksMatch() {
+        return isPicksMatch;
+    }
+
+    /**
+     * Establece si esta partida usó el sistema de picks
+     */
+    public void setPicksMatch(boolean picksMatch) {
+        isPicksMatch = picksMatch;
+    }
+
+    /**
+     * Obtiene el capitán del equipo azul
+     */
+    public PlayerData getBlueCaptain() {
+        return blueCaptain;
+    }
+
+    /**
+     * Establece el capitán del equipo azul
+     */
+    public void setBlueCaptain(PlayerData blueCaptain) {
+        this.blueCaptain = blueCaptain;
+    }
+
+    /**
+     * Obtiene el capitán del equipo rojo
+     */
+    public PlayerData getRedCaptain() {
+        return redCaptain;
+    }
+
+    /**
+     * Establece el capitán del equipo rojo
+     */
+    public void setRedCaptain(PlayerData redCaptain) {
+        this.redCaptain = redCaptain;
+    }
+
+    /**
+     * Obtiene el capitán de un equipo específico
+     */
+    public PlayerData getCaptainForTeam(Team team) {
+        return team == Team.BLUE ? blueCaptain : redCaptain;
     }
 
     /**

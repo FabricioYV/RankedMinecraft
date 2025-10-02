@@ -9,6 +9,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.match.ActiveMatch;
+import org.fabricioyv.match.AbandonmentDetectionSystem;
 import org.fabricioyv.match.Team;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.logging.DiscordLogger;
@@ -24,16 +25,23 @@ public class PlayerRejoinListener implements Listener {
 
     private final RankedMinecraft plugin;
     private final DiscordLogger logger;
+    private final AbandonmentDetectionSystem abandonmentSystem;
 
     public PlayerRejoinListener(RankedMinecraft plugin, DiscordLogger logger) {
         this.plugin = plugin;
         this.logger = logger;
+        this.abandonmentSystem = plugin.getAbandonmentDetectionSystem();
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID playerUuid = player.getUniqueId();
+
+        // NUEVO: Notificar al sistema de abandono sobre la reconexión
+        if (abandonmentSystem != null) {
+            abandonmentSystem.onPlayerReconnect(playerUuid.toString());
+        }
 
         // OPTIMIZACIÓN: Mover búsqueda a thread asíncrono para no bloquear main thread
         CompletableFuture.runAsync(() -> {

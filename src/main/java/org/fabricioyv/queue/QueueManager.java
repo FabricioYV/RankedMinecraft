@@ -167,166 +167,261 @@ public class QueueManager {
         }
     }
 
+    /**
+     * NUEVO: Remueve jugador de todas las colas de forma forzada (para limpieza tras cancelaciones)
+     */
+    public void removePlayerFromAllQueues(String minecraftUuid) {
+        boolean removed = false;
+
+        // Remover de ambas colas
+        removed |= queue5v5.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
+        removed |= queue8v8.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
+
+        // CRÍTICO: Remover del tracking de jugadores en cola
+        playersInQueue.remove(minecraftUuid);
+
+        if (removed) {
+            logger.debug("Jugador Removido de Colas",
+                String.format("Jugador %s removido de todas las colas", minecraftUuid));
+        }
+    }
+
+    /**
+     * NUEVO: Limpieza forzada de jugador (para emergencias)
+     */
+    public void forceRemovePlayer(String minecraftUuid) {
+        try {
+            // Forzar remoción de colas
+            removePlayerFromAllQueues(minecraftUuid);
+
+            // También intentar mover al canal de espera si está conectado a Discord
+            movePlayerToWaitingRoom(getDiscordIdByMinecraftUuid(minecraftUuid));
+
+            logger.debug("Limpieza Forzada",
+                String.format("Limpieza forzada completada para jugador %s", minecraftUuid));
+
+        } catch (Exception e) {
+            logger.warning("Error en limpieza forzada",
+                String.format("Error en limpieza forzada de %s: %s", minecraftUuid, e.getMessage()));
+        }
+    }
+
+    /**
+     * NUEVO: Obtiene Discord ID por Minecraft UUID (helper method)
+     */
+    private String getDiscordIdByMinecraftUuid(String minecraftUuid) {
+        // Buscar en todas las colas
+        for (PlayerData player : queue5v5) {
+            if (player.getMinecraftUuid().equals(minecraftUuid)) {
+                return player.getDiscordId();
+            }
+        }
+        for (PlayerData player : queue8v8) {
+            if (player.getMinecraftUuid().equals(minecraftUuid)) {
+                return player.getDiscordId();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * CORREGIDO: Manejo de cola completa con mejor validación de estado
+     */
     private void handleFullQueue(List<PlayerData> players, QueueType queueType) {
-        // Verificar si ya hay una partida activa
+        // CRÍTICO: Verificar múltiples veces el estado del match para evitar race conditions
         if (MatchState.isMatchActive()) {
-            Bukkit.getLogger().info("No se puede iniciar partida: ya hay una activa");
+            logger.warning("Cola Completa", "No se puede iniciar partida: ya hay una activa");
             return;
         }
 
-        // Intentar iniciar la partida
+        // Intentar iniciar la partida con doble verificación
         if (!MatchState.startMatch()) {
-            Bukkit.getLogger().info("No se pudo iniciar partida: otra ya está en proceso");
+            logger.warning("Cola Completa", "No se pudo iniciar partida: otra ya está en proceso o estado inconsistente");
+            return;
+        }
+
+        // Verificación final del estado antes del countdown
+        if (!MatchState.isMatchActive()) {
+            logger.error("Estado Inconsistente", "El estado del match no es consistente después de startMatch()");
             return;
         }
 
         // NO vaciar la cola aquí - solo iniciar countdown
-        // La validación y limpieza se hará al final del countdown
         startCountdown(new ArrayList<>(players), queueType);
     }
 
+    /**
+     * CORREGIDO: Countdown con mejor manejo de estado y limpieza
+     */
     private void startCountdown(List<PlayerData> players, QueueType queueType) {
         new BukkitRunnable() {
             int countdown = 30;
 
             @Override
             public void run() {
-                if (countdown <= 0) {
-                    // Obtener la cola real ACTUAL (no la copia)
-                    List<PlayerData> targetQueue = (queueType == QueueType.FIVE_VS_FIVE) ? queue5v5 : queue8v8;
-
-                    List<PlayerData> connectedPlayers = new ArrayList<>();
-                    List<PlayerData> disconnectedPlayers = new ArrayList<>();
-
-                    synchronized (targetQueue) {
-                        // Validar jugadores que están ACTUALMENTE en la cola (no la copia)
-                        for (PlayerData playerData : new ArrayList<>(targetQueue)) { // ✅ Iterar sobre cola actual
-                            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-                            boolean isConnectedToMC = mcPlayer != null && mcPlayer.isOnline();
-                            boolean isInCorrectChannel = isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType);
-
-                            if (isConnectedToMC && isInCorrectChannel) {
-                                connectedPlayers.add(playerData);
-                            } else {
-                                disconnectedPlayers.add(playerData);
-                            }
-                        }
-
-                        // Remover SOLO los jugadores desconectados
-                        for (PlayerData disconnected : disconnectedPlayers) {
-                            targetQueue.remove(disconnected);
-                            playersInQueue.remove(disconnected.getMinecraftUuid());
-
-                            // Mover a waiting room y notificar...
-                            movePlayerToWaitingRoom(disconnected.getDiscordId());
-
-                            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(disconnected.getMinecraftUuid()));
-                            if (mcPlayer != null && mcPlayer.isOnline()) {
-                                mcPlayer.sendMessage("§c❌ Has sido removido de la cola por no estar conectado al servidor de Minecraft.");
-                            }
-
-                            logger.queueEvent(
-                                    getPlayerDisplayName(disconnected),
-                                    disconnected.getDiscordId(),
-                                    "Removido de Cola",
-                                    "Removido por no estar conectado a Minecraft al final del countdown"
-                            );
-                        }
-
-                        // Verificar si hay suficientes jugadores CONECTADOS
-                        if (connectedPlayers.size() >= queueType.getRequiredPlayers()) {
-                            // Tomar solo los necesarios para la partida
-                            List<PlayerData> playersForMatch = connectedPlayers.subList(0, queueType.getRequiredPlayers());
-                            MatchManager.startMatch(playersForMatch);
-
-                            // Remover SOLO los que van a la partida
-                            for (PlayerData playerInMatch : playersForMatch) {
-                                targetQueue.remove(playerInMatch);
-                                playersInQueue.remove(playerInMatch.getMinecraftUuid());
-                            }
-
-                            logger.matchEvent("QUEUE_" + queueType.name(), "Partida Iniciada",
-                                    "Partida iniciada con " + playersForMatch.size() + " jugadores. " +
-                                            disconnectedPlayers.size() + " jugadores desconectados removidos. " +
-                                            "Cola restante: " + targetQueue.size(),
-                                    playersForMatch.size());
-
-                        } else {
-                            // No hay suficientes - cancelar pero mantener cola
-                            MatchState.endMatch();
-
-                            for (PlayerData connected : connectedPlayers) {
-                                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(connected.getMinecraftUuid()));
-                                if (mcPlayer != null && mcPlayer.isOnline()) {
-                                    mcPlayer.sendMessage("§c❌ Partida cancelada por falta de jugadores conectados. " +
-                                            "Sigues en la cola (" + targetQueue.size() + "/" + queueType.getRequiredPlayers() + ")");
-                                }
-                            }
-
-                            logger.warning("Partida Cancelada",
-                                    "Insuficientes jugadores conectados (" + connectedPlayers.size() +
-                                            "/" + queueType.getRequiredPlayers() + "). " +
-                                            disconnectedPlayers.size() + " jugadores removidos. Cola actual: " + targetQueue.size());
-                        }
-                    }
-
+                // CRÍTICO: Verificar estado del match en cada iteración
+                if (!MatchState.isMatchActive()) {
+                    logger.warning("Countdown Cancelado", "Estado del match ya no es activo, cancelando countdown");
                     this.cancel();
                     return;
                 }
 
-                // Durante countdown - usar cola actual también
-                List<PlayerData> targetQueue = (queueType == QueueType.FIVE_VS_FIVE) ? queue5v5 : queue8v8;
-                List<PlayerData> currentDisconnected = getCurrentDisconnectedPlayers(queueType);
-
-                // Notificar a jugadores en la cola actual
-                for (PlayerData playerData : new ArrayList<>(targetQueue)) {
-                    Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-                    if (mcPlayer != null && mcPlayer.isOnline()) {
-                        String message = "§6¡Partida " + getQueueTypeName(queueType) + " iniciando en §c" + countdown + "§6 segundos!";
-
-                        if (!currentDisconnected.isEmpty() && countdown % 10 == 0) {
-                            message += "\n§e⚠️ Esperando a: " + getDisconnectedPlayersNames(currentDisconnected);
-                        }
-
-                        mcPlayer.sendMessage(message);
-                    }
+                if (countdown <= 0) {
+                    handleCountdownEnd(queueType);
+                    this.cancel();
+                    return;
                 }
 
-                // Mencionar desconectados
-                if (!currentDisconnected.isEmpty() && (countdown == 20 || countdown == 10 || countdown <= 5)) {
-                    mentionDisconnectedPlayers(currentDisconnected, countdown);
-                }
-
+                // Durante countdown - validaciones y notificaciones
+                handleCountdownTick(queueType, countdown);
                 countdown--;
             }
-        }.runTaskTimer(plugin, 0L, 20L);
+        }.runTaskTimer(RankedMinecraft.getInstance(), 0L, 20L);
     }
 
-    private List<PlayerData> getCurrentDisconnectedPlayers(QueueType queueType) {
+    /**
+     * NUEVO: Maneja el final del countdown con validación completa
+     */
+    private void handleCountdownEnd(QueueType queueType) {
         List<PlayerData> targetQueue = (queueType == QueueType.FIVE_VS_FIVE) ? queue5v5 : queue8v8;
-        List<PlayerData> disconnected = new ArrayList<>();
 
-        for (PlayerData playerData : targetQueue) {
-            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-            if (mcPlayer == null || !mcPlayer.isOnline()) {
-                disconnected.add(playerData);
+        synchronized (targetQueue) {
+            List<PlayerData> connectedPlayers = new ArrayList<>();
+            List<PlayerData> disconnectedPlayers = new ArrayList<>();
+
+            // Validar jugadores que están ACTUALMENTE en la cola
+            for (PlayerData playerData : new ArrayList<>(targetQueue)) {
+                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                boolean isConnectedToMC = mcPlayer != null && mcPlayer.isOnline();
+                boolean isInCorrectChannel = isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType);
+
+                if (isConnectedToMC && isInCorrectChannel) {
+                    connectedPlayers.add(playerData);
+                } else {
+                    disconnectedPlayers.add(playerData);
+                }
+            }
+
+            // Remover SOLO los jugadores desconectados
+            cleanupDisconnectedPlayers(disconnectedPlayers, targetQueue);
+
+            // Verificar si hay suficientes jugadores CONECTADOS
+            if (connectedPlayers.size() >= queueType.getRequiredPlayers()) {
+                startMatchWithPlayers(connectedPlayers, queueType, targetQueue);
+            } else {
+                cancelMatchDueToInsufficientPlayers(connectedPlayers, disconnectedPlayers, queueType, targetQueue);
+            }
+        }
+    }
+
+    /**
+     * NUEVO: Limpia jugadores desconectados de la cola
+     */
+    private void cleanupDisconnectedPlayers(List<PlayerData> disconnectedPlayers, List<PlayerData> targetQueue) {
+        for (PlayerData disconnected : disconnectedPlayers) {
+            targetQueue.remove(disconnected);
+            playersInQueue.remove(disconnected.getMinecraftUuid());
+
+            // Mover a waiting room si es posible
+            movePlayerToWaitingRoom(disconnected.getDiscordId());
+
+            // Notificar al jugador si está conectado a MC
+            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(disconnected.getMinecraftUuid()));
+            if (mcPlayer != null && mcPlayer.isOnline()) {
+                mcPlayer.sendMessage("§c❌ Has sido removido de la cola por no estar en el canal de voz correcto.");
+            }
+
+            logger.queueEvent(
+                getPlayerDisplayName(disconnected),
+                disconnected.getDiscordId(),
+                "Removido de Cola",
+                "Removido por no estar en canal correcto al final del countdown"
+            );
+        }
+    }
+
+    /**
+     * NUEVO: Inicia partida con jugadores validados
+     */
+    private void startMatchWithPlayers(List<PlayerData> connectedPlayers, QueueType queueType, List<PlayerData> targetQueue) {
+        // Tomar solo los necesarios para la partida
+        List<PlayerData> playersForMatch = connectedPlayers.subList(0, queueType.getRequiredPlayers());
+
+        try {
+            MatchManager.startMatch(playersForMatch);
+
+            // Remover SOLO los que van a la partida
+            for (PlayerData playerInMatch : playersForMatch) {
+                targetQueue.remove(playerInMatch);
+                playersInQueue.remove(playerInMatch.getMinecraftUuid());
+            }
+
+            logger.matchEvent("QUEUE_" + queueType.name(), "Partida Iniciada",
+                "Partida iniciada con " + playersForMatch.size() + " jugadores. Cola restante: " + targetQueue.size(),
+                playersForMatch.size());
+
+        } catch (Exception e) {
+            logger.logError("Error iniciando partida desde cola", e);
+
+            // CRÍTICO: En caso de error, resetear estado y mantener jugadores en cola
+            MatchState.endMatch();
+
+            for (PlayerData player : playersForMatch) {
+                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(player.getMinecraftUuid()));
+                if (mcPlayer != null && mcPlayer.isOnline()) {
+                    mcPlayer.sendMessage("§c❌ Error iniciando partida. Sigues en la cola.");
+                }
+            }
+        }
+    }
+
+    /**
+     * NUEVO: Cancela partida por jugadores insuficientes
+     */
+    private void cancelMatchDueToInsufficientPlayers(List<PlayerData> connectedPlayers, List<PlayerData> disconnectedPlayers,
+                                                    QueueType queueType, List<PlayerData> targetQueue) {
+        // CRÍTICO: Resetear estado del match
+        MatchState.endMatch();
+
+        for (PlayerData connected : connectedPlayers) {
+            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(connected.getMinecraftUuid()));
+            if (mcPlayer != null && mcPlayer.isOnline()) {
+                mcPlayer.sendMessage("§c❌ Partida cancelada por falta de jugadores conectados. " +
+                    "Sigues en la cola (" + targetQueue.size() + "/" + queueType.getRequiredPlayers() + ")");
             }
         }
 
-        return disconnected;
+        logger.warning("Partida Cancelada",
+            "Insuficientes jugadores conectados (" + connectedPlayers.size() +
+            "/" + queueType.getRequiredPlayers() + "). " +
+            disconnectedPlayers.size() + " jugadores removidos. Cola actual: " + targetQueue.size());
     }
 
-    private String getDisconnectedPlayersNames(List<PlayerData> disconnectedPlayers) {
-        StringBuilder names = new StringBuilder();
-        for (int i = 0; i < disconnectedPlayers.size(); i++) {
-            if (i > 0) names.append(", ");
+    /**
+     * NUEVO: Maneja cada tick del countdown
+     */
+    private void handleCountdownTick(QueueType queueType, int countdown) {
+        List<PlayerData> targetQueue = (queueType == QueueType.FIVE_VS_FIVE) ? queue5v5 : queue8v8;
+        List<PlayerData> currentDisconnected = getCurrentDisconnectedPlayers(queueType);
 
-            // Intentar obtener nombre de MC, fallback a Discord
-            PlayerData player = disconnectedPlayers.get(i);
-            String name = getPlayerDisplayName(player);
-            names.append(name);
+        // Notificar a jugadores en la cola actual
+        for (PlayerData playerData : new ArrayList<>(targetQueue)) {
+            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            if (mcPlayer != null && mcPlayer.isOnline()) {
+                String message = "§6¡Partida " + getQueueTypeName(queueType) + " iniciando en §c" + countdown + "§6 segundos!";
+
+                if (!currentDisconnected.isEmpty() && countdown % 10 == 0) {
+                    message += "\n§e⚠️ Esperando a: " + getDisconnectedPlayersNames(currentDisconnected);
+                }
+
+                mcPlayer.sendMessage(message);
+            }
         }
-        return names.toString();
+
+        // Mencionar desconectados en momentos clave
+        if (!currentDisconnected.isEmpty() && (countdown == 20 || countdown == 10 || countdown <= 5)) {
+            mentionDisconnectedPlayers(currentDisconnected, countdown);
+        }
     }
     /**
      * Método estático para limpiar SOLO el tracking de jugadores cuando termina una partida
@@ -370,18 +465,6 @@ public class QueueManager {
                         " removido de cola tras finalizar partida");
             }
         }
-    }
-    public boolean removePlayerFromAllQueues(String minecraftUuid) {
-        boolean removed = false;
-
-        // Remover de ambas colas
-        removed |= queue5v5.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
-        removed |= queue8v8.removeIf(p -> p.getMinecraftUuid().equals(minecraftUuid));
-
-        // Remover del tracking
-        playersInQueue.remove(minecraftUuid);
-
-        return removed;
     }
 
 
@@ -436,6 +519,48 @@ public class QueueManager {
 
         return "UUID:" + player.getMinecraftUuid().substring(0, 8);
     }
+    /**
+     * NUEVO: Obtiene jugadores actualmente desconectados de una cola específica
+     */
+    private List<PlayerData> getCurrentDisconnectedPlayers(QueueType queueType) {
+        List<PlayerData> targetQueue = (queueType == QueueType.FIVE_VS_FIVE) ? queue5v5 : queue8v8;
+        List<PlayerData> disconnectedPlayers = new ArrayList<>();
+
+        for (PlayerData playerData : targetQueue) {
+            try {
+                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                boolean isConnectedToMC = mcPlayer != null && mcPlayer.isOnline();
+                boolean isInCorrectChannel = isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType);
+
+                if (!isConnectedToMC || !isInCorrectChannel) {
+                    disconnectedPlayers.add(playerData);
+                }
+            } catch (Exception e) {
+                // Si hay error verificando, considerar como desconectado
+                disconnectedPlayers.add(playerData);
+            }
+        }
+
+        return disconnectedPlayers;
+    }
+
+    /**
+     * NUEVO: Obtiene nombres de jugadores desconectados para mostrar en mensajes
+     */
+    private String getDisconnectedPlayersNames(List<PlayerData> disconnectedPlayers) {
+        if (disconnectedPlayers.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < disconnectedPlayers.size(); i++) {
+            if (i > 0) names.append(", ");
+            names.append(getPlayerDisplayName(disconnectedPlayers.get(i)));
+        }
+
+        return names.toString();
+    }
+
     /**
      * Menciona a los jugadores desconectados en Discord via mensaje privado
      */

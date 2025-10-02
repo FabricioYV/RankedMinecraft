@@ -130,6 +130,127 @@ public class DiscordLogger {
         updateDiscordNicknames(eloChanges, teams);
     }
     /**
+     * NUEVO: Log detallado de finalización de partida CON INFORMACIÓN DE CAPITANES
+     */
+    public void matchComplete(String matchId, String matchType, String mapName,
+                              Team winnerTeam, Map<Team, List<PlayerData>> teams,
+                              Map<String, Integer> eloChanges, long durationSeconds,
+                              boolean isPicksMatch, PlayerData blueCaptain, PlayerData redCaptain) {
+
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle("🏆 Partida Finalizada");
+        embed.setColor(winnerTeam == Team.BLUE ? Color.BLUE : Color.RED);
+
+        // Información básica
+        embed.addField("🆔 Match ID", matchId, true);
+        embed.addField("⚔️ Tipo", matchType, true);
+        embed.addField("🗺️ Mapa", mapName, true);
+        embed.addField("👑 Ganador", winnerTeam.getFormattedName(), true);
+        embed.addField("⏱️ Duración", formatDuration(durationSeconds), true);
+        embed.addField("📊 Jugadores", String.valueOf(teams.values().stream().mapToInt(List::size).sum()), true);
+
+        // NUEVO: Mostrar tipo de formación de equipos
+        String teamFormation = isPicksMatch ? "🎯 Sistema de Picks" : "⚖️ Balanceo Automático";
+        embed.addField("🔄 Formación", teamFormation, true);
+
+        // NUEVO: Mostrar capitanes si fue partida de picks
+        if (isPicksMatch && blueCaptain != null && redCaptain != null) {
+            String captainsInfo = String.format("🔵 **%s**\n🔴 **%s**",
+                    getPlayerDisplayName(blueCaptain),
+                    getPlayerDisplayName(redCaptain));
+            embed.addField("👨‍✈️ Capitanes", captainsInfo, true);
+        } else {
+            embed.addField("", "", true); // Campo vacío para mantener el layout
+        }
+
+        // Equipos y estadísticas (MODIFICADO para mostrar capitanes)
+        StringBuilder teamsInfo = new StringBuilder();
+        int placementPlayersCount = 0;
+
+        for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
+            Team team = entry.getKey();
+            List<PlayerData> players = entry.getValue();
+            boolean isWinner = team == winnerTeam;
+
+            // Mostrar nombre del equipo con capitán si aplica
+            String teamHeader = team == Team.BLUE ? "🔵" : "🔴";
+            teamHeader += " **" + team.getDisplayName() + "**";
+
+            if (isPicksMatch) {
+                PlayerData captain = team == Team.BLUE ? blueCaptain : redCaptain;
+                if (captain != null) {
+                    teamHeader += " (Cap: " + getPlayerDisplayName(captain) + ")";
+                }
+            }
+
+            teamHeader += (isWinner ? " 🏆" : " 💔") + "\n";
+            teamsInfo.append(teamHeader);
+
+            for (PlayerData player : players) {
+                String playerName = getPlayerDisplayName(player);
+                Integer eloChange = eloChanges.get(player.getMinecraftUuid());
+                String statusText = "";
+
+                // Marcar capitán con emoji especial
+                String captainIndicator = "";
+                if (isPicksMatch && ((team == Team.BLUE && player.equals(blueCaptain)) ||
+                                   (team == Team.RED && player.equals(redCaptain)))) {
+                    captainIndicator = " 👨‍✈️";
+                }
+
+                // NUEVO: Verificar si el jugador está en placement
+                if (player.isInPlacement()) {
+                    placementPlayersCount++;
+                    int matchesPlayed = player.getPlacementMatchesPlayed();
+                    int totalRequired = PlayerData.getPlacementMatchesRequired();
+                    statusText = String.format(" 🔍 [%d/%d Evaluación]", matchesPlayed, totalRequired);
+                } else if (eloChange != null) {
+                    // Jugador normal con cambio de ELO
+                    statusText = " (" + (eloChange > 0 ? "+" : "") + eloChange + ")";
+                } else {
+                    // Fallback: no debería pasar pero por seguridad
+                    statusText = " (Sin cambios)";
+                }
+
+                teamsInfo.append("• ").append(playerName).append(captainIndicator).append(statusText).append("\n");
+            }
+            teamsInfo.append("\n");
+        }
+
+        embed.addField("👥 Equipos", teamsInfo.toString(), false);
+
+        // Estadísticas de ELO (solo para jugadores no-placement)
+        Map<String, Integer> rankedEloChanges = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
+            // Buscar el jugador para verificar si está en placement
+            PlayerData player = findPlayerByUuid(teams, entry.getKey());
+            if (player != null && !player.isInPlacement()) {
+                rankedEloChanges.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
+
+        embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
+        embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
+        embed.addField("⚖️ ELO Neto", "0", true);
+
+        // NUEVO: Información de placement si hay jugadores en evaluación
+        if (placementPlayersCount > 0) {
+            embed.addField("🔍 En Evaluación",
+                placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
+                " en período de evaluación", false);
+        }
+
+        embed.setTimestamp(java.time.Instant.now());
+        embed.setFooter("Partida completada");
+
+        sendEmbedToResults(embed);
+
+        updateDiscordNicknames(eloChanges, teams);
+    }
+    /**
      * Log específico para cambios de ELO
      */
     public void eloChanges(String matchId, Map<String, Integer> eloChanges, Team winnerTeam) {

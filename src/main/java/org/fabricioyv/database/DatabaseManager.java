@@ -200,6 +200,10 @@ public class DatabaseManager {
             -- Placement columns (required for placement matches tracking)
             is_in_placement TINYINT(1) DEFAULT 1,
             placement_matches_played INT DEFAULT 0,
+            -- NUEVO: Columna para sistema de cooldown por abandono
+            cooldown_end_time BIGINT DEFAULT 0,
+            -- NUEVO: Columna para baneo permanente
+            is_permanently_banned TINYINT(1) DEFAULT 0,
             verification_code VARCHAR(8),
             verification_expiry BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -208,12 +212,45 @@ public class DatabaseManager {
             INDEX idx_elo (elo),
             INDEX idx_mmr (mmr),
             INDEX idx_in_match (is_in_match),
-            INDEX idx_minecraft_uuid (minecraft_uuid)
+            INDEX idx_minecraft_uuid (minecraft_uuid),
+            INDEX idx_cooldown (cooldown_end_time),
+            INDEX idx_banned (is_permanently_banned)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """;
+
+        // NUEVA TABLA: Registro de abandonos
+        String createAbandonmentsTable = """
+        CREATE TABLE IF NOT EXISTS player_abandonments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            player_uuid VARCHAR(36) NOT NULL,
+            match_id VARCHAR(50) NOT NULL,
+            elo_penalty INT NOT NULL,
+            cooldown_minutes INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_player_uuid (player_uuid),
+            INDEX idx_match_id (match_id),
+            INDEX idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """;
+
+        // NUEVA TABLA: Protecciones contra pérdida de ELO
+        String createLossProtectionsTable = """
+        CREATE TABLE IF NOT EXISTS match_loss_protections (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            player_uuid VARCHAR(36) NOT NULL,
+            match_id VARCHAR(50) NOT NULL,
+            protection_reason VARCHAR(100) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_protection (player_uuid, match_id),
+            INDEX idx_player_uuid (player_uuid),
+            INDEX idx_match_id (match_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """;
 
         try (Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(createPlayersTable);
+            stmt.executeUpdate(createAbandonmentsTable);
+            stmt.executeUpdate(createLossProtectionsTable);
         }
     }
 
@@ -692,6 +729,230 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * ========================================
+     * MÉTODOS PARA SISTEMA DE ABANDONO
+     * ========================================
+     */
+
+    /**
+     * Obtiene el número de abandonos de un jugador en los últimos 30 días
+     */
+    public static int getPlayerAbandonmentCount(String playerUuid) {
+        String query = """
+            SELECT COUNT(*) as abandonment_count 
+            FROM player_abandonments 
+            WHERE player_uuid = ? 
+            AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("abandonment_count");
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error obteniendo conteo de abandonos: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return 0;
+    }
+
+    /**
+     * Registra un abandono en la base de datos
+     */
+    public static void recordAbandonment(String playerUuid, String matchId, int eloPenalty, int cooldownMinutes) {
+        String query = """
+            INSERT INTO player_abandonments 
+            (player_uuid, match_id, elo_penalty, cooldown_minutes, created_at) 
+            VALUES (?, ?, ?, ?, NOW())
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+            stmt.setInt(3, eloPenalty);
+            stmt.setInt(4, cooldownMinutes);
+
+            stmt.executeUpdate();
+
+            System.out.println("✅ Abandono registrado: " + playerUuid + " en partida " + matchId);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error registrando abandono: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Actualiza el ELO de un jugador
+     */
+    public static void updatePlayerElo(String playerUuid, int newElo) {
+        String query = "UPDATE ranked_players SET elo = ? WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setInt(1, newElo);
+            stmt.setString(2, playerUuid);
+
+            stmt.executeUpdate();
+
+            // Invalidar cache
+            PlayerDataCache.invalidatePlayer(playerUuid, null);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error actualizando ELO: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Establece un cooldown para un jugador
+     */
+    public static void setPlayerCooldown(String playerUuid, long cooldownEndTime) {
+        String query = "UPDATE ranked_players SET cooldown_end_time = ? WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setLong(1, cooldownEndTime);
+            stmt.setString(2, playerUuid);
+
+            stmt.executeUpdate();
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error estableciendo cooldown: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Verifica si un jugador está en cooldown
+     */
+    public static boolean isPlayerInCooldown(String playerUuid) {
+        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long cooldownEndTime = rs.getLong("cooldown_end_time");
+                    return cooldownEndTime > System.currentTimeMillis();
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error verificando cooldown: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return false;
+    }
+
+    /**
+     * Obtiene el tiempo restante de cooldown en minutos
+     */
+    public static long getCooldownRemainingMinutes(String playerUuid) {
+        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long cooldownEndTime = rs.getLong("cooldown_end_time");
+                    long currentTime = System.currentTimeMillis();
+
+                    if (cooldownEndTime > currentTime) {
+                        return (cooldownEndTime - currentTime) / (60 * 1000); // Convertir a minutos
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error obteniendo tiempo de cooldown: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return 0;
+    }
+
+    /**
+     * Marca a un jugador como protegido de pérdida de ELO debido a abandono de compañero
+     */
+    public static void markPlayerProtectedFromLoss(String playerUuid, String matchId, String reason) {
+        String query = """
+            INSERT INTO match_loss_protections 
+            (player_uuid, match_id, protection_reason, created_at) 
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE protection_reason = VALUES(protection_reason)
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+            stmt.setString(3, reason);
+
+            stmt.executeUpdate();
+
+            System.out.println("✅ Jugador protegido de pérdida: " + playerUuid + " en partida " + matchId);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error marcando protección: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Verifica si un jugador está protegido de pérdida de ELO en una partida específica
+     */
+    public static boolean isPlayerProtectedFromLoss(String playerUuid, String matchId) {
+        String query = """
+            SELECT COUNT(*) as protection_count 
+            FROM match_loss_protections 
+            WHERE player_uuid = ? AND match_id = ?
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("protection_count") > 0;
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error verificando protección: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return false;
+    }
+
+    /**
+     * Obtiene el alias para PlayerData por compatibilidad
+     */
+    public static PlayerData getPlayerData(String playerUuid) {
+        return getPlayerByMinecraftUuid(playerUuid);
+    }
+
     public static class PlayerStatUpdate {
         public final String minecraftUuid;
         public final boolean won;
@@ -866,5 +1127,134 @@ public class DatabaseManager {
                 }
             }
         }
+    }
+
+    /**
+     * NUEVO: Establece baneo permanente para un jugador
+     */
+    public static void setPermanentBan(String playerUuid, boolean banned) {
+        String query = "UPDATE ranked_players SET is_permanently_banned = ? WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setBoolean(1, banned);
+            stmt.setString(2, playerUuid);
+
+            stmt.executeUpdate();
+
+            System.out.println("✅ Estado de baneo permanente actualizado: " + playerUuid + " = " + banned);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error estableciendo baneo permanente: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * NUEVO: Verifica si un jugador está baneado permanentemente
+     */
+    public static boolean isPlayerPermanentlyBanned(String playerUuid) {
+        String query = "SELECT is_permanently_banned FROM ranked_players WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getBoolean("is_permanently_banned");
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error verificando baneo permanente: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return false;
+    }
+
+    /**
+     * NUEVO: Aplica pérdidas dobles a un jugador (cuenta como 2 derrotas adicionales)
+     */
+    public static void addDoubleLossesToPlayer(String playerUuid) {
+        String query = "UPDATE ranked_players SET losses = losses + 2, games_played = games_played + 2 WHERE minecraft_uuid = ?";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            int rowsAffected = stmt.executeUpdate();
+
+            if (rowsAffected > 0) {
+                System.out.println("✅ Pérdidas dobles aplicadas a: " + playerUuid + " (+2 derrotas)");
+
+                // Invalidar cache para reflejar los cambios
+                PlayerDataCache.invalidatePlayer(playerUuid, null);
+            }
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error aplicando pérdidas dobles: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * NUEVO: Marca a un jugador como ya procesado por abandono para evitar doble penalización
+     */
+    public static void markPlayerAsAbandonmentProcessed(String playerUuid, String matchId) {
+        String query = """
+            INSERT INTO match_loss_protections 
+            (player_uuid, match_id, protection_reason, created_at) 
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE protection_reason = VALUES(protection_reason)
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+            stmt.setString(3, "abandonment_processed");
+
+            stmt.executeUpdate();
+
+            System.out.println("✅ Jugador marcado como procesado por abandono: " + playerUuid + " en partida " + matchId);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error marcando jugador como procesado por abandono: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * NUEVO: Verifica si un jugador ya fue procesado por abandono
+     */
+    public static boolean isPlayerAbandonmentProcessed(String playerUuid, String matchId) {
+        String query = """
+            SELECT COUNT(*) as processed_count 
+            FROM match_loss_protections 
+            WHERE player_uuid = ? AND match_id = ? AND protection_reason = 'abandonment_processed'
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("processed_count") > 0;
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error verificando si jugador fue procesado por abandono: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return false;
     }
 }

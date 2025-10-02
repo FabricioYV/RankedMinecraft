@@ -18,6 +18,8 @@ import java.util.UUID;
 
 public class MatchManager {
 
+    private static final RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
+
     /**
      * Inicia una partida con los jugadores especificados
      * @param players Lista de jugadores que participarán en la partida
@@ -25,7 +27,6 @@ public class MatchManager {
     public static void startMatch(List<PlayerData> players) {
         try {
             // Obtener instancias necesarias
-            RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
             JDA jda = plugin.getDiscordBot().getJda();
             Guild guild = jda.getGuilds().get(0); // Asumiendo un solo servidor
             DiscordLogger logger = plugin.getDiscordBot().getLogger();
@@ -53,14 +54,13 @@ public class MatchManager {
             // Fase 2: Balancear equipos por ELO
             activeMatch.balanceTeams();
 
-            // Fase 3: Crear canales de equipos en Discord
-            activeMatch.createTeamChannels();
+            // CORREGIDO: NO crear canales aquí - se crearán después de la selección de mapa
+            // activeMatch.createTeamChannels(); // ❌ REMOVIDO - causaba duplicados
 
-            // Fase 5: Iniciar votación de mapas
+            // Fase 3: Iniciar votación de mapas directamente
             startMapVoting(activeMatch, logger);
 
         } catch (Exception e) {
-            RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
             if (plugin.getDiscordBot() != null && plugin.getDiscordBot().getLogger() != null) {
                 plugin.getDiscordBot().getLogger().systemError("MatchManager",
                         "Error crítico iniciando partida", e.getMessage());
@@ -104,7 +104,7 @@ public class MatchManager {
 
         // Crear sistema de votación
         MapVoting mapVoting = new MapVoting(
-                RankedMinecraft.getPlugin(RankedMinecraft.class),
+                plugin,
                 logger,
                 activeMatch.getAllPlayers(),
                 activeMatch.getMatchType()
@@ -141,7 +141,8 @@ public class MatchManager {
         try {
             // Ejecutar comando de ciclo de mapa
             Bukkit.getScheduler().runTask(plugin, () -> {
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pgm cycle " + mapName);
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "sn " + mapName);
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "cycle 1");
             });
 
             logger.info("Ciclo de Mapa", "Ciclando a mapa: " + mapName);
@@ -176,14 +177,23 @@ public class MatchManager {
 
     /**
      * Continúa con el flujo normal después del balanceo/picks
+     * CORREGIDO: NO crear canales duplicados si ya existen
      */
     private static void continueWithNormalFlow(ActiveMatch activeMatch, DiscordLogger logger) {
         try {
-            // Crear canales de equipo
-            activeMatch.createTeamChannels();
+            // CORREGIDO: Solo crear canales si NO existen ya (evitar duplicados en matchmaking normal)
+            if (activeMatch.getBlueTeamChannel() == null && activeMatch.getRedTeamChannel() == null) {
+                // Crear canales de equipo solo si no existen
+                logger.info("Creando Canales", "Creando canales de equipo para matchmaking normal");
+                activeMatch.createTeamChannels();
 
-            // Mover jugadores a canales
-            activeMatch.movePlayersToTeamChannels();
+                // Mover jugadores a canales después de crearlos
+                activeMatch.movePlayersToTeamChannels();
+            } else {
+                // Los canales ya existen, solo mover jugadores
+                logger.info("Canales Existentes", "Canales ya existen - solo moviendo jugadores");
+                activeMatch.movePlayersToTeamChannels();
+            }
 
             // Asignar equipos en Minecraft
             activeMatch.assignPlayersInMinecraft();
@@ -204,7 +214,6 @@ public class MatchManager {
         logger.info("Cuenta Regresiva Final",
                 "Iniciando cuenta regresiva final de 2 minutos para partida " + activeMatch.getMatchId());
 
-        RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
         new BukkitRunnable() {
 
             // MODIFICADO: Countdown de 2 minutos (120 segundos)
@@ -219,9 +228,9 @@ public class MatchManager {
                         this.cancel();
                         return;
                     }
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 60");
 
-                    // Ejecutar comando start 120 antes de iniciar oficialmente
+                    // CORREGIDO: Usar start 120 en lugar de start 60
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 120");
 
                     // Oficialmente iniciar la partida
                     startOfficialMatch(activeMatch, logger);
@@ -302,9 +311,9 @@ public class MatchManager {
     }
     /**
      * Cancela una partida y limpia todo el estado
+     * CORREGIDO: Limpieza completa incluyendo canales de Discord
      */
     private static void cancelMatch(ActiveMatch activeMatch, String reason) {
-        RankedMinecraft plugin = RankedMinecraft.getPlugin(RankedMinecraft.class);
         DiscordLogger logger = plugin.getDiscordBot().getLogger();
 
         activeMatch.setStatus(ActiveMatch.MatchStatus.CANCELLED);
@@ -316,7 +325,7 @@ public class MatchManager {
         announceToPlayers(activeMatch.getAllPlayers(),
                 "§c❌ Partida cancelada: " + reason);
 
-        // Actualizar estado en base de datos
+        // Actualizar estado en base de datos INMEDIATAMENTE
         updatePlayersMatchStatus(activeMatch.getAllPlayers(), null, false);
 
         // Cancelar votación si está activa
@@ -324,7 +333,33 @@ public class MatchManager {
             activeMatch.getMapVoting().cancelVoting();
         }
 
-        // Limpiar recursos
+        // CRÍTICO: Borrar canales de Discord explícitamente antes de cleanup general
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            try {
+                // Borrar canales si existen
+                if (activeMatch.getBlueTeamChannel() != null) {
+                    activeMatch.getBlueTeamChannel().delete().queue(
+                        success -> logger.info("Canal Cancelado", "Canal azul eliminado tras cancelación en matchmaking"),
+                        error -> logger.warning("Error Borrando Canal", "Error borrando canal azul en cancelación: " + error.getMessage())
+                    );
+                }
+
+                if (activeMatch.getRedTeamChannel() != null) {
+                    activeMatch.getRedTeamChannel().delete().queue(
+                        success -> logger.info("Canal Cancelado", "Canal rojo eliminado tras cancelación en matchmaking"),
+                        error -> logger.warning("Error Borrando Canal", "Error borrando canal rojo en cancelación: " + error.getMessage())
+                    );
+                }
+
+                logger.info("Limpieza Cancelación",
+                        String.format("Partida %s cancelada - canales borrados explícitamente", activeMatch.getMatchId()));
+
+            } catch (Exception e) {
+                logger.logError("Error en borrado explícito de canales durante cancelación", e);
+            }
+        }, 20L); // 1 segundo para que Discord procese
+
+        // Limpiar recursos (esto también borrará canales como respaldo)
         activeMatch.cleanup();
         ReadySystem.clearMatchVotes(activeMatch.getMatchId());
     }

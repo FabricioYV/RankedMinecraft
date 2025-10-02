@@ -401,15 +401,33 @@ public class MatchFinisher {
                                            Map<String, Integer> eloChanges, long durationSeconds,
                                            DiscordLogger logger) {
 
-        logger.matchComplete(
-                activeMatch.getMatchId(),
-                activeMatch.getMatchType(),
-                activeMatch.getSelectedMap(),
-                winnerTeam,
-                activeMatch.getTeams(),
-                eloChanges,
-                durationSeconds
-        );
+        // NUEVO: Verificar si fue partida con sistema de picks
+        if (activeMatch.isPicksMatch()) {
+            // Usar método con información de capitanes
+            logger.matchComplete(
+                    activeMatch.getMatchId(),
+                    activeMatch.getMatchType(),
+                    activeMatch.getSelectedMap(),
+                    winnerTeam,
+                    activeMatch.getTeams(),
+                    eloChanges,
+                    durationSeconds,
+                    true, // isPicksMatch
+                    activeMatch.getBlueCaptain(),
+                    activeMatch.getRedCaptain()
+            );
+        } else {
+            // Usar método tradicional sin información de capitanes
+            logger.matchComplete(
+                    activeMatch.getMatchId(),
+                    activeMatch.getMatchType(),
+                    activeMatch.getSelectedMap(),
+                    winnerTeam,
+                    activeMatch.getTeams(),
+                    eloChanges,
+                    durationSeconds
+            );
+        }
 
         // También enviar log separado de cambios de ELO
         // Log específico con modificadores aplicados
@@ -479,7 +497,7 @@ public class MatchFinisher {
     /**
      * Mueve todos los jugadores al canal de espera en Discord
      */
-    private static void movePlayersToWaitingRoom(ActiveMatch activeMatch,
+    public static void movePlayersToWaitingRoom(ActiveMatch activeMatch,
                                                  RankedMinecraft plugin, DiscordLogger logger) {
 
         Guild guild = plugin.getDiscordBot().getJda().getGuilds().get(0);
@@ -1235,6 +1253,78 @@ public class MatchFinisher {
             this.consistency = consistency;
             this.wins = wins;
             this.totalMatches = totalMatches;
+        }
+    }
+    /**
+     * NUEVO: Procesa resultados de un equipo considerando protecciones por abandono
+     */
+    private static void processTeamResults(List<PlayerData> teamPlayers, boolean won,
+                                         Map<String, Boolean> playerProtections,
+                                         Map<String, Boolean> abandonmentProcessed,
+                                         ActiveMatch activeMatch, DiscordLogger logger,
+                                         RankedMinecraft plugin) {
+
+        for (PlayerData player : teamPlayers) {
+            try {
+                String playerUuid = player.getMinecraftUuid();
+                boolean isProtected = playerProtections.getOrDefault(playerUuid, false);
+                boolean wasProcessedForAbandonment = abandonmentProcessed.getOrDefault(playerUuid, false);
+
+                // CRÍTICO: Si el jugador ya fue procesado por abandono, NO aplicar más penalizaciones
+                if (wasProcessedForAbandonment) {
+                    logger.info("Jugador Ya Procesado",
+                        String.format("Jugador %s ya fue procesado por abandono - evitando doble penalización",
+                            player.getMinecraftUuid().substring(0, 8)));
+
+                    // Solo notificar que no se procesará más
+                    Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerUuid));
+                    if (mcPlayer != null && mcPlayer.isOnline()) {
+                        mcPlayer.sendMessage("§7⚠️ Ya fuiste penalizado por abandono - sin cambios adicionales");
+                    }
+
+                    // Continuar con siguiente jugador sin procesar ELO
+                    continue;
+                }
+
+                if (isProtected && !won) {
+                    // El jugador está protegido de la pérdida por abandono de compañero
+                    logger.info("Pérdida Protegida",
+                        String.format("Jugador %s protegido de pérdida por abandono - sin cambio de ELO",
+                            player.getMinecraftUuid().substring(0, 8)));
+
+                    // Notificar al jugador
+                    Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerUuid));
+                    if (mcPlayer != null && mcPlayer.isOnline()) {
+                        mcPlayer.sendMessage("§a✅ Protegido de pérdida de ELO por abandono de compañero");
+                        mcPlayer.sendMessage("§7Esta derrota no afectará tu rango");
+                    }
+
+                    // Solo actualizar estado (sin cambios de ELO/MMR)
+                    if (player.isInPlacement()) {
+                        // Incrementar contador de placement pero sin aplicar resultado negativo
+                        int newPlacementCount = player.getPlacementMatchesPlayed() + 1;
+                        boolean stillInPlacement = newPlacementCount < PlayerData.getPlacementMatchesRequired();
+
+                        player.setPlacementMatchesPlayed(newPlacementCount);
+                        player.setInPlacement(stillInPlacement);
+
+                        // Actualizar solo el contador de placement, no las wins/losses
+                        DatabaseManager.updatePlayerPlacementData(playerUuid, stillInPlacement, newPlacementCount);
+                    }
+
+                    // Continuar con siguiente jugador sin procesar ELO
+                    continue;
+                }
+
+                // AQUÍ ES DONDE SE PROCESARÍA NORMALMENTE EL ELO
+                // Pero este código ya existe en updatePlayerStatistics(), no necesito duplicarlo aquí
+                logger.debug("Procesamiento Normal",
+                    String.format("Jugador %s procesado normalmente - sin protecciones ni abandono previo",
+                        player.getMinecraftUuid().substring(0, 8)));
+
+            } catch (Exception e) {
+                logger.logError("Error procesando resultado de equipo para jugador " + player.getMinecraftUuid(), e);
+            }
         }
     }
 }

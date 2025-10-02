@@ -27,7 +27,7 @@ public class PickCommand implements CommandExecutor {
 
         if (args.length != 1) {
             player.sendMessage("§cUso: /pick <jugador>");
-            player.sendMessage("§7Ejemplo: /pick Steve");
+            player.sendMessage("§7Ejemplo: /pick CyDarkCat");
             return true;
         }
 

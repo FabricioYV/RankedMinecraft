@@ -9,6 +9,8 @@ import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener; // Descomentado - disponible cuando instales PGM
+import org.fabricioyv.listeners.PlayerRejoinListener;
+import org.fabricioyv.match.AbandonmentDetectionSystem;
 import org.fabricioyv.match.MapManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
@@ -16,6 +18,8 @@ import org.fabricioyv.rating.ProgressiveEloCalculator;
 public final class RankedMinecraft extends JavaPlugin {
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
+    private AbandonmentDetectionSystem abandonmentSystem;
+
     @Override
     public void onEnable() {
         instance = this;
@@ -34,6 +38,7 @@ public final class RankedMinecraft extends JavaPlugin {
             getCommand("mapadmin").setExecutor(new MapAdminCommand()); // Comando para administrar mapas
             getCommand("placement").setExecutor(new PlacementStatsCommand()); // Comando para estadísticas de placement
             getCommand("testplacement").setExecutor(new TestPlacementAnalysisCommand()); // Comando de testing para análisis avanzado
+            getCommand("pick").setExecutor(new PickCommand()); // Comando para elegir jugador (pick)
 
             // Inicializar base de datos
             if(!DatabaseManager.initialize()) {
@@ -44,6 +49,12 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // Inicializar Discord bot ANTES de registrar listeners que lo necesiten
             initializeDiscordBot();
+
+            // NUEVO: Inicializar sistema de detección de abandono
+            if (discordBot != null && discordBot.getLogger() != null) {
+                abandonmentSystem = new AbandonmentDetectionSystem(this, discordBot.getLogger());
+                getLogger().info("Sistema de detección de abandono inicializado");
+            }
 
             // Registrar listeners de PGM (ya verifica internamente si discordBot está listo)
             registerPGMListeners();
@@ -127,6 +138,12 @@ public final class RankedMinecraft extends JavaPlugin {
             // Reintentar en 5 segundos
             Bukkit.getScheduler().runTaskLater(this, this::registerPGMListeners, 100L);
         }
+    }
+    /**
+     * NUEVO: Getter para el sistema de abandono
+     */
+    public AbandonmentDetectionSystem getAbandonmentDetectionSystem() {
+        return abandonmentSystem;
     }
     public DiscordBot getDiscordBot() {
         return discordBot;

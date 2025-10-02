@@ -75,7 +75,7 @@ public class PlacementMMRCalculator {
                 breakdown = new StringBuilder();
                 breakdown.append("**🎯 PLACEMENT FINALIZADO CON ANÁLISIS AVANZADO**\n\n");
                 breakdown.append(analysis.analysisReport);
-                breakdown.append(String.format("\n**📊 Resultado Final:**\n"));
+                breakdown.append("\n**📊 Resultado Final:**\n");
                 breakdown.append(String.format("• MMR Inicial: %.0f\n", oldMMR));
                 breakdown.append(String.format("• MMR Final: %.0f\n", newMMR));
                 breakdown.append(String.format("• Cambio Total: %+.0f\n", newMMR - oldMMR));
@@ -100,8 +100,9 @@ public class PlacementMMRCalculator {
             }
         }
 
-        // Durante placement: cambios mínimos y temporales
-        double newMMR = Math.max(850, Math.min(1150, oldMMR + mmrChange)); // Rango más limitado
+        // Durante placement: cambios mínimos y temporales con límites más apropiados
+        // CORREGIDO: Usar el mismo mínimo que el sistema principal (600) para evitar inconsistencias
+        double newMMR = Math.max(600, Math.min(1300, oldMMR + mmrChange)); // Rango expandido y coherente
 
         return new MMRCalculator.MMRChange(oldMMR, newMMR, breakdown.toString());
     }

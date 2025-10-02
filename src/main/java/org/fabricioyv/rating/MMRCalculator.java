@@ -16,6 +16,10 @@ public class MMRCalculator {
     private static final double MAX_MMR_CHANGE = 85.0;
     private static final double MIN_MMR_CHANGE = -60.0;
 
+    // CORREGIDO: MMR mínimo más alto para evitar trampa de MMR bajo
+    private static final double MIN_MMR_ALLOWED = 600.0; // Mínimo MMR permitido (no 100)
+    // MAX_MMR no necesario, el sistema es abierto hacia arriba
+
     public static class MMRChange {
         private final double oldMMR;
         private final double newMMR;
@@ -113,7 +117,7 @@ public class MMRCalculator {
         // Limitar cambios extremos
         mmrChange = Math.max(MIN_MMR_CHANGE, Math.min(MAX_MMR_CHANGE, mmrChange));
 
-        double newMMR = Math.max(100, oldMMR + mmrChange);
+        double newMMR = Math.max(MIN_MMR_ALLOWED, oldMMR + mmrChange);
 
         return new MMRChange(oldMMR, newMMR, breakdown.toString());
     }

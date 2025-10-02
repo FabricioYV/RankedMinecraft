@@ -17,21 +17,21 @@ public class PlayerDataCache {
     private static final Map<String, PlayerData> playerCacheByDiscordId = new ConcurrentHashMap<>();
     private static final Map<String, PlayerData> playerCacheByUuid = new ConcurrentHashMap<>();
     private static final Map<String, Long> cacheTimestamps = new ConcurrentHashMap<>();
-    private static final long CACHE_TTL = 5 * 60 * 1000; // 5 minutos TTL
+    private static final long CACHE_TTL = 60 * 1000; // 1 minuto TTL (optimizado para partidas cortas)
 
     /**
      * Inicializa el sistema de cache con limpieza periódica
      */
     public static void initialize() {
-        // Iniciar limpieza periódica de cache cada 5 minutos
+        // Iniciar limpieza periódica de cache cada 1 minuto (más frecuente para TTL corto)
         Bukkit.getScheduler().runTaskTimerAsynchronously(
             Bukkit.getPluginManager().getPlugin("RankedMinecraft"), 
             PlayerDataCache::cleanupExpiredCache, 
-            6000L, // 5 minutos inicial
-            6000L  // cada 5 minutos
+            1200L, // 1 minuto inicial
+            1200L  // cada 1 minuto
         );
 
-        Bukkit.getConsoleSender().sendMessage("§a✅ PlayerDataCache inicializado con limpieza automática");
+        Bukkit.getConsoleSender().sendMessage("§a✅ PlayerDataCache inicializado con TTL de 1 minuto y limpieza cada minuto");
     }
 
     /**

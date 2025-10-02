@@ -29,3 +29,6 @@ commands:
     description: Comando de testing para analizar el historial completo de placement matches
     usage: /testplacement <jugador>
     permission: ranked.admin
+  pick:
+    description: Elegir un jugador durante el sistema de picks de capitanes
+    usage: /pick <jugador>
