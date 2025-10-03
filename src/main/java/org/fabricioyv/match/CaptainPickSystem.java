@@ -5,7 +5,10 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.config.VoiceChannelConfig;
@@ -32,7 +35,7 @@ public class CaptainPickSystem {
     private static final String SPONSOR_ROLE_ID = "1413243740231041174";
     private static final String SERVER_BOOSTER_ROLE_ID = "1407203727076491295";
 
-    private static final int PICK_TIMEOUT_SECONDS = 15;
+    private static final int PICK_TIMEOUT_SECONDS = 20; // AUMENTADO: 15 -> 20 segundos
 
     /**
      * Inicia el sistema de picks después de seleccionar el mapa
@@ -432,6 +435,43 @@ public class CaptainPickSystem {
     }
 
     /**
+     * NUEVO: Obtiene la lista de jugadores disponibles para pickear en una sesión activa
+     */
+    public static List<PlayerData> getAvailablePlayers(String matchId) {
+        PickSession session = activeSessions.get(matchId);
+        if (session == null) {
+            return null;
+        }
+        return session.getAvailablePlayers();
+    }
+
+    /**
+     * NUEVO: Da el libro de picks a un capitán
+     */
+    public static void givePickBook(Player captain) {
+        ItemStack pickBook = new ItemStack(Material.BOOK);
+        ItemMeta meta = pickBook.getItemMeta();
+
+        if (meta != null) {
+            meta.setDisplayName("§6§l⚔ Libro de Picks");
+
+            List<String> lore = new ArrayList<>();
+            lore.add("");
+            lore.add("§7Haz §eclick derecho §7para abrir");
+            lore.add("§7el menú de selección de jugadores");
+            lore.add("");
+            lore.add("§a§l▶ Click Derecho para usar");
+
+            meta.setLore(lore);
+            pickBook.setItemMeta(meta);
+        }
+
+        captain.getInventory().addItem(pickBook);
+        captain.sendMessage("§a§l✓ §fRecibiste el §6Libro de Picks");
+        captain.sendMessage("§7Haz click derecho para seleccionar jugadores");
+    }
+
+    /**
      * Clase interna para manejar una sesión de picks
      */
     private static class PickSession {
@@ -451,6 +491,10 @@ public class CaptainPickSystem {
         private int pickNumber = 1;
         private boolean finished = false;
         private BukkitRunnable timeoutTask;
+
+        // NUEVO: Variables para el modelo de pickeo 1-2-2-2-1
+        private PlayerData firstCaptain; // El capitán que pickea primero
+        private int consecutivePicksRemaining = 1; // Cuántos picks consecutivos le quedan al capitán actual
 
         // NUEVO: Canales temporales para picks
         private net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel tempBlueChannel;
@@ -483,6 +527,8 @@ public class CaptainPickSystem {
 
             // Decidir quién pickea primero aleatoriamente
             currentCaptain = ThreadLocalRandom.current().nextBoolean() ? captain1 : captain2;
+            firstCaptain = currentCaptain; // NUEVO: Guardar quién pickea primero
+            consecutivePicksRemaining = 1; // NUEVO: Comienza con 1 pick (patrón 1-2-2-2-1)
 
             // NUEVO: Crear canales temporales para la fase de picks
             createTemporaryPickChannels();
@@ -490,8 +536,37 @@ public class CaptainPickSystem {
             // Anunciar inicio de picks
             announcePickStart();
 
+            // NUEVO: Dar libro de picks a ambos capitanes
+            givePickBooksToCapitans();
+
             // Iniciar primer pick
             startNextPick();
+        }
+
+        /**
+         * NUEVO: Da el libro de picks a ambos capitanes
+         */
+        private void givePickBooksToCapitans() {
+            try {
+                Player captain1Player = Bukkit.getPlayer(UUID.fromString(captain1.getMinecraftUuid()));
+                if (captain1Player != null) {
+                    CaptainPickSystem.givePickBook(captain1Player);
+                }
+
+                Player captain2Player = Bukkit.getPlayer(UUID.fromString(captain2.getMinecraftUuid()));
+                if (captain2Player != null) {
+                    CaptainPickSystem.givePickBook(captain2Player);
+                }
+            } catch (Exception e) {
+                logger.warning("Error dando libros de picks", "Error: " + e.getMessage());
+            }
+        }
+
+        /**
+         * NUEVO: Obtiene la lista de jugadores disponibles (para el GUI)
+         */
+        public List<PlayerData> getAvailablePlayers() {
+            return new ArrayList<>(availablePlayers);
         }
 
         /**
@@ -650,6 +725,23 @@ public class CaptainPickSystem {
         private void startNextPick() {
             if (availablePlayers.isEmpty()) {
                 finishPicks();
+                return;
+            }
+
+            // NUEVO: Si solo queda 1 jugador, asignarlo automáticamente sin pick
+            if (availablePlayers.size() == 1) {
+                PlayerData lastPlayer = availablePlayers.get(0);
+
+                announceToPlayers(allPlayers,
+                    String.format("§e⚡ Último jugador disponible: §a%s §eserá asignado automáticamente a §b%s",
+                        getPlayerName(lastPlayer), getPlayerName(currentCaptain)));
+
+                logger.info("Auto-pick",
+                    String.format("Último jugador %s asignado automáticamente a %s",
+                        getPlayerName(lastPlayer), getPlayerName(currentCaptain)));
+
+                // Asignar directamente sin esperar pick
+                performPick(lastPlayer);
                 return;
             }
 
@@ -974,8 +1066,44 @@ public class CaptainPickSystem {
                     String.format("§a✓ %s ha seleccionado a %s",
                             getPlayerName(currentCaptain), getPlayerName(pickedPlayer)));
 
-            // Cambiar turno
-            currentCaptain = (currentCaptain == captain1) ? captain2 : captain1;
+            // NUEVO: Decrementar picks consecutivos restantes
+            consecutivePicksRemaining--;
+
+            // NUEVO: Cambiar turno solo si el capitán actual completó sus picks consecutivos
+            if (consecutivePicksRemaining <= 0) {
+                // Cambiar de capitán
+                currentCaptain = (currentCaptain == captain1) ? captain2 : captain1;
+
+                // NUEVO: Determinar cuántos picks consecutivos según patrón 1-2-2-2-1
+                // Patrón: Cap1(1) -> Cap2(2) -> Cap1(2) -> Cap2(2) -> Cap1(1)
+                // Total de 8 jugadores disponibles (10 - 2 capitanes)
+
+                int totalPicksMade = 8 - availablePlayers.size(); // Cuántos picks se han hecho hasta ahora
+
+                if (totalPicksMade == 0) {
+                    // Después del primer pick (1), el siguiente capitán pickea 2
+                    consecutivePicksRemaining = 2;
+                } else if (totalPicksMade == 3 || totalPicksMade == 5) {
+                    // Después de 3 picks (1+2) o 5 picks (1+2+2), el siguiente pickea 2
+                    consecutivePicksRemaining = 2;
+                } else if (totalPicksMade == 7) {
+                    // Después de 7 picks (1+2+2+2), el último pick es 1
+                    consecutivePicksRemaining = 1;
+                } else {
+                    // Fallback (no debería pasar)
+                    consecutivePicksRemaining = 1;
+                }
+
+                logger.debug("Pick Pattern",
+                    String.format("Turno cambiado a %s - Picks consecutivos: %d (Total picks hechos: %d)",
+                        getPlayerName(currentCaptain), consecutivePicksRemaining, totalPicksMade));
+            } else {
+                // El mismo capitán sigue pickeando
+                logger.debug("Pick Pattern",
+                    String.format("%s tiene %d pick(s) más consecutivo(s)",
+                        getPlayerName(currentCaptain), consecutivePicksRemaining));
+            }
+
             pickNumber++;
 
             // Continuar o finalizar

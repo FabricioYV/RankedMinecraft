@@ -516,19 +516,20 @@ public class DiscordLogger {
                     Member member = guild.getMemberById(player.getDiscordId());
                     if (member == null) continue;
 
-                    // Obtener cambio de ELO
+                    // Verificar que hubo cambio de ELO (skip jugadores en placement)
                     Integer eloChange = eloChanges.get(player.getMinecraftUuid());
                     if (eloChange == null) continue;
 
-                    // Calcular nuevo ELO
-                    int newElo = player.getElo() + eloChange;
+                    // CORREGIDO: Usar el ELO actualizado directamente de PlayerData
+                    // que ya fue actualizado por MatchFinisher con los valores de la BD
+                    int currentElo = player.getElo();
 
                     // Obtener nombre de Minecraft del jugador
                     String minecraftName = getMinecraftPlayerName(player.getMinecraftUuid());
                     if (minecraftName == null || minecraftName.isEmpty()) continue;
 
-                    // Crear nuevo apodo con formato: minecraft_name (ELO)
-                    String newNickname = String.format("%s [%d]", minecraftName, newElo);
+                    // Crear nuevo apodo con formato: minecraft_name [ELO]
+                    String newNickname = String.format("%s [%d]", minecraftName, currentElo);
 
                     // Actualizar apodo si es diferente
                     String currentNickname = member.getNickname();

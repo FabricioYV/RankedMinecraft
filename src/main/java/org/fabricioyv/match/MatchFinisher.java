@@ -482,10 +482,11 @@ public class MatchFinisher {
                         Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
                         if (eloChange != null) {
                             String eloMessage = eloChange > 0 ?
-                                    "§a��� +" + eloChange + " ELO!" :
+                                    "§a📈 +" + eloChange + " ELO!" :
                                     "§c📉 " + eloChange + " ELO";
                             mcPlayer.sendMessage(eloMessage);
-                            mcPlayer.sendMessage("§7💰 ELO actual: §f" + (playerData.getElo() + eloChange));
+                            // ELIMINADO: No mostrar ELO total para evitar confusión con cache
+                            // El comando /stats del bot de Discord muestra el ELO real de la BD
                         }
                     }
 

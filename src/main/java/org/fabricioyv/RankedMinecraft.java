@@ -62,6 +62,9 @@ public final class RankedMinecraft extends JavaPlugin {
             // Registrar MatchStatsListener para capturar estadísticas durante las partidas
             getServer().getPluginManager().registerEvents(new MatchStatsListener(), this);
 
+            // NUEVO: Registrar listener del GUI de picks
+            getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.PicksGUIListener(), this);
+
             getLogger().info("RankedMinecraft habilitado exitosamente!");
 
         } catch (Exception e) {
