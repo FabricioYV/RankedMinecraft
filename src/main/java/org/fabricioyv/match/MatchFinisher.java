@@ -188,6 +188,84 @@ public class MatchFinisher {
 
             for (PlayerData player : players) {
                 try {
+                    // **CRÍTICO**: Verificar si el jugador ya fue procesado por abandono
+                    boolean wasAbandonmentProcessed = DatabaseManager.isPlayerAbandonmentProcessed(
+                        player.getMinecraftUuid(),
+                        activeMatch.getMatchId()
+                    );
+
+                    // **PROTECCIÓN**: Si el jugador abandonó, ya fue penalizado - NO procesar más cambios
+                    if (wasAbandonmentProcessed) {
+                        logger.info("Jugador Ya Penalizado Por Abandono",
+                            String.format("Jugador %s (%s) ya fue penalizado por abandono - SKIP procesamiento de ELO",
+                                player.getMinecraftName(),
+                                player.getMinecraftUuid().substring(0, 8)));
+
+                        // Registrar cambio de ELO = 0 para el mensaje final
+                        eloChanges.put(player.getMinecraftUuid(), 0);
+
+                        // Marcar explícitamente que es abandono para mensaje personalizado
+                        ProgressiveEloCalculator.EloChange abandonmentChange = new ProgressiveEloCalculator.EloChange(
+                            0,  // Sin cambio de ELO
+                            player.getElo(),  // ELO actual (sin cambios)
+                            Rank.getRankByElo(player.getElo()),  // Rango actual
+                            Rank.getRankByElo(player.getElo()),  // Rango actual (sin cambios)
+                            false,  // No promoción
+                            false   // No degradación
+                        );
+                        detailedChanges.put(player.getMinecraftUuid(), abandonmentChange);
+
+                        // Continuar con siguiente jugador SIN procesamiento
+                        continue;
+                    }
+
+                    // **VERIFICAR PROTECCIÓN POR ABANDONO DE COMPAÑERO**
+                    boolean isProtectedFromLoss = DatabaseManager.isPlayerProtectedFromLoss(
+                        player.getMinecraftUuid(),
+                        activeMatch.getMatchId()
+                    );
+
+                    // Si está protegido Y perdió, no aplicar cambios negativos
+                    if (isProtectedFromLoss && !won) {
+                        logger.info("Jugador Protegido De Pérdida",
+                            String.format("Jugador %s (%s) protegido de pérdida por abandono de compañero",
+                                player.getMinecraftName(),
+                                player.getMinecraftUuid().substring(0, 8)));
+
+                        // No cambiar ELO
+                        eloChanges.put(player.getMinecraftUuid(), 0);
+
+                        // Crear cambio neutral
+                        ProgressiveEloCalculator.EloChange protectedChange = new ProgressiveEloCalculator.EloChange(
+                            0,  // Sin cambio
+                            player.getElo(),
+                            Rank.getRankByElo(player.getElo()),
+                            Rank.getRankByElo(player.getElo()),
+                            false,
+                            false
+                        );
+                        detailedChanges.put(player.getMinecraftUuid(), protectedChange);
+
+                        // Actualizar solo contador de placement si aplica, sin penalización
+                        if (player.isInPlacement()) {
+                            int newPlacementCount = player.getPlacementMatchesPlayed() + 1;
+                            boolean stillInPlacement = newPlacementCount < PlayerData.getPlacementMatchesRequired();
+
+                            player.setPlacementMatchesPlayed(newPlacementCount);
+                            player.setInPlacement(stillInPlacement);
+
+                            DatabaseManager.updatePlayerPlacementData(
+                                player.getMinecraftUuid(),
+                                stillInPlacement,
+                                newPlacementCount
+                            );
+                        }
+
+                        // Continuar con siguiente jugador
+                        continue;
+                    }
+
+                    // **PROCESAMIENTO NORMAL** - Jugador no abandonó ni está protegido
                     // **CRÍTICO**: Establecer el match ID actual ANTES de los cálculos
                     player.setCurrentMatchId(activeMatch.getMatchId());
 
@@ -460,8 +538,41 @@ public class MatchFinisher {
                     mcPlayer.sendMessage(winnerMessage);
                     mcPlayer.sendMessage(mapMessage);
 
-                    // NUEVO: Mensaje personalizado dependiendo del estado del jugador
-                    if (playerData.isInPlacement()) {
+                    // **VERIFICAR SI EL JUGADOR ABANDONÓ Y FUE PENALIZADO**
+                    boolean wasAbandonmentProcessed = DatabaseManager.isPlayerAbandonmentProcessed(
+                        playerData.getMinecraftUuid(),
+                        activeMatch.getMatchId()
+                    );
+
+                    // **VERIFICAR SI ESTÁ PROTEGIDO POR ABANDONO DE COMPAÑERO**
+                    boolean isProtectedFromLoss = DatabaseManager.isPlayerProtectedFromLoss(
+                        playerData.getMinecraftUuid(),
+                        activeMatch.getMatchId()
+                    );
+
+                    boolean isWinner = teams.entrySet().stream()
+                        .filter(e -> e.getKey() == winnerTeam)
+                        .anyMatch(e -> e.getValue().contains(playerData));
+
+                    // **MENSAJE PERSONALIZADO SEGÚN EL ESTADO DEL JUGADOR**
+                    if (wasAbandonmentProcessed) {
+                        // Jugador que abandonó - mensaje claro de penalización previa
+                        mcPlayer.sendMessage("§c§l❌ ABANDONASTE LA PARTIDA");
+                        mcPlayer.sendMessage("§7Ya fuiste penalizado al abandonar:");
+                        mcPlayer.sendMessage("§c  • Pérdida inmediata de ELO");
+                        mcPlayer.sendMessage("§c  • Cooldown aplicado");
+                        mcPlayer.sendMessage("§7§oEste resultado no afecta tu ELO adicional");
+                        mcPlayer.sendMessage("§e💡 Tip: Reconéctate dentro de 1:30 min para evitar penalizaciones");
+
+                    } else if (isProtectedFromLoss && !isWinner) {
+                        // Jugador protegido por abandono de compañero
+                        mcPlayer.sendMessage("§a✅ PROTEGIDO DE PÉRDIDA");
+                        mcPlayer.sendMessage("§7Un compañero abandonó la partida:");
+                        mcPlayer.sendMessage("§a  • Sin pérdida de ELO");
+                        mcPlayer.sendMessage("§a  • Sin registro como derrota");
+                        mcPlayer.sendMessage("§7Esta partida no afecta tu estadística negativa");
+
+                    } else if (playerData.isInPlacement()) {
                         // Mensaje para jugadores en placement
                         int matchesPlayed = playerData.getPlacementMatchesPlayed();
                         int totalRequired = PlayerData.getPlacementMatchesRequired();
@@ -473,20 +584,25 @@ public class MatchFinisher {
                         if (remaining > 0) {
                             mcPlayer.sendMessage("§a✨ Te faltan §e" + remaining + "§a partidas para obtener tu rango inicial");
                         } else {
-                            mcPlayer.sendMessage("§a🎉 ¡Completaste todas las partidas de evaluación! Tu rango se asignará pronto.");
+                            mcPlayer.sendMessage("§a🎉 ¡Completaste todas las partidas de evaluación!");
+                            mcPlayer.sendMessage("§7Tu rango final se calculó basado en tu rendimiento");
                         }
 
-                        mcPlayer.sendMessage("§7💡 Durante la evaluación no pierdes ni ganas ELO");
+                        mcPlayer.sendMessage("§7💡 Durante la evaluación no se muestran cambios de ELO");
+
                     } else {
                         // Mensaje normal con cambio de ELO
                         Integer eloChange = eloChanges.get(playerData.getMinecraftUuid());
-                        if (eloChange != null) {
+                        if (eloChange != null && eloChange != 0) {
                             String eloMessage = eloChange > 0 ?
-                                    "§a📈 +" + eloChange + " ELO!" :
+                                    "§a📈 +" + eloChange + " ELO" :
                                     "§c📉 " + eloChange + " ELO";
                             mcPlayer.sendMessage(eloMessage);
-                            // ELIMINADO: No mostrar ELO total para evitar confusión con cache
-                            // El comando /stats del bot de Discord muestra el ELO real de la BD
+                            mcPlayer.sendMessage("§7Usa §e/stats §7en Discord para ver tu ELO actualizado");
+                        } else if (eloChange != null && eloChange == 0) {
+                            // Cambio de ELO = 0 (caso raro, pero puede pasar)
+                            mcPlayer.sendMessage("§e⚖️ Sin cambios de ELO");
+                            mcPlayer.sendMessage("§7Tu rendimiento mantuvo tu ELO estable");
                         }
                     }
 

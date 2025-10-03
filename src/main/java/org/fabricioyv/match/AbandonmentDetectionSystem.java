@@ -311,7 +311,7 @@ public class AbandonmentDetectionSystem implements Listener {
         List<PlayerData> teammates = activeMatch.getTeams().get(playerTeam);
         if (teammates == null) return;
 
-        String message = String.format("§e⚠️ %s se desconectó. Tiene §c2 minutos §epara reconectarse o será marcado como abandono", playerName);
+        String message = String.format("§e⚠️ %s se desconectó. Tiene §c1:30 minutos §epara reconectarse o será marcado como abandono", playerName);
 
         for (PlayerData teammate : teammates) {
             Player mcPlayer = Bukkit.getPlayer(UUID.fromString(teammate.getMinecraftUuid()));
