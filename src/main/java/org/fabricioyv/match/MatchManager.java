@@ -374,12 +374,28 @@ public class MatchManager {
             }
         }
     }
+    /**
+     * Actualiza el estado de partida de los jugadores
+     * OPTIMIZADO: BD asíncrona para no bloquear el servidor
+     */
     private static void updatePlayersMatchStatus(List<PlayerData> players, String matchId, boolean inMatch) {
+        // 1. INMEDIATO: Actualizar memoria (instantáneo, no bloquea)
         for (PlayerData player : players) {
             player.setInMatch(inMatch);
             player.setCurrentMatchId(matchId);
-            DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), inMatch, matchId);
         }
+
+        // 2. ASÍNCRONO: Actualizar BD en segundo plano (no bloquea servidor)
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            for (PlayerData player : players) {
+                try {
+                    DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), inMatch, matchId);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error actualizando estado BD para " +
+                        player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
+                }
+            }
+        });
     }
 
 

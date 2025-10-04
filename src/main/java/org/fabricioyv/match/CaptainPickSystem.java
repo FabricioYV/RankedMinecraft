@@ -492,7 +492,7 @@ public class CaptainPickSystem {
         private boolean finished = false;
         private BukkitRunnable timeoutTask;
 
-        // NUEVO: Variables para el modelo de pickeo 1-2-2-2-1
+        // NUEVO: Variables para el modelo de pickeo 1-2-1-1-1-1
         private PlayerData firstCaptain; // El capitán que pickea primero
         private int consecutivePicksRemaining = 1; // Cuántos picks consecutivos le quedan al capitán actual
 
@@ -528,7 +528,7 @@ public class CaptainPickSystem {
             // Decidir quién pickea primero aleatoriamente
             currentCaptain = ThreadLocalRandom.current().nextBoolean() ? captain1 : captain2;
             firstCaptain = currentCaptain; // NUEVO: Guardar quién pickea primero
-            consecutivePicksRemaining = 1; // NUEVO: Comienza con 1 pick (patrón 1-2-2-2-1)
+            consecutivePicksRemaining = 1; // NUEVO: Comienza con 1 pick (patrón 1-2-1-1-1-1)
 
             // NUEVO: Crear canales temporales para la fase de picks
             createTemporaryPickChannels();
@@ -1074,8 +1074,8 @@ public class CaptainPickSystem {
                 // Cambiar de capitán
                 currentCaptain = (currentCaptain == captain1) ? captain2 : captain1;
 
-                // NUEVO: Determinar cuántos picks consecutivos según patrón 1-2-2-2-1
-                // Patrón: Cap1(1) -> Cap2(2) -> Cap1(2) -> Cap2(2) -> Cap1(1)
+                // NUEVO: Determinar cuántos picks consecutivos según patrón 1-2-1-1-1-1
+                // Patrón: Cap1(1) -> Cap2(2) -> Cap1(1) -> Cap2(1) -> Cap1(1) -> Cap2(1)
                 // Total de 8 jugadores disponibles (10 - 2 capitanes)
 
                 int totalPicksMade = 8 - availablePlayers.size(); // Cuántos picks se han hecho hasta ahora
@@ -1083,11 +1083,8 @@ public class CaptainPickSystem {
                 if (totalPicksMade == 0) {
                     // Después del primer pick (1), el siguiente capitán pickea 2
                     consecutivePicksRemaining = 2;
-                } else if (totalPicksMade == 3 || totalPicksMade == 5) {
-                    // Después de 3 picks (1+2) o 5 picks (1+2+2), el siguiente pickea 2
-                    consecutivePicksRemaining = 2;
-                } else if (totalPicksMade == 7) {
-                    // Después de 7 picks (1+2+2+2), el último pick es 1
+                } else if (totalPicksMade == 2 || totalPicksMade == 4 || totalPicksMade == 6) {
+                    // Después de 2, 4 o 6 picks (1+2, 1+2+1, 1+2+1+1), el siguiente pickea 1
                     consecutivePicksRemaining = 1;
                 } else {
                     // Fallback (no debería pasar)
@@ -1385,62 +1382,72 @@ public class CaptainPickSystem {
                     try {
                         Member member = activeMatch.getGuild().getMemberById(player.getDiscordId());
                         if (member != null && member.getVoiceState() != null && member.getVoiceState().getChannel() != null) {
-                            // Solo mover si está en uno de los canales temporales
-                            String currentChannelId = member.getVoiceState().getChannel().getId();
-                            boolean isInTempChannel = (tempBlueChannel != null && tempBlueChannel.getId().equals(currentChannelId)) ||
-                                                    (tempRedChannel != null && tempRedChannel.getId().equals(currentChannelId));
-
-                            if (isInTempChannel) {
-                                activeMatch.getGuild().moveVoiceMember(member, waitingChannel).queue(
-                                    success -> logger.debug("Jugador Movido Espera", "Movido " + member.getEffectiveName() + " a canal de espera (fallback)"),
-                                    error -> logger.debug("Error Movimiento Espera", "Error moviendo " + member.getEffectiveName() + " a espera: " + error.getMessage())
-                                );
-                            }
+                            activeMatch.getGuild().moveVoiceMember(member, waitingChannel).queue(
+                                success -> logger.debug("Jugador Movido Fallback", "Movido " + member.getEffectiveName() + " a canal de espera"),
+                                error -> logger.debug("Error Movimiento Fallback", "Error moviendo " + member.getEffectiveName() + " a espera: " + error.getMessage())
+                            );
                         }
                     } catch (Exception e) {
-                        logger.debug("Error moviendo jugador individual en fallback", e.getMessage());
+                        logger.debug("Error moviendo jugador individual a espera", e.getMessage());
                     }
                 }
 
+                logger.info("Fallback Completado", "Jugadores movidos a canal de espera");
+
             } catch (Exception e) {
-                logger.logError("Error en fallback de movimiento al canal de espera", e);
+                logger.logError("Error en fallback de movimiento a canal de espera", e);
             }
         }
 
+        /**
+         * Obtiene el nombre de Minecraft de un jugador
+         */
+        private String getPlayerName(PlayerData playerData) {
+            try {
+                Player player = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                if (player != null) {
+                    return player.getName();
+                }
+
+                // Si no está online, intentar obtener el nombre desde OfflinePlayer
+                org.bukkit.OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                if (offlinePlayer.getName() != null) {
+                    return offlinePlayer.getName();
+                }
+
+                // Fallback: usar primeros 8 caracteres del UUID
+                return "Player_" + playerData.getMinecraftUuid().substring(0, 8);
+            } catch (Exception e) {
+                return "Unknown";
+            }
+        }
+
+        /**
+         * Genera el anuncio de equipos finales
+         */
         private String generateTeamsAnnouncement() {
             StringBuilder announcement = new StringBuilder();
-            announcement.append("§e§l=== EQUIPOS FINALES ===\n");
+            announcement.append("§a§l=== EQUIPOS FINALES ===\n\n");
 
-            announcement.append("§9§lEQUIPO AZUL:\n");
+            // Equipo Azul
+            announcement.append("§9§l🔵 EQUIPO AZUL (Capitán: ").append(getPlayerName(captain1)).append("):\n");
             for (PlayerData player : team1) {
-                announcement.append("§b• ").append(getPlayerName(player));
-                if (player == captain1) announcement.append(" §7(Capitán)");
-                announcement.append("\n");
+                String prefix = player.equals(captain1) ? "§b★ " : "§b• ";
+                announcement.append(prefix).append(getPlayerName(player)).append("\n");
             }
 
-            announcement.append("\n§c§lEQUIPO ROJO:\n");
+            announcement.append("\n");
+
+            // Equipo Rojo
+            announcement.append("§c§l🔴 EQUIPO ROJO (Capitán: ").append(getPlayerName(captain2)).append("):\n");
             for (PlayerData player : team2) {
-                announcement.append("§c• ").append(getPlayerName(player));
-                if (player == captain2) announcement.append(" §7(Capitán)");
-                announcement.append("\n");
+                String prefix = player.equals(captain2) ? "§c★ " : "§c• ";
+                announcement.append(prefix).append(getPlayerName(player)).append("\n");
             }
 
-            announcement.append("\n§a§l¡Preparándose para la partida!");
+            announcement.append("\n§e§l¡Buena suerte a ambos equipos!");
 
             return announcement.toString();
         }
-
-        private String getPlayerName(PlayerData player) {
-            try {
-                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(player.getMinecraftUuid()));
-                if (mcPlayer != null) {
-                    return mcPlayer.getName();
-                }
-            } catch (Exception e) {
-                // Fallback
-            }
-            return "Player_" + player.getMinecraftUuid().substring(0, 8);
-        }
     }
-
 }

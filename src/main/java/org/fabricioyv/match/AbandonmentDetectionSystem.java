@@ -190,20 +190,24 @@ public class AbandonmentDetectionSystem implements Listener {
         // NUEVO: Aplicar pérdidas dobles (cuenta como 2 derrotas)
         applyDoubleLosses(playerData);
 
-        // CRÍTICO: Marcar al jugador como ya procesado por abandono para evitar doble penalización
-        DatabaseManager.markPlayerAsAbandonmentProcessed(playerData.getMinecraftUuid(), activeMatch.getMatchId());
-
-        // Actualizar en base de datos
-        DatabaseManager.updatePlayerElo(playerData.getMinecraftUuid(), newElo);
-        DatabaseManager.setPlayerCooldown(playerData.getMinecraftUuid(), cooldownEndTime);
-
-        // Marcar como no disponible para partidas
+        // Actualizar MEMORIA inmediatamente (instantáneo)
         playerData.setInMatch(false);
         playerData.setCurrentMatchId(null);
-        DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
+
+        // Actualizar BD de forma ASÍNCRONA (no bloquea servidor)
+        Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+            try {
+                DatabaseManager.updatePlayerElo(playerData.getMinecraftUuid(), newElo);
+                DatabaseManager.setPlayerCooldown(playerData.getMinecraftUuid(), cooldownEndTime);
+                DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
+            } catch (Exception e) {
+                logger.warning("Async DB Update Failed",
+                    "Error actualizando BD para castigo: " + e.getMessage());
+            }
+        });
 
         logger.info("Castigo Aplicado",
-            String.format("Jugador %s castigado: -%d ELO, %d min cooldown, +2 derrotas (FINAL - no se procesará más)",
+            String.format("Jugador %s castigado: -%d ELO, %d min cooldown, +2 derrotas (BD actualizándose en segundo plano)",
                 playerData.getMinecraftUuid().substring(0, 8),
                 penalty.eloPenalty, penalty.cooldownMinutes));
     }
@@ -222,17 +226,24 @@ public class AbandonmentDetectionSystem implements Listener {
         // Aplicar pérdidas dobles
         applyDoubleLosses(playerData);
 
-        // Actualizar base de datos
-        DatabaseManager.updatePlayerElo(playerData.getMinecraftUuid(), newElo);
-        DatabaseManager.setPlayerCooldown(playerData.getMinecraftUuid(), permanentBanTime);
-        DatabaseManager.setPermanentBan(playerData.getMinecraftUuid(), true);
-
-        // Marcar como no disponible
+        // Actualizar MEMORIA inmediatamente
         playerData.setInMatch(false);
         playerData.setCurrentMatchId(null);
-        DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
 
-        // Notificar al jugador si está conectado
+        // Actualizar BD de forma ASÍNCRONA
+        Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+            try {
+                DatabaseManager.updatePlayerElo(playerData.getMinecraftUuid(), newElo);
+                DatabaseManager.setPlayerCooldown(playerData.getMinecraftUuid(), permanentBanTime);
+                DatabaseManager.setPermanentBan(playerData.getMinecraftUuid(), true);
+                DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
+            } catch (Exception e) {
+                logger.warning("Async DB Update Failed",
+                    "Error actualizando BD para baneo permanente: " + e.getMessage());
+            }
+        });
+
+        // Notificar al jugador si está conectado (operación rápida)
         Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
         if (mcPlayer != null && mcPlayer.isOnline()) {
             mcPlayer.sendMessage("§4§l❌ HAS SIDO BANEADO PERMANENTEMENTE DEL SISTEMA RANKED");

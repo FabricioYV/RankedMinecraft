@@ -169,7 +169,39 @@ public class MapManager {
      * Obtiene los mapas disponibles para un tipo específico de match
      */
     public static List<String> getAvailableMaps(String matchType) {
-        return new ArrayList<>(mapPools.getOrDefault(matchType, new ArrayList<>()));
+        String normalizedType = normalizeMatchType(matchType);
+        return new ArrayList<>(mapPools.getOrDefault(normalizedType, new ArrayList<>()));
+    }
+
+    /**
+     * Normaliza el tipo de match para que coincida con los pools de mapas.
+     * Convierte "Ranked 5v5" -> "5v5", "Ranked 8v8" -> "8v8", etc.
+     */
+    private static String normalizeMatchType(String matchType) {
+        if (matchType == null || matchType.trim().isEmpty()) {
+            return "5v5"; // Default
+        }
+
+        // Extraer el patrón XvX (ej: "5v5", "8v8")
+        String normalized = matchType.toLowerCase().trim();
+
+        // Si contiene "5v5", usar ese pool
+        if (normalized.contains("5v5")) {
+            return "5v5";
+        }
+        // Si contiene "8v8", usar ese pool
+        if (normalized.contains("8v8")) {
+            return "8v8";
+        }
+
+        // Si ya es un formato simple (ej: "5v5", "8v8"), devolverlo tal cual
+        if (matchType.matches("\\d+v\\d+")) {
+            return matchType;
+        }
+
+        // Fallback a 5v5
+        plugin.getLogger().warning("⚠️ No se pudo normalizar tipo de match '" + matchType + "', usando 5v5 por defecto");
+        return "5v5";
     }
 
     /**
@@ -181,6 +213,10 @@ public class MapManager {
             plugin.getLogger().severe("❌ ERROR: Tipo de match inválido (null o vacío)");
             return getFallbackMap("5v5"); // Default fallback
         }
+
+        // Normalizar el tipo de match
+        String normalizedType = normalizeMatchType(matchType);
+        plugin.getLogger().info("🔄 Tipo de match normalizado: '" + matchType + "' -> '" + normalizedType + "'");
 
         List<String> allMaps = getAvailableMaps(matchType);
 

@@ -37,40 +37,43 @@ public class MatchFinisher {
 
         // ========================================
         // OPERACIONES CRÍTICAS INSTANTÁNEAS (MAIN THREAD)
-        // Usando métodos existentes para no duplicar código
+        // Solo operaciones en memoria - BD se actualiza asíncronamente
         // ========================================
 
         try {
-            // 1. INMEDIATO: Marcar jugadores como NO en partida y listos para otra
+            // 1. INMEDIATO: Marcar jugadores como NO en partida EN MEMORIA (instantáneo)
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
                 player.setCurrentMatchId(null);
-
-                // CRÍTICO: Actualizar base de datos SÍNCRONAMENTE para evitar problemas de timing
-                try {
-                    DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
-                    logger.debug("DB Sync Update", "Estado actualizado síncronamente para " + player.getMinecraftUuid().substring(0, 8));
-                } catch (Exception e) {
-                    logger.warning("DB Sync Failed", "Error en actualización síncrona para " + player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
-                    // Intentar async como fallback
-                    DatabaseManager.updatePlayerMatchStatusAsync(player.getMinecraftUuid(), false, null);
-                }
             }
 
-            // NUEVO: Invalidar cache de Discord DESPUÉS de actualizar BD para que la próxima consulta sea correcta
+            // 2. ACTUALIZAR BD DE FORMA ASÍNCRONA (no bloquea el servidor)
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                for (PlayerData player : allPlayers) {
+                    try {
+                        DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
+                    } catch (Exception e) {
+                        logger.warning("Async DB Update Failed",
+                                "Error en actualización asíncrona para " + player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
+                    }
+                }
+                logger.debug("DB Updates Complete", "Actualizaciones de BD completadas en segundo plano");
+            });
+
+            // 3. INMEDIATO: Invalidar cache de Discord (operación rápida en memoria)
             java.util.List<String> discordIds = allPlayers.stream()
                     .map(PlayerData::getDiscordId)
                     .collect(java.util.stream.Collectors.toList());
 
             org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
             logger.info("Cache Discord Invalidado",
-                    "Cache invalidado para " + discordIds.size() + " jugadores DESPUÉS de actualizar BD - pueden entrar a colas inmediatamente");
+                    "Cache invalidado para " + discordIds.size() + " jugadores - BD actualizándose en segundo plano");
 
-            // 2. INMEDIATO: Limpiar jugadores de la cola (REUTILIZAR método existente)
+            // 4. INMEDIATO: Limpiar jugadores de la cola (operación rápida en memoria)
             cleanupPlayersFromQueue(activeMatch, logger);
 
-            // 3. INMEDIATO: Notificar resultado básico en Minecraft (mensaje simple)
+            // 5. INMEDIATO: Notificar resultado básico en Minecraft (mensaje simple, rápido)
             String winMessage = "§a✅ PARTIDA TERMINADA - Ganó " + winnerTeam.getDisplayName();
             String availableMessage = "§e⚡ Estás disponible para una nueva partida";
 
@@ -91,7 +94,7 @@ public class MatchFinisher {
                 }
             }
 
-            // 4. INMEDIATO: Mover jugadores de Discord (REUTILIZAR método existente)
+            // 6. INMEDIATO: Mover jugadores de Discord (REUTILIZAR método existente)
             try {
                 movePlayersToWaitingRoom(activeMatch, plugin, logger);
             } catch (Exception e) {
@@ -99,7 +102,7 @@ public class MatchFinisher {
                     "Error moviendo jugadores a sala de espera: " + e.getMessage());
             }
 
-            // 5. INMEDIATO: Finalizar estado de partida
+            // 7. INMEDIATO: Finalizar estado de partida
             activeMatch.setStatus(ActiveMatch.MatchStatus.FINISHED);
             // CORREGIDO: Usar el método correcto para remover la partida activa
             activeMatch.cleanup(); // Este método debería manejar la remoción
@@ -1445,3 +1448,4 @@ public class MatchFinisher {
         }
     }
 }
+

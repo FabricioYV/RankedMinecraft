@@ -130,72 +130,52 @@ public class VoiceChannelListener extends ListenerAdapter {
             }
         }
 
-        // NUEVA VALIDACIÓN: Si entró a un canal de cola, verificar que NO esté en partida activa
+        // OPTIMIZADO: Si entró a un canal de cola, verificar estado EN MEMORIA (no BD)
         if (newChannel != null && isQueueChannel(newChannel.getId())) {
-            // CRÍTICO: Verificación doble para evitar falsos positivos por datos obsoletos
-            if (playerData.isInMatch()) {
-                // NUEVA: Verificación adicional - consultar base de datos directamente si el cache indica que está en partida
-                String discordId = member.getId();
-                logger.debug("Double Check Match Status",
-                        "Jugador " + member.getEffectiveName() + " parece estar en partida según cache - verificando BD directamente");
+            // CRÍTICO: El cache puede estar obsoleto, así que lo invalidamos y obtenemos datos frescos
+            String discordId = member.getId();
 
-                // Consulta fresca a la base de datos para confirmar
-                CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return DatabaseManager.getPlayerByDiscordId(discordId);
-                    } catch (Exception e) {
-                        logger.warning("DB Fresh Query Failed", "Error en consulta fresca: " + e.getMessage());
-                        return playerData; // Usar datos del cache como fallback
-                    }
-                }, asyncExecutor).thenAccept(freshPlayerData -> {
-                    if (freshPlayerData != null) {
-                        // Actualizar cache con datos frescos
-                        discordPlayerCache.put(discordId, freshPlayerData);
-                        lastCacheUpdate.put(discordId, System.currentTimeMillis());
+            // Invalidar cache viejo para forzar obtención de datos actualizados
+            discordPlayerCache.remove(discordId);
+            lastCacheUpdate.remove(discordId);
 
-                        // Verificar con datos frescos
-                        if (freshPlayerData.isInMatch()) {
-                            // Confirmado: está en partida - bloquear acceso
-                            String queueTypeName = getQueueTypeName(newChannel.getId());
-                            sendMinecraftMessage(freshPlayerData, "§c❌ No puedes entrar a la cola " + queueTypeName + " mientras estás en una partida activa.");
+            // Obtener datos frescos de BD (que tiene el estado actualizado de memoria)
+            getPlayerDataAsync(discordId).thenAccept(freshPlayerData -> {
+                if (freshPlayerData == null) {
+                    logger.warning("Player Data Not Found",
+                        "No se encontraron datos para " + member.getEffectiveName());
+                    return;
+                }
 
-                            logger.queueEvent(
-                                    member.getEffectiveName(),
-                                    member.getId(),
-                                    "Acceso Denegado (Confirmado)",
-                                    "Intento de entrar a cola " + queueTypeName + " bloqueado - jugador confirmado en partida activa"
-                            );
+                // VERIFICACIÓN DIRECTA EN MEMORIA: usar el PlayerData fresco que tiene el estado actual
+                if (freshPlayerData.isInMatch()) {
+                    // Jugador está en partida - bloquear acceso
+                    String queueTypeName = getQueueTypeName(newChannel.getId());
+                    sendMinecraftMessage(freshPlayerData,
+                        "§c❌ No puedes entrar a la cola " + queueTypeName + " mientras estás en una partida activa.");
 
-                            moveToWaitingRoomDelayed(member);
-                        } else {
-                            // Falsa alarma: datos obsoletos - permitir acceso
-                            logger.info("False Positive Detected",
-                                    "Datos obsoletos detectados para " + member.getEffectiveName() + " - permitiendo acceso a cola");
+                    logger.queueEvent(
+                        member.getEffectiveName(),
+                        member.getId(),
+                        "Acceso Denegado",
+                        "Intento de entrar a cola " + queueTypeName + " bloqueado - jugador en partida activa"
+                    );
 
-                            // Procesar entrada a cola con datos frescos
-                            processQueueEntry(member, newChannel, freshPlayerData);
-                        }
-                    } else {
-                        // Si no se pueden obtener datos frescos, usar datos del cache (comportamiento original)
-                        String queueTypeName = getQueueTypeName(newChannel.getId());
-                        sendMinecraftMessage(playerData, "§c❌ No puedes entrar a la cola " + queueTypeName + " mientras estás en una partida activa.");
+                    moveToWaitingRoomDelayed(member);
+                } else {
+                    // Jugador NO está en partida - permitir acceso a cola
+                    logger.info("Queue Entry Allowed",
+                        member.getEffectiveName() + " verificado como disponible - permitiendo acceso a cola");
 
-                        logger.queueEvent(
-                                member.getEffectiveName(),
-                                member.getId(),
-                                "Acceso Denegado (Fallback)",
-                                "Intento de entrar a cola " + queueTypeName + " bloqueado - no se pudieron obtener datos frescos"
-                        );
-
-                        moveToWaitingRoomDelayed(member);
-                    }
-                });
-
-                return; // Salir mientras se procesa la verificación asíncrona
-            }
-
-            // Si no está en partida, proceder normalmente
-            processQueueEntry(member, newChannel, playerData);
+                    // Procesar entrada a cola con datos frescos
+                    processQueueEntry(member, newChannel, freshPlayerData);
+                }
+            }).exceptionally(throwable -> {
+                logger.logError("Error verificando estado de jugador", throwable);
+                // En caso de error, NO bloquear - mejor permitir el acceso
+                processQueueEntry(member, newChannel, playerData);
+                return null;
+            });
         }
     }
 

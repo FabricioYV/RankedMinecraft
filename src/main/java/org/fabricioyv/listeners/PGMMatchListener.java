@@ -59,27 +59,35 @@ public class PGMMatchListener implements Listener{
                 return;
             }
 
-            // CRÍTICO: MARCADO INMEDIATO DE JUGADORES COMO DISPONIBLES
-            // Esto se ejecuta INMEDIATAMENTE cuando PGM detecta el final, antes de cualquier procesamiento asíncrono
+            // CRÍTICO: MARCADO INMEDIATO DE JUGADORES COMO DISPONIBLES EN MEMORIA
+            // Solo actualizar el estado en memoria INMEDIATAMENTE (operación instantánea)
+            // La BD se actualiza de forma ASÍNCRONA para no bloquear el servidor
             logger.info("Immediate Player Release",
-                    "Marcando inmediatamente " + activeMatch.getAllPlayers().size() + " jugadores como disponibles");
+                    "Marcando inmediatamente " + activeMatch.getAllPlayers().size() + " jugadores como disponibles EN MEMORIA");
 
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+            // 1. PRIMERO: Marcar en memoria (instantáneo, no bloquea)
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
                 player.setCurrentMatchId(null);
-
-                // Actualizar BD síncronamente para disponibilidad inmediata
-                try {
-                    DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
-                } catch (Exception e) {
-                    logger.warning("Immediate DB Update Failed",
-                            "Error en actualización inmediata para " + player.getMinecraftUuid().substring(0, 8));
-                    // Continuar con otros jugadores
-                }
             }
 
-            // Invalidar cache de Discord inmediatamente
+            // 2. SEGUNDO: Actualizar BD de forma ASÍNCRONA (no bloquea el servidor)
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                for (PlayerData player : allPlayers) {
+                    try {
+                        DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), false, null);
+                    } catch (Exception e) {
+                        logger.warning("Async DB Update Failed",
+                                "Error en actualización asíncrona para " + player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
+                        // Continuar con otros jugadores
+                    }
+                }
+                logger.info("DB Updates Complete", "Actualizaciones de BD completadas de forma asíncrona");
+            });
+
+            // Invalidar cache de Discord inmediatamente (operación rápida en memoria)
             java.util.List<String> discordIds = allPlayers.stream()
                     .map(PlayerData::getDiscordId)
                     .collect(java.util.stream.Collectors.toList());
@@ -87,7 +95,7 @@ public class PGMMatchListener implements Listener{
             org.fabricioyv.discord.VoiceChannelListener.invalidatePlayersCache(discordIds);
 
             logger.success("Players Immediately Available",
-                    "Jugadores marcados como disponibles INMEDIATAMENTE - pueden entrar a colas sin esperar");
+                    "Jugadores marcados como disponibles EN MEMORIA - pueden entrar a colas inmediatamente (BD actualizándose en segundo plano)");
 
             // OPTIMIZACIÓN: Mover la determinación del ganador a un thread asíncrono
             // para no bloquear el main thread con cálculos pesados
