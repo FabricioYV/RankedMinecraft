@@ -34,3 +34,40 @@ system:
   use_fixed_elo: true
   minimum_elo: 0
   enable_match_type_multipliers: false
+
+# ======================================
+# Sistema de ELO Decay (Decaimiento por Inactividad)
+# ======================================
+elo_decay:
+  # Habilitar/deshabilitar el sistema de decay
+  enabled: true
+
+  # Días de inactividad antes de comenzar a aplicar decay
+  # COMPETITIVO: Reducido a 7 días (1 semana) para mantener jugadores activos
+  inactivity_days: 7
+
+  # Cantidad de ELO que se pierde por cada día adicional de inactividad
+  # COMPETITIVO: Aumentado a 10 ELO/día para penalizar fuertemente la inactividad
+  # Ejemplo: Si inactivity_days=7 y decay_per_day=10, un jugador sin jugar por 14 días pierde:
+  # (14 - 7) * 10 = 70 ELO
+  decay_per_day: 10
+
+  # ELO mínimo al que puede bajar un jugador por decay
+  # COMPETITIVO: Establecido en 50 para evitar caídas excesivas pero mantener presión
+  min_elo: 50
+
+  # Hora del día para ejecutar el proceso de decay (formato 24h)
+  # Formato: "HH:mm" (ejemplo: "03:00" = 3:00 AM hora de Perú)
+  # NOTA: Se ejecuta a las 3:00 AM para minimizar impacto en jugadores activos
+  execution_time: "03:00"
+
+  # Excluir jugadores en placement matches (partidas de evaluación)
+  # Si está en true, los jugadores que no han completado sus 8 partidas de evaluación
+  # no serán afectados por el decay
+  exclude_placement_players: true
+
+  # Notificar al jugador cuando pierda ELO por inactividad
+  notify_on_login: true
+
+  # Mensaje personalizado de notificación (usa {days} para días inactivos, {elo_lost} para ELO perdido)
+  notification_message: "§c§l⚠ PENALIZACIÓN POR INACTIVIDAD §c⚠\n§fHas perdido §c§l{elo_lost} ELO §fpor §e{days} días §fsin jugar.\n§7El sistema competitivo requiere actividad constante. ¡Vuelve a jugar para recuperar tu ranking!"

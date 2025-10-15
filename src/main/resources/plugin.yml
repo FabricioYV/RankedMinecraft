@@ -32,3 +32,8 @@ commands:
   pick:
     description: Elegir un jugador durante el sistema de picks de capitanes
     usage: /pick <jugador>
+  elodecay:
+    description: Gestionar el sistema de ELO Decay
+    usage: /elodecay <reload|force|info>
+    permission: rankedmc.admin
+    aliases: [decay]

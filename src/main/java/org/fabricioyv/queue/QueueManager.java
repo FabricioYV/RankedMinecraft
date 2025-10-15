@@ -185,7 +185,16 @@ public class QueueManager {
                 String.format("Jugador %s removido de todas las colas", minecraftUuid));
         }
     }
-
+    private boolean hasSponsorRole(String discordId) {
+        Member member = guild.getMemberById(discordId);
+        if (member == null) return false;
+        // Replace with your actual sponsor role IDs
+        String SPONSOR_ROLE_ID = "YOUR_SPONSOR_ROLE_ID";
+        String MAIN_SPONSOR_ROLE_ID = "YOUR_MAIN_SPONSOR_ROLE_ID";
+        return member.getRoles().stream().anyMatch(role ->
+                role.getId().equals(SPONSOR_ROLE_ID) || role.getId().equals(MAIN_SPONSOR_ROLE_ID)
+        );
+    }
     /**
      * NUEVO: Limpieza forzada de jugador (para emergencias)
      */
@@ -343,27 +352,54 @@ public class QueueManager {
     /**
      * NUEVO: Inicia partida con jugadores validados
      */
+    // Modify startMatchWithPlayers to prioritize sponsors
     private void startMatchWithPlayers(List<PlayerData> connectedPlayers, QueueType queueType, List<PlayerData> targetQueue) {
-        // Tomar solo los necesarios para la partida
-        List<PlayerData> playersForMatch = connectedPlayers.subList(0, queueType.getRequiredPlayers());
+        int required = queueType.getRequiredPlayers();
+
+        // Separate sponsors and non-sponsors
+        List<PlayerData> sponsors = new ArrayList<>();
+        List<PlayerData> nonSponsors = new ArrayList<>();
+        for (PlayerData player : connectedPlayers) {
+            if (hasSponsorRole(player.getDiscordId())) {
+                sponsors.add(player);
+            } else {
+                nonSponsors.add(player);
+            }
+        }
+
+        // Build the final list: all sponsors first, then fill with non-sponsors
+        List<PlayerData> playersForMatch = new ArrayList<>();
+        playersForMatch.addAll(sponsors);
+        for (PlayerData player : nonSponsors) {
+            if (playersForMatch.size() < required) {
+                playersForMatch.add(player);
+            } else {
+                break;
+            }
+        }
+
+        // If there are more sponsors than required, only take the first 'required' sponsors
+        if (playersForMatch.size() > required) {
+            playersForMatch = playersForMatch.subList(0, required);
+        }
 
         try {
             MatchManager.startMatch(playersForMatch);
 
-            // Remover SOLO los que van a la partida
+            // Remove only those who go to the match
             for (PlayerData playerInMatch : playersForMatch) {
                 targetQueue.remove(playerInMatch);
                 playersInQueue.remove(playerInMatch.getMinecraftUuid());
             }
 
             logger.matchEvent("QUEUE_" + queueType.name(), "Partida Iniciada",
-                "Partida iniciada con " + playersForMatch.size() + " jugadores. Cola restante: " + targetQueue.size(),
-                playersForMatch.size());
+                    "Partida iniciada con " + playersForMatch.size() + " jugadores. Cola restante: " + targetQueue.size(),
+                    playersForMatch.size());
 
         } catch (Exception e) {
             logger.logError("Error iniciando partida desde cola", e);
 
-            // CRÍTICO: En caso de error, resetear estado y mantener jugadores en cola
+            // Reset match state and keep players in queue
             MatchState.endMatch();
 
             for (PlayerData player : playersForMatch) {
