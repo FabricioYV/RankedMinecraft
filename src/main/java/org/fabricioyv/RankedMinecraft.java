@@ -19,6 +19,7 @@ public final class RankedMinecraft extends JavaPlugin {
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
     private AbandonmentDetectionSystem abandonmentSystem;
+    private org.fabricioyv.rating.EloDecaySystem eloDecaySystem; // NUEVO: Sistema de ELO Decay
 
     @Override
     public void onEnable() {
@@ -47,6 +48,9 @@ public final class RankedMinecraft extends JavaPlugin {
                 return;
             }
 
+            // NUEVO: Ejecutar migración de ELO Decay
+            org.fabricioyv.database.EloDecayMigration.executeMigration();
+
             // Inicializar Discord bot ANTES de registrar listeners que lo necesiten
             initializeDiscordBot();
 
@@ -56,6 +60,14 @@ public final class RankedMinecraft extends JavaPlugin {
                 getLogger().info("Sistema de detección de abandono inicializado");
             }
 
+            // NUEVO: Inicializar sistema de ELO Decay
+            eloDecaySystem = new org.fabricioyv.rating.EloDecaySystem(this);
+            getCommand("elodecay").setExecutor(new org.fabricioyv.commands.EloDecayCommand(eloDecaySystem));
+
+            // NUEVO: Registrar listener de ELO Decay
+            getServer().getPluginManager().registerEvents(
+                new org.fabricioyv.listeners.EloDecayListener(eloDecaySystem), this);
+
             // Registrar listeners de PGM (ya verifica internamente si discordBot está listo)
             registerPGMListeners();
 
@@ -64,6 +76,9 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // NUEVO: Registrar listener del GUI de picks
             getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.PicksGUIListener(), this);
+
+            // NUEVO: Iniciar tarea de limpieza de entidades para optimización
+            startEntityCleanupTask();
 
             getLogger().info("RankedMinecraft habilitado exitosamente!");
 
@@ -75,6 +90,41 @@ public final class RankedMinecraft extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
         }
 
+    }
+
+    /**
+     * NUEVO: Tarea de limpieza automática de entidades para prevenir lag
+     * Limpia items en el suelo, arrows, y mobs innecesarios cada 5 minutos
+     */
+    private void startEntityCleanupTask() {
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            int removedItems = 0;
+            int removedArrows = 0;
+
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                // Limpiar items en el suelo (excepto en los primeros 30 segundos)
+                for (org.bukkit.entity.Entity entity : world.getEntities()) {
+                    if (entity instanceof org.bukkit.entity.Item) {
+                        org.bukkit.entity.Item item = (org.bukkit.entity.Item) entity;
+                        if (item.getTicksLived() > 600) { // Más de 30 segundos
+                            item.remove();
+                            removedItems++;
+                        }
+                    } else if (entity instanceof org.bukkit.entity.Arrow) {
+                        org.bukkit.entity.Arrow arrow = (org.bukkit.entity.Arrow) entity;
+                        if (arrow.isOnGround() && arrow.getTicksLived() > 200) { // Más de 10 segundos
+                            arrow.remove();
+                            removedArrows++;
+                        }
+                    }
+                }
+            }
+
+            if (removedItems > 0 || removedArrows > 0) {
+                getLogger().info(String.format("§a✓ Limpieza automática: %d items, %d flechas removidas",
+                    removedItems, removedArrows));
+            }
+        }, 6000L, 6000L); // Cada 5 minutos (6000 ticks)
     }
 
     @Override
@@ -147,6 +197,12 @@ public final class RankedMinecraft extends JavaPlugin {
      */
     public AbandonmentDetectionSystem getAbandonmentDetectionSystem() {
         return abandonmentSystem;
+    }
+    /**
+     * NUEVO: Getter para el sistema de ELO Decay
+     */
+    public org.fabricioyv.rating.EloDecaySystem getEloDecaySystem() {
+        return eloDecaySystem;
     }
     public DiscordBot getDiscordBot() {
         return discordBot;

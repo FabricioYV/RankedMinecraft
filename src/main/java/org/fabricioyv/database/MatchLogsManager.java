@@ -435,7 +435,7 @@ public class MatchLogsManager {
 
     /**
      * Crea un registro inicial de partida en la base de datos cuando comienza
-     * Versión sincronizada para evitar condiciones de carrera
+     * MODIFICADO: Más robusto para asegurar que el registro existe antes de continuar
      */
     public static CompletableFuture<Boolean> initializeMatch(String matchId, String matchType, String mapName) {
         return CompletableFuture.supplyAsync(() -> {
@@ -448,13 +448,17 @@ public class MatchLogsManager {
                 start_time = VALUES(start_time)
             """;
 
-            try (Connection conn = DatabaseManager.getConnectionTo("match_logs");
-                 PreparedStatement stmt = conn.prepareStatement(insertMatchQuery)) {
+            Connection conn = null;
+            PreparedStatement stmt = null;
+
+            try {
+                conn = DatabaseManager.getConnectionTo("match_logs");
 
                 // Usar tiempo de Lima para inicializar la partida
                 LocalDateTime startTimeLima = getCurrentTimeInLima();
                 Timestamp startTime = limaTimeToTimestamp(startTimeLima);
 
+                stmt = conn.prepareStatement(insertMatchQuery);
                 stmt.setString(1, matchId);
                 stmt.setString(2, matchType);
                 stmt.setString(3, mapName);
@@ -465,32 +469,65 @@ public class MatchLogsManager {
 
                 int rowsAffected = stmt.executeUpdate();
 
-                // Forzar commit explícito para asegurar que la transacción se complete
+                // CRÍTICO: Forzar commit explícito para asegurar que la transacción se complete
                 if (!conn.getAutoCommit()) {
                     conn.commit();
                 }
 
-                // Verificar que el registro se creó correctamente
+                // NUEVO: Verificar que el registro realmente existe en la BD
                 if (rowsAffected > 0) {
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§a✅ Partida " + matchId + " inicializada correctamente en base de datos (Hora Lima: " +
-                                    startTimeLima.toString() + ")"
-                    );
-                    return true;
+                    // Doble verificación: leer el registro recién creado
+                    try (PreparedStatement verifyStmt = conn.prepareStatement(
+                            "SELECT COUNT(*) FROM matches WHERE match_id = ?")) {
+                        verifyStmt.setString(1, matchId);
+                        ResultSet rs = verifyStmt.executeQuery();
+
+                        if (rs.next() && rs.getInt(1) > 0) {
+                            Bukkit.getConsoleSender().sendMessage(
+                                "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
+                                        startTimeLima.toString() + ")"
+                            );
+                            return true;
+                        } else {
+                            Bukkit.getConsoleSender().sendMessage(
+                                "§c⚠️ Partida " + matchId + " insertada pero NO ENCONTRADA en verificación"
+                            );
+                            return false;
+                        }
+                    }
                 } else {
                     Bukkit.getConsoleSender().sendMessage(
-                            "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId
+                        "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId + " (rowsAffected = 0)"
                     );
                     return false;
                 }
 
             } catch (SQLException e) {
                 Bukkit.getConsoleSender().sendMessage(
-                        "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
+                    "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
                 );
-                // Log error instead of printStackTrace
-                Bukkit.getLogger().severe("Error inicializando partida: " + e.getMessage());
+                Bukkit.getLogger().severe("Error inicializando partida " + matchId + ": " + e.getMessage());
+
+                // Intentar rollback si hay error
+                if (conn != null) {
+                    try {
+                        if (!conn.getAutoCommit()) {
+                            conn.rollback();
+                        }
+                    } catch (SQLException rollbackEx) {
+                        Bukkit.getLogger().severe("Error en rollback: " + rollbackEx.getMessage());
+                    }
+                }
+
                 return false;
+            } finally {
+                // Cerrar recursos manualmente para asegurar cleanup
+                try {
+                    if (stmt != null) stmt.close();
+                    if (conn != null) conn.close();
+                } catch (SQLException closeEx) {
+                    Bukkit.getLogger().warning("Error cerrando recursos: " + closeEx.getMessage());
+                }
             }
         });
     }
@@ -724,4 +761,3 @@ public class MatchLogsManager {
         });
     }
 }
-

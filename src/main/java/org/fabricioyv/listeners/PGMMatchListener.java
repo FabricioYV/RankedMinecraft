@@ -8,6 +8,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.database.DatabaseManager;
+import org.fabricioyv.database.MatchLogsIntegration;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MatchFinisher;
@@ -30,6 +31,9 @@ import java.util.concurrent.CompletableFuture;
 public class PGMMatchListener implements Listener{
     private final RankedMinecraft plugin;
     private final DiscordLogger logger;
+
+    // **CRÍTICO**: Set para trackear partidas ya inicializadas
+    private static final Set<String> initializedMatches = new HashSet<>();
 
     public PGMMatchListener(RankedMinecraft plugin, DiscordLogger logger) {
         this.plugin = plugin;
@@ -148,15 +152,46 @@ public class PGMMatchListener implements Listener{
 
     /**
      * Busca la partida activa que corresponde al match de PGM
+     * SIMPLIFICADO: Solo debería haber UNA partida activa a la vez
      */
     private ActiveMatch findActiveMatchForPGM(Match pgmMatch) {
-        // Buscar por estado o jugadores participantes
-        for (ActiveMatch activeMatch : ActiveMatch.getAllActiveMatches()) {
-            if (activeMatch.getStatus() == ActiveMatch.MatchStatus.IN_PROGRESS) {
-                // Esta es nuestra partida activa
+        Collection<ActiveMatch> allMatches = ActiveMatch.getAllActiveMatches();
+
+        if (allMatches.isEmpty()) {
+            logger.warning("No Active Matches",
+                    "No hay partidas activas registradas en el sistema");
+            return null;
+        }
+
+        // Si solo hay una partida activa, esa debe ser
+        if (allMatches.size() == 1) {
+            ActiveMatch match = allMatches.iterator().next();
+            logger.info("Single Active Match Found",
+                    String.format("Encontrada partida activa única: %s (estado: %s)",
+                            match.getMatchId(), match.getStatus().getDisplayName()));
+            return match;
+        }
+
+        // Si hay múltiples, buscar la que NO esté finalizada
+        logger.warning("Multiple Active Matches",
+                String.format("Hay %d partidas activas, buscando la correcta", allMatches.size()));
+
+        for (ActiveMatch activeMatch : allMatches) {
+            ActiveMatch.MatchStatus status = activeMatch.getStatus();
+
+            // Buscar partidas en estados activos (no finalizadas)
+            if (status != ActiveMatch.MatchStatus.FINISHED &&
+                status != ActiveMatch.MatchStatus.CANCELLED) {
+
+                logger.info("Active Match Selected",
+                        String.format("Seleccionada partida %s en estado %s",
+                                activeMatch.getMatchId(), status.getDisplayName()));
                 return activeMatch;
             }
         }
+
+        logger.error("No Valid Active Match",
+                "No se encontró ninguna partida en estado válido para PGM match: " + pgmMatch.getId());
         return null;
     }
 
@@ -772,6 +807,24 @@ public class PGMMatchListener implements Listener{
             killerName = "ninguno";
         }
 
+        // **CRÍTICO**: Inicializar estadísticas automáticamente en el primer evento de muerte
+        if (!initializedMatches.contains(matchId)) {
+            synchronized (initializedMatches) {
+                // Double-check locking para thread safety
+                if (!initializedMatches.contains(matchId)) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§c[PGM-AUTO] Detectado primer evento de muerte en match " + matchId + " - inicializando estadísticas automáticamente"
+                    );
+
+                    // Inicializar estadísticas inmediatamente
+                    initializeStatsForActiveMatch(activeMatch);
+
+                    // Marcar como inicializado
+                    initializedMatches.add(matchId);
+                }
+            }
+        }
+
         // PROCESAMIENTO ASÍNCRONO UNIFICADO (TODO en background thread)
         CompletableFuture.runAsync(() -> {
             try {
@@ -794,6 +847,38 @@ public class PGMMatchListener implements Listener{
         });
 
         // TOTAL: < 0.2ms en main thread vs 2-5ms anterior
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Inicializa automáticamente las estadísticas para una partida activa
+     * Se llama desde el primer evento de muerte para asegurar que las estadísticas estén listas
+     */
+    private void initializeStatsForActiveMatch(ActiveMatch activeMatch) {
+        try {
+            String matchId = activeMatch.getMatchId();
+            String matchType = activeMatch.getMatchType();
+            String mapName = activeMatch.getSelectedMap() != null ? activeMatch.getSelectedMap() : "Unknown";
+
+            Bukkit.getConsoleSender().sendMessage(
+                "§e[PGM-AUTO] Ejecutando inicialización automática de estadísticas para " + matchId
+            );
+
+            // Llamar directamente a startMatchTracking
+            MatchLogsIntegration.startMatchTracking(
+                matchId,
+                activeMatch.getTeams(),
+                matchType,
+                mapName
+            );
+
+            logger.success("Auto Stats Init",
+                "Estadísticas inicializadas automáticamente para partida " + matchId + " (detectada desde PGM)");
+
+        } catch (Exception e) {
+            logger.systemError("PGMMatchListener",
+                "Error en inicialización automática de estadísticas para " + activeMatch.getMatchId(), e.getMessage());
+            logger.logError("Error stack trace", e);
+        }
     }
 
     /**

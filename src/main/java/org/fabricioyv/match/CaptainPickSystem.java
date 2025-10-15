@@ -44,51 +44,88 @@ public class CaptainPickSystem {
         String matchId = activeMatch.getMatchId();
         List<PlayerData> allPlayers = activeMatch.getAllPlayers();
 
-        // Verificar si hay jugadores con el rol de capitán
-        List<PlayerData> eligibleCaptains = findEligibleCaptains(allPlayers, activeMatch.getGuild());
+        // Seleccionar los dos capitanes por MMR (desc), usando el rol sponsor SOLO como desempate
+        List<PlayerData> selectedCaptains = selectTopTwoCaptainsByMmr(allPlayers, activeMatch.getGuild());
 
-        if (eligibleCaptains.size() < 2) {
+        if (selectedCaptains.size() < 2) {
             logger.info("Sistema de Picks",
-                    String.format("No hay suficientes capitanes elegibles (%d/2). Usando balanceo automático.",
-                            eligibleCaptains.size()));
+                    String.format("No se pudieron seleccionar 2 capitanes (%d/2). Usando balanceo automático.",
+                            selectedCaptains.size()));
 
             // Fallback al sistema de balanceo automático
             fallbackToAutomaticBalancing(activeMatch, logger);
             return;
         }
 
-        // Crear sesión de picks
-        PickSession session = new PickSession(matchId, allPlayers, eligibleCaptains, activeMatch, logger);
+        // Crear sesión de picks usando los capitanes seleccionados
+        PickSession session = new PickSession(matchId, allPlayers, selectedCaptains, activeMatch, logger);
         activeSessions.put(matchId, session);
 
         logger.info("Sistema de Picks",
-                String.format("Iniciando fase de picks para partida %s con %d capitanes elegibles",
-                        matchId, eligibleCaptains.size()));
+                String.format("Iniciando fase de picks para partida %s con capitanes seleccionados: %s y %s",
+                        matchId, getPlayerDisplayName(selectedCaptains.get(0)), getPlayerDisplayName(selectedCaptains.get(1))));
 
         // Iniciar el proceso de picks
         session.startPickProcess();
     }
 
     /**
-     * Encuentra jugadores elegibles para ser capitanes por roles de Discord
+     * Obtener nombre para logs/announces en contexto estático. Similar a getPlayerName pero estático
      */
-    private static List<PlayerData> findEligibleCaptains(List<PlayerData> players, Guild guild) {
-        List<PlayerData> eligibleCaptains = new ArrayList<>();
+    private static String getPlayerDisplayName(PlayerData playerData) {
+        if (playerData == null) return "Unknown";
+        try {
+            Player player = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            if (player != null) return player.getName();
 
-        for (PlayerData player : players) {
-            try {
-                Member member = guild.getMemberById(player.getDiscordId());  // guild en lugar de activeMatch.guild
-                if (member != null && hasSponsorRole(member)) {
-                    eligibleCaptains.add(player);
-                }
-            } catch (Exception e) {
-                // Ignorar errores de búsqueda de miembros
-            }
+            org.bukkit.OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            if (offlinePlayer.getName() != null) return offlinePlayer.getName();
+
+            return "Player_" + playerData.getMinecraftUuid().substring(0, Math.min(8, playerData.getMinecraftUuid().length()));
+        } catch (Exception e) {
+            return "Unknown";
         }
-
-        return eligibleCaptains;
     }
 
+    /**
+     * Selecciona los dos mejores jugadores de la partida por MMR (desc).
+     * Si hay empate en MMR, preferir al jugador que tenga rol de sponsor (Main Sponsor/Sponsor/Server Booster)
+     * Si sigue habiendo empate, usar un criterio estable (discordId o minecraftUuid) para desempatar.
+     */
+    private static List<PlayerData> selectTopTwoCaptainsByMmr(List<PlayerData> players, Guild guild) {
+        List<PlayerData> copy = new ArrayList<>(players);
+        copy.sort((p1, p2) -> {
+            // Comparar por MMR (descendente)
+            int cmp = Double.compare(p2.getMmr(), p1.getMmr());
+            if (cmp != 0) return cmp;
+
+            // Si MMR igual, preferir al que tenga rol sponsor
+            try {
+                if (guild != null) {
+                    Member m1 = (p1.getDiscordId() == null) ? null : guild.getMemberById(p1.getDiscordId());
+                    Member m2 = (p2.getDiscordId() == null) ? null : guild.getMemberById(p2.getDiscordId());
+
+                    boolean s1 = m1 != null && hasSponsorRole(m1);
+                    boolean s2 = m2 != null && hasSponsorRole(m2);
+
+                    if (s1 && !s2) return -1;
+                    if (!s1 && s2) return 1;
+                }
+             } catch (Exception ignored) {
+                 // En caso de error, continuar con criterio estable
+             }
+
+            // Criterio final estable para desempatar: discordId si existe, sino minecraftUuid
+            String id1 = p1.getDiscordId() != null ? p1.getDiscordId() : p1.getMinecraftUuid();
+            String id2 = p2.getDiscordId() != null ? p2.getDiscordId() : p2.getMinecraftUuid();
+            return id1.compareTo(id2);
+        });
+
+        List<PlayerData> result = new ArrayList<>();
+        if (!copy.isEmpty()) result.add(copy.get(0));
+        if (copy.size() > 1) result.add(copy.get(1));
+        return result;
+    }
 
     /**
      * Verifica si un miembro tiene rol de "Main Sponsor", "Sponsor" o "Server Booster"
@@ -493,7 +530,6 @@ public class CaptainPickSystem {
         private BukkitRunnable timeoutTask;
 
         // NUEVO: Variables para el modelo de pickeo 1-2-1-1-1-1
-        private PlayerData firstCaptain; // El capitán que pickea primero
         private int consecutivePicksRemaining = 1; // Cuántos picks consecutivos le quedan al capitán actual
 
         // NUEVO: Canales temporales para picks
@@ -512,9 +548,16 @@ public class CaptainPickSystem {
 
         public void startPickProcess() {
             // Seleccionar dos capitanes aleatoriamente
-            Collections.shuffle(eligibleCaptains);
-            captain1 = eligibleCaptains.get(0);
-            captain2 = eligibleCaptains.get(1);
+            // Si la lista de eligibleCaptains fue provista con exactamente 2 elementos
+            // (p. ej. seleccionados por MMR), respetar el orden y no mezclar.
+            if (eligibleCaptains.size() == 2) {
+                captain1 = eligibleCaptains.get(0);
+                captain2 = eligibleCaptains.get(1);
+            } else {
+                Collections.shuffle(eligibleCaptains);
+                captain1 = eligibleCaptains.get(0);
+                captain2 = eligibleCaptains.get(1);
+            }
 
             // Agregar capitanes a sus equipos
             team1.add(captain1);
@@ -525,9 +568,8 @@ public class CaptainPickSystem {
             availablePlayers.remove(captain1);
             availablePlayers.remove(captain2);
 
-            // Decidir quién pickea primero aleatoriamente
-            currentCaptain = ThreadLocalRandom.current().nextBoolean() ? captain1 : captain2;
-            firstCaptain = currentCaptain; // NUEVO: Guardar quién pickea primero
+            // Decidir quién pickea primero: el de mayor MMR (captain1)
+            currentCaptain = captain1;
             consecutivePicksRemaining = 1; // NUEVO: Comienza con 1 pick (patrón 1-2-1-1-1-1)
 
             // NUEVO: Crear canales temporales para la fase de picks
@@ -702,18 +744,8 @@ public class CaptainPickSystem {
         }
 
         private void announcePickStart() {
-            String announcement = String.format(
-                    "§e§l=== FASE DE PICKS ===\n" +
-                            "§aCapitán Azul: §b%s\n" +
-                            "§aCapitán Rojo: §c%s\n" +
-                            "§fTiempo límite por pick: §e%d segundos\n" +
-                            "§fUsa §a/pick <jugador> §fpara seleccionar\n" +
-                            "§f¡%s pickea primero!",
-                    getPlayerName(captain1),
-                    getPlayerName(captain2),
-                    PICK_TIMEOUT_SECONDS,
-                    getPlayerName(currentCaptain)
-            );
+            String announcement = String.format("§e§l=== FASE DE PICKS ===\n§aCapitán Azul: §b%s\n§aCapitán Rojo: §c%s\n§fTiempo límite por pick: §e%d segundos\n§fUsa §a/pick <jugador> §fpara seleccionar\n§f¡%s pickea primero!",
+                    getPlayerName(captain1), getPlayerName(captain2), PICK_TIMEOUT_SECONDS, getPlayerName(currentCaptain));
 
             announceToPlayers(allPlayers, announcement);
 
@@ -757,14 +789,8 @@ public class CaptainPickSystem {
             }
 
             // Anunciar turno actual
-            String pickAnnouncement = String.format(
-                    "§e§lTURNO %d - %s debe pickear!\n" +
-                            "§fJugadores disponibles: %s\n" +
-                            "§fUsa: §a/pick <jugador>",
-                    pickNumber,
-                    getPlayerName(currentCaptain),
-                    getAvailablePlayersString()
-            );
+            String pickAnnouncement = String.format("§e§lTURNO %d - %s debe pickear!\n§fJugadores disponibles: %s\n§fUsa: §a/pick <jugador>",
+                    pickNumber, getPlayerName(currentCaptain), getAvailablePlayersString());
 
             announceToPlayers(allPlayers, pickAnnouncement);
 
@@ -1038,7 +1064,7 @@ public class CaptainPickSystem {
 
         private PlayerData findPlayerByDiscordId(String discordId) {
             for (PlayerData player : allPlayers) {
-                if (player.getDiscordId().equals(discordId)) {
+                if (Objects.equals(player.getDiscordId(), discordId)) {
                     return player;
                 }
             }

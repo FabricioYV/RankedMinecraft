@@ -281,9 +281,27 @@ public class MatchManager {
     private static void startOfficialMatch(ActiveMatch activeMatch, DiscordLogger logger) {
         activeMatch.setStatus(ActiveMatch.MatchStatus.IN_PROGRESS);
 
-        // INICIALIZAR SISTEMA DE LOGS DE PARTIDAS
-        MatchLogsIntegration.startMatchTracking(activeMatch.getMatchId(), activeMatch.getTeams(),
-            activeMatch.getMatchType(), activeMatch.getSelectedMap());
+        // **LOGGING CRÍTICO**: Verificar que se está llamando startMatchTracking
+        Bukkit.getConsoleSender().sendMessage(
+            "§c[DEBUG] MatchManager.startOfficialMatch - Llamando a startMatchTracking para " + activeMatch.getMatchId()
+        );
+
+        try {
+            // INICIALIZAR SISTEMA DE LOGS DE PARTIDAS
+            MatchLogsIntegration.startMatchTracking(activeMatch.getMatchId(), activeMatch.getTeams(),
+                activeMatch.getMatchType(), activeMatch.getSelectedMap());
+
+            Bukkit.getConsoleSender().sendMessage(
+                "§a[DEBUG] MatchManager.startOfficialMatch - startMatchTracking ejecutado exitosamente"
+            );
+
+        } catch (Exception e) {
+            Bukkit.getConsoleSender().sendMessage(
+                "§c[ERROR] MatchManager.startOfficialMatch - Error en startMatchTracking: " + e.getMessage()
+            );
+            e.printStackTrace();
+        }
+
         MatchLogsIntegration.logMatchStart(activeMatch.getMatchId(), activeMatch.getSelectedMap(),
             activeMatch.getAllPlayers().size());
 

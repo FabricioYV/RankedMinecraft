@@ -178,8 +178,39 @@ public class MatchFinisher {
                         matchType.getDisplayName(), blueTeamAvgMMR, redTeamAvgMMR,
                         matchType.getWinMultiplier(), matchType.getLossMultiplier()));
 
-        // ESTABLECER RESULTADOS DE LA PARTIDA PARA LOS LOGS
+        // **CRÍTICO FIX**: ESTABLECER RESULTADOS ANTES DE FINALIZAR ESTADÍSTICAS
+        // Esto asegura que el campo "won" se establezca correctamente
         MatchLogsIntegration.setMatchResults(activeMatch.getMatchId(), teams, winnerTeam);
+
+        // **ESPERAR UN MOMENTO**: Para asegurar que todos los eventos asíncronos terminen
+        try {
+            Thread.sleep(100); // 100ms para que se procesen eventos pendientes de daño/arrows
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // **CRÍTICO FIX**: Finalizar estadísticas DESPUÉS de establecer todos los datos
+        // Esto previene race conditions y asegura que todos los campos estén completos
+        Map<UUID, MatchLogsManager.PlayerMatchStats> finalizedStats = null;
+        try {
+            finalizedStats = MatchStatsListener.finalizeMatchStats(activeMatch.getMatchId());
+            if (finalizedStats != null && !finalizedStats.isEmpty()) {
+                logger.success("Match Stats Finalized",
+                    String.format("✅ Estadísticas finalizadas para %d jugadores en match %s",
+                        finalizedStats.size(), activeMatch.getMatchId()));
+            } else {
+                logger.warning("Match Stats Empty",
+                    String.format("⚠️ No se encontraron estadísticas para match %s - usando valores por defecto",
+                        activeMatch.getMatchId()));
+            }
+        } catch (Exception e) {
+            logger.error("Match Stats Finalization Failed",
+                String.format("❌ Error finalizando estadísticas: %s - continuando con valores por defecto",
+                    e.getMessage()));
+        }
+
+        // **OPTIMIZACIÓN**: Crear mapa de referencia para lookup rápido
+        final Map<UUID, MatchLogsManager.PlayerMatchStats> statsCache = finalizedStats;
 
         // Procesar cada equipo
         for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
@@ -272,12 +303,17 @@ public class MatchFinisher {
                     // **CRÍTICO**: Establecer el match ID actual ANTES de los cálculos
                     player.setCurrentMatchId(activeMatch.getMatchId());
 
-                    // **MEJORADO**: Obtener estadísticas finales con sincronización robusta
-                    MatchLogsManager.PlayerMatchStats finalStats = getFinalPlayerStatsWithSync(
-                        activeMatch.getMatchId(),
-                        UUID.fromString(player.getMinecraftUuid()),
-                        logger
-                    );
+                    // **MEJORADO**: Obtener estadísticas finales del cache ya finalizado
+                    MatchLogsManager.PlayerMatchStats finalStats = null;
+                    if (statsCache != null) {
+                        try {
+                            UUID playerUuid = UUID.fromString(player.getMinecraftUuid());
+                            finalStats = statsCache.get(playerUuid);
+                        } catch (Exception e) {
+                            logger.warning("Stats Cache Lookup Failed",
+                                "Error obteniendo stats del cache para " + player.getMinecraftName());
+                        }
+                    }
 
                     // **CRÍTICO**: Actualizar PlayerData con las estadísticas finales completas
                     if (finalStats != null) {
@@ -344,6 +380,8 @@ public class MatchFinisher {
                     detailedChanges.put(player.getMinecraftUuid(), eloChange);
 
                     // ACTUALIZAR CAMBIOS DE RATING EN LOS LOGS
+                    // **CRÍTICO**: Establecer ELO/MMR ANTES de cualquier finalización
+                    // Esto asegura que las estadísticas estén disponibles cuando se establezcan los valores
                     MatchLogsIntegration.updatePlayerRating(
                         activeMatch.getMatchId(),
                         player,
@@ -467,11 +505,31 @@ public class MatchFinisher {
             });
         }
 
-        // GUARDAR DATOS COMPLETOS DE LA PARTIDA EN LA BASE DE DATOS MATCH_LOGS
-        saveMatchToDatabase(activeMatch, winnerTeam, logger);
-
         // ACTUALIZAR ROLES DE DISCORD DESPUÉS DE BATCH UPDATE
         updateDiscordRoles(activeMatch, detailedChanges, logger);
+
+        // **CRÍTICO**: Mostrar estadísticas finales CON rating changes establecidos
+        // Esto muestra los valores correctos de ELO/MMR después de que se hayan establecido
+        try {
+            MatchStatsListener.displayFinalMatchStats(activeMatch.getMatchId());
+        } catch (Exception e) {
+            logger.warning("Final Stats Display Error",
+                "Error mostrando estadísticas finales: " + e.getMessage());
+        }
+
+        // **CRÍTICO**: GUARDAR EN BASE DE DATOS DESPUÉS de establecer rating changes
+        // Esto asegura que se guarden los valores correctos de ELO/MMR en lugar de 0→0
+        saveMatchToDatabase(activeMatch, winnerTeam, logger, statsCache);
+
+        // **CRÍTICO**: Limpiar cache de estadísticas DESPUÉS de que se hayan establecido todos los rating changes
+        // Esto previene el error "No se encontraron stats para match al establecer rating changes"
+        try {
+            MatchStatsListener.cleanupMatchStats(activeMatch.getMatchId());
+        } catch (Exception e) {
+            logger.warning("Cache Cleanup Error",
+                "Error limpiando cache de estadísticas: " + e.getMessage());
+        }
+
         return eloChanges;
     }
 
@@ -685,30 +743,15 @@ public class MatchFinisher {
     }
     /**
      * Finaliza el estado global de la partida
+     * MEJORADO: Ya no guarda la partida aquí porque ya se guardó en updatePlayerStatistics
      */
     private static void finalizeMatchState(ActiveMatch activeMatch, DiscordLogger logger) {
-        // GUARDAR DATOS COMPLETOS DE LA PARTIDA EN LA BASE DE DATOS
-        Team winnerTeam = determineWinnerFromCurrentState(activeMatch);
-        if (winnerTeam != null) {
-            // Finalizar y guardar partida en base de datos match_logs
-            MatchLogsIntegration.finalizeActiveMatch(activeMatch, winnerTeam)
-                .thenAccept(saved -> {
-                    if (saved) {
-                        logger.success("Match Data Saved",
-                            "Datos completos de partida " + activeMatch.getMatchId() + " guardados en match_logs");
-                    } else {
-                        logger.error("Match Data Save Failed",
-                            "Error guardando datos de partida " + activeMatch.getMatchId());
-                    }
-                });
+        // **ELIMINADO**: La partida ya fue guardada en updatePlayerStatistics() con las stats correctas
+        // No necesitamos guardarla de nuevo aquí
 
-            // Log del evento de finalización
-            long durationSeconds = java.time.Duration.between(activeMatch.getStartTime(),
-                java.time.LocalDateTime.now()).getSeconds();
-            MatchLogsIntegration.logMatchEnd(activeMatch.getMatchId(), winnerTeam, durationSeconds);
-        }
-
+        // Limpiar votos de forfeit
         ForfeitManager.cleanupMatchVotes(activeMatch.getMatchId());
+
         // Finalizar estado global
         MatchState.endMatch();
 
@@ -949,25 +992,37 @@ public class MatchFinisher {
 
     /**
      * NUEVO: Guarda los datos completos de la partida en la base de datos match_logs
+     * MEJORADO: Ahora espera confirmación antes de log de eventos
+     * MODIFICADO: Acepta estadísticas pre-finalizadas para evitar race condition
      */
-    private static void saveMatchToDatabase(ActiveMatch activeMatch, Team winnerTeam, DiscordLogger logger) {
+    private static void saveMatchToDatabase(ActiveMatch activeMatch, Team winnerTeam, DiscordLogger logger,
+                                           Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
         try {
-            // Finalizar y guardar partida en base de datos match_logs
-            MatchLogsIntegration.finalizeActiveMatch(activeMatch, winnerTeam)
+            // Calcular duración antes de operaciones asíncronas
+            long durationSeconds = java.time.Duration.between(activeMatch.getStartTime(),
+                java.time.LocalDateTime.now()).getSeconds();
+
+            // MEJORADO: Guardar asíncronamente pero con confirmación ordenada
+            // **CRÍTICO**: Pasar estadísticas pre-finalizadas para evitar race condition
+            MatchLogsIntegration.finalizeActiveMatch(activeMatch, winnerTeam, preFinalizedStats)
                 .thenAccept(saved -> {
                     if (saved) {
                         logger.success("Match Data Saved",
                             "Datos completos de partida " + activeMatch.getMatchId() + " guardados en match_logs");
+
+                        // CRÍTICO: Solo log de evento DESPUÉS de guardar con éxito
+                        MatchLogsIntegration.logMatchEnd(activeMatch.getMatchId(), winnerTeam, durationSeconds);
                     } else {
                         logger.error("Match Data Save Failed",
                             "Error guardando datos de partida " + activeMatch.getMatchId());
                     }
+                })
+                .exceptionally(throwable -> {
+                    logger.systemError("MatchFinisher",
+                        "Excepción guardando datos de partida " + activeMatch.getMatchId(),
+                        throwable.getMessage());
+                    return null;
                 });
-
-            // Log del evento de finalización
-            long durationSeconds = java.time.Duration.between(activeMatch.getStartTime(),
-                java.time.LocalDateTime.now()).getSeconds();
-            MatchLogsIntegration.logMatchEnd(activeMatch.getMatchId(), winnerTeam, durationSeconds);
 
         } catch (Exception e) {
             logger.systemError("MatchFinisher",

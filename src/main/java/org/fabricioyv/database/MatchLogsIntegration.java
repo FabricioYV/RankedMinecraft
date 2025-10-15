@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Clase utilitaria para integrar fácilmente el sistema de logs de partidas
@@ -22,34 +23,112 @@ public class MatchLogsIntegration {
     /**
      * Inicia el tracking de estadísticas para una nueva partida
      * Llamar este método cuando se inicie una partida
+     * MODIFICADO: Inicializa estadísticas en memoria INMEDIATAMENTE, BD es secundaria
      */
     public static void startMatchTracking(String matchId, Map<Team, List<PlayerData>> teams, String matchType, String mapName) {
-        // Primero inicializar el registro de partida en la base de datos
-        MatchLogsManager.initializeMatch(matchId, matchType, mapName).thenAccept(success -> {
-            if (success) {
-                Map<String, String> playerTeams = new HashMap<>();
+        // **LOGGING CRÍTICO**: Verificar que el método se está llamando
+        System.out.println("[DEBUG] startMatchTracking llamado para " + matchId);
+        Bukkit.getConsoleSender().sendMessage(
+            "§c[DEBUG] startMatchTracking EJECUTÁNDOSE para " + matchId
+        );
 
-                // Convertir estructura de equipos a formato para el listener
-                for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
-                    String teamName = entry.getKey().name(); // "BLUE" o "RED"
+        try {
+            Bukkit.getConsoleSender().sendMessage(
+                "§e[MatchLogs] Iniciando tracking para partida " + matchId + " con " + teams.size() + " equipos"
+            );
 
-                    for (PlayerData player : entry.getValue()) {
-                        playerTeams.put(player.getMinecraftUuid(), teamName);
-                    }
-                }
-
-                // Inicializar estadísticas en el listener
-                MatchStatsListener.initializeMatchStats(matchId, playerTeams);
-
+            // **CRÍTICO**: Verificar que teams no esté vacío
+            if (teams == null || teams.isEmpty()) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§a✅ Iniciado tracking de estadísticas para partida " + matchId
+                    "§c[MatchLogs] ERROR: teams está vacío o nulo"
                 );
-            } else {
-                Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al inicializar tracking de partida " + matchId
-                );
+                return;
             }
-        });
+
+            // **CRÍTICO**: Convertir equipos PRIMERO con logging detallado
+            Map<String, String> playerTeams = new HashMap<>();
+            int totalPlayers = 0;
+
+            for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
+                String teamName = entry.getKey().name(); // "BLUE" o "RED"
+                List<PlayerData> teamPlayers = entry.getValue();
+
+                Bukkit.getConsoleSender().sendMessage(
+                    "§e[MatchLogs] Procesando equipo " + teamName + " con " + teamPlayers.size() + " jugadores"
+                );
+
+                for (PlayerData player : teamPlayers) {
+                    playerTeams.put(player.getMinecraftUuid(), teamName);
+                    totalPlayers++;
+
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§a[MatchLogs] ✓ Agregado " + player.getMinecraftName() + " al equipo " + teamName
+                    );
+                }
+            }
+
+            Bukkit.getConsoleSender().sendMessage(
+                "§e[MatchLogs] Convertidos " + totalPlayers + " jugadores a formato de tracking"
+            );
+
+            // **CRÍTICO**: Verificar que playerTeams no esté vacío
+            if (playerTeams.isEmpty()) {
+                Bukkit.getConsoleSender().sendMessage(
+                    "§c[MatchLogs] ERROR: playerTeams está vacío después de conversión"
+                );
+                return;
+            }
+
+            // **CRÍTICO**: Inicializar estadísticas EN MEMORIA INMEDIATAMENTE
+            Bukkit.getConsoleSender().sendMessage(
+                "§e[MatchLogs] Llamando a MatchStatsListener.initializeMatchStats..."
+            );
+
+            MatchStatsListener.initializeMatchStats(matchId, playerTeams);
+
+            Bukkit.getConsoleSender().sendMessage(
+                "§a✅ Estadísticas en memoria inicializadas para partida " + matchId
+            );
+
+            // **SECUNDARIO**: Inicializar en BD de forma asíncrona (no bloquear)
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§e[MatchLogs] Iniciando inicialización en BD para " + matchId
+                    );
+                    return MatchLogsManager.initializeMatch(matchId, matchType, mapName).get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§c⚠️ Error al inicializar en BD (no crítico): " + e.getMessage()
+                    );
+                    return false;
+                }
+            }).thenAccept(success -> {
+                if (success) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§a✅ Inicialización en BD completada para " + matchId
+                    );
+                } else {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§c⚠️ Falló inicialización en BD para " + matchId + " (estadísticas en memoria OK)"
+                    );
+                }
+            });
+
+        } catch (Exception e) {
+            Bukkit.getConsoleSender().sendMessage(
+                "§c❌ Error crítico al inicializar tracking de partida " + matchId + ": " + e.getMessage()
+            );
+            e.printStackTrace();
+
+            // **LOGGING DETALLADO DEL ERROR**
+            System.out.println("[ERROR] Excepción en startMatchTracking:");
+            e.printStackTrace();
+        }
+
+        Bukkit.getConsoleSender().sendMessage(
+            "§c[DEBUG] startMatchTracking FINALIZADO para " + matchId
+        );
     }
 
     /**
@@ -97,6 +176,7 @@ public class MatchLogsIntegration {
     /**
      * Finaliza la partida y guarda todos los datos en la base de datos
      * Llamar este método cuando la partida termine completamente
+     * MODIFICADO: Ahora acepta estadísticas pre-finalizadas para evitar race conditions
      */
     public static CompletableFuture<Boolean> finalizeAndSaveMatch(
             String matchId,
@@ -104,13 +184,22 @@ public class MatchLogsIntegration {
             String mapName,
             Team winnerTeam,
             LocalDateTime startTime,
-            Map<Team, List<PlayerData>> teams) {
+            Map<Team, List<PlayerData>> teams,
+            Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Finalizar estadísticas y obtener datos
-                Map<UUID, MatchLogsManager.PlayerMatchStats> playerStats =
-                    MatchStatsListener.finalizeMatchStats(matchId);
+                // **CRÍTICO FIX**: Usar estadísticas pre-finalizadas si están disponibles
+                // Esto evita la race condition donde múltiples threads intentan finalizar las mismas stats
+                Map<UUID, MatchLogsManager.PlayerMatchStats> playerStats = preFinalizedStats;
+
+                // Fallback: Si no se proporcionaron stats pre-finalizadas, intentar finalizarlas aquí
+                if (playerStats == null) {
+                    Bukkit.getConsoleSender().sendMessage(
+                        "§e⚠️ Usando fallback para finalizar stats de partida " + matchId
+                    );
+                    playerStats = MatchStatsListener.finalizeMatchStats(matchId);
+                }
 
                 if (playerStats == null || playerStats.isEmpty()) {
                     Bukkit.getConsoleSender().sendMessage(
@@ -158,15 +247,18 @@ public class MatchLogsIntegration {
 
     /**
      * Método de conveniencia para usar con ActiveMatch
+     * MODIFICADO: Ahora acepta estadísticas pre-finalizadas
      */
-    public static CompletableFuture<Boolean> finalizeActiveMatch(ActiveMatch match, Team winnerTeam) {
+    public static CompletableFuture<Boolean> finalizeActiveMatch(ActiveMatch match, Team winnerTeam,
+                                                                 Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
         return finalizeAndSaveMatch(
             match.getMatchId(),
             match.getMatchType(),
             match.getSelectedMap(),
             winnerTeam,
             match.getStartTime(),
-            match.getTeams()
+            match.getTeams(),
+            preFinalizedStats
         );
     }
 

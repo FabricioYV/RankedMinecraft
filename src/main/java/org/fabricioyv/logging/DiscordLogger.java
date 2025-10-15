@@ -12,6 +12,7 @@ import org.fabricioyv.model.PlayerData;
 
 import java.awt.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
@@ -21,6 +22,9 @@ import java.util.concurrent.CompletableFuture;
 
 
 public class DiscordLogger {
+    // NUEVO: Zona horaria de Perú (GMT-5) para timestamps consistentes
+    private static final ZoneId PERU_ZONE = ZoneId.of("America/Lima");
+
     private final JDA jda;
     private final TextChannel logsChannel;
     private final TextChannel resultsChannel;
@@ -450,7 +454,7 @@ public class DiscordLogger {
         embed.setTitle("🚀 Sistema Iniciado");
         embed.setDescription("RankedMinecraft ha sido iniciado exitosamente");
         embed.setColor(Color.GREEN);
-        embed.addField("⏰ Tiempo", DATE_FORMAT.format(LocalDateTime.now()), true);
+        embed.addField("⏰ Tiempo", DATE_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true); // CORREGIDO: Zona horaria de Perú
         embed.addField("🔧 Estado", "Operativo", true);
         embed.setTimestamp(java.time.Instant.now());
 
@@ -466,7 +470,7 @@ public class DiscordLogger {
         embed.setTitle(level.getEmoji() + " " + title);
         embed.setDescription(description);
         embed.setColor(color);
-        embed.addField("⏰ Hora", TIME_FORMAT.format(LocalDateTime.now()), true);
+        embed.addField("⏰ Hora", TIME_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true); // CORREGIDO: Zona horaria de Perú
         embed.addField("📊 Nivel", level.name(), true);
         embed.setTimestamp(java.time.Instant.now());
 

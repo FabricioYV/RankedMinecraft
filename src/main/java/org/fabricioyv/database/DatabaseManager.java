@@ -90,13 +90,13 @@ public class DatabaseManager {
         try {
             HikariConfig hikariConfig = new HikariConfig();
 
-            // URL de conexión con configuraci��n optimizada
+            // URL de conexión con configuración optimizada
             String url = "jdbc:mysql://" + config.host + ":" + config.port + "/" + config.database +
                     "?useSSL=false" +
                     "&autoReconnect=true" +
                     "&characterEncoding=utf8" +
                     "&allowPublicKeyRetrieval=true" +
-                    "&serverTimezone=America/Chicago" +
+                    "&serverTimezone=America/Lima" + // CORREGIDO: Zona horaria de Perú (GMT-5)
                     "&useTimezone=true" +
                     "&useLegacyDatetimeCode=false" +
                     "&connectTimeout=10000" +
@@ -167,7 +167,7 @@ public class DatabaseManager {
     }
 
     // Método para obtener conexi��n de una base de datos específica
-    private static Connection getConnection(String databaseName) throws SQLException {
+    public static Connection getConnection(String databaseName) throws SQLException {
         HikariDataSource dataSource = dataSources.get(databaseName);
         if (dataSource == null || dataSource.isClosed()) {
             throw new SQLException("Pool de conexiones '" + databaseName + "' no inicializado o cerrado");
@@ -197,28 +197,23 @@ public class DatabaseManager {
             games_played INT DEFAULT 0,
             total_kills INT DEFAULT 0,
             total_deaths INT DEFAULT 0,
-            -- Placement columns (required for placement matches tracking)
-            is_in_placement TINYINT(1) DEFAULT 1,
-            placement_matches_played INT DEFAULT 0,
-            -- NUEVO: Columna para sistema de cooldown por abandono
-            cooldown_end_time BIGINT DEFAULT 0,
-            -- NUEVO: Columna para baneo permanente
-            is_permanently_banned TINYINT(1) DEFAULT 0,
             verification_code VARCHAR(8),
             verification_expiry BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            is_in_placement TINYINT(1) DEFAULT 1,
+            placement_matches_played INT DEFAULT 0,
             INDEX idx_discord_id (discord_id),
             INDEX idx_elo (elo),
             INDEX idx_mmr (mmr),
             INDEX idx_in_match (is_in_match),
             INDEX idx_minecraft_uuid (minecraft_uuid),
-            INDEX idx_cooldown (cooldown_end_time),
-            INDEX idx_banned (is_permanently_banned)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            INDEX idx_in_placement (is_in_placement),
+            INDEX idx_placement_matches (placement_matches_played)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
 
-        // NUEVA TABLA: Registro de abandonos
+        // TABLA: Registro de abandonos
         String createAbandonmentsTable = """
         CREATE TABLE IF NOT EXISTS player_abandonments (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -230,10 +225,10 @@ public class DatabaseManager {
             INDEX idx_player_uuid (player_uuid),
             INDEX idx_match_id (match_id),
             INDEX idx_created_at (created_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
 
-        // NUEVA TABLA: Protecciones contra pérdida de ELO
+        // TABLA: Protecciones contra pérdida de ELO
         String createLossProtectionsTable = """
         CREATE TABLE IF NOT EXISTS match_loss_protections (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -244,7 +239,7 @@ public class DatabaseManager {
             UNIQUE KEY unique_protection (player_uuid, match_id),
             INDEX idx_player_uuid (player_uuid),
             INDEX idx_match_id (match_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
 
         try (Statement stmt = conn.createStatement()) {
@@ -515,11 +510,12 @@ public class DatabaseManager {
                 "total_kills = total_kills + ?, " +
                 "total_deaths = total_deaths + ?, " +
                 "is_in_match = ?, " +
-                "current_match_id = ? " +
+                "current_match_id = ?, " +
+                "last_match_date = NOW() " + // NUEVO: Registrar fecha de última partida
                 "WHERE minecraft_uuid = ?";
 
         for (int attempt = 1; attempt <= 3; attempt++) {
-            try (Connection conn = getConnection()) {
+            try (Connection conn = getConnection("ranked")) {
                 conn.setAutoCommit(false);
 
                 try (PreparedStatement stmt = conn.prepareStatement(query)) {

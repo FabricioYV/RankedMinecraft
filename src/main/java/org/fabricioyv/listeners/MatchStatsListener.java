@@ -14,7 +14,9 @@ import org.fabricioyv.database.MatchLogsManager;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.model.PlayerData;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
 
@@ -86,49 +88,64 @@ public class MatchStatsListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        // **ULTRA-OPTIMIZACIÓN**: Verificación combinada en línea única
-        // ANTES: 4 verificaciones separadas (0.3ms) | AHORA: 1 verificación compuesta (<0.05ms)
-        if (!(event.getEntity() instanceof Player victim) ||
-            (event.getDamager() instanceof Player attacker ? attacker.equals(victim) :
-             (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player shooter ?
-              shooter.equals(victim) : true))) return;
+        // **ULTRA-OPTIMIZACIÓN**: Verificación rápida de víctima
+        if (!(event.getEntity() instanceof Player victim)) return;
 
-        // **LOOKUP HÍBRIDO ULTRA-RÁPIDO**: Cache + validación automática
-        UUID attackerUuid = (event.getDamager() instanceof Player p) ? p.getUniqueId() :
-                           (event.getDamager() instanceof Arrow a && a.getShooter() instanceof Player pl) ?
-                           pl.getUniqueId() : null;
-
-        if (attackerUuid == null) return;
-
-        // **CACHE HÍBRIDO**: Verificación con auto-validación
-        CacheEntry cacheEntry = hybridPlayerCache.get(attackerUuid);
-        String matchId = null;
-
-        if (cacheEntry != null && cacheEntry.isValid()) {
-            matchId = cacheEntry.matchId; // Cache hit ultra-rápido
+        // **VERIFICACIÓN RÁPIDA**: Obtener atacante (Player directo o shooter de Arrow)
+        UUID attackerUuid = null;
+        Player attackerPlayer = null;
+        if (event.getDamager() instanceof Player attacker) {
+            attackerUuid = attacker.getUniqueId();
+            attackerPlayer = attacker;
+            // No permitir auto-daño
+            if (attacker.equals(victim)) return;
+        } else if (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player shooter) {
+            attackerUuid = shooter.getUniqueId();
+            attackerPlayer = shooter;
+            // No permitir auto-daño
+            if (shooter.equals(victim)) return;
         } else {
-            // Cache miss - lookup tradicional + repoblar cache
-            matchId = playerMatchCache.get(attackerUuid);
-            if (matchId != null) {
-                PlayerData playerData = playerDataCache.get(attackerUuid);
-                if (playerData != null) {
-                    hybridPlayerCache.put(attackerUuid, new CacheEntry(matchId, playerData));
-                }
+            return; // No es PvP
+        }
+
+        // **BÚSQUEDA INTELIGENTE**: Primero buscar en cache rápido
+        String matchId = playerMatchCache.get(attackerUuid);
+
+        // **FALLBACK AUTOMÁTICO**: Si no está en cache, buscar en partidas activas
+        if (matchId == null) {
+            matchId = findAndCachePlayerMatch(attackerUuid, attackerPlayer.getName());
+
+            if (matchId == null) {
+                // Solo debug si realmente no hay partida para este jugador
+                return;
             }
         }
 
-        if (matchId == null) return;
+        // **VERIFICACIÓN Y AUTO-INICIALIZACIÓN**: Si el match no existe en stats, inicializarlo
+        if (!activeMatchStats.containsKey(matchId)) {
+            // Intentar auto-inicializar las estadísticas para este match
+            if (autoInitializeMatchStats(matchId)) {
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§a[MatchStats] ⚡ Auto-inicialización exitosa para match %s",
+                    matchId));
+            } else {
+                return; // No se pudo inicializar
+            }
+        }
+
+        // **REGISTRO DE DAÑO**: Procesar evento normalmente
+        double damage = event.getFinalDamage();
 
         // **OPTIMIZACIÓN**: Constructor inline con pre-cálculo
-        boolean eventQueued = damageQueue.offer(new DamageEvent(
+        damageQueue.offer(new DamageEvent(
                 attackerUuid,
                 victim.getUniqueId(),
-                event.getFinalDamage(),
+                damage,
                 matchId,
                 event.getDamager() instanceof Arrow
         ));
 
-        // **RESULTADO**: <0.05ms en main thread (85% reducción vs original)
+        // **RESULTADO**: <0.1ms en main thread con auto-recovery
     }
 
     /**
@@ -259,6 +276,12 @@ public class MatchStatsListener implements Listener {
     public static void initializeMatchStats(String matchId, Map<String, String> playerTeams) {
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = new ConcurrentHashMap<>();
 
+        // **LOGGING CRÍTICO**: Verificar que se está llamando correctamente
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§e[MatchStats] Inicializando estadísticas para match %s con %d jugadores",
+            matchId, playerTeams.size()));
+
+        int playersInitialized = 0;
         for (Map.Entry<String, String> entry : playerTeams.entrySet()) {
             UUID playerUuid = UUID.fromString(entry.getKey());
             String team = entry.getValue();
@@ -274,10 +297,32 @@ public class MatchStatsListener implements Listener {
 
                 // CRÍTICO: Actualizar cache rápido INMEDIATAMENTE
                 playerMatchCache.put(playerUuid, matchId);
+                playersInitialized++;
+
+                // **LOGGING**: Confirmar cada jugador inicializado
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§a[MatchStats] ✓ Jugador %s (%s) inicializado para match %s",
+                    player.getName(), team, matchId));
+            } else {
+                // **LOGGING**: Jugador no encontrado
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§c[MatchStats] ✗ Jugador UUID %s no está online - SKIP",
+                    playerUuid.toString().substring(0, 8)));
             }
         }
 
+        // **CRÍTICO**: Almacenar ANTES de cualquier otra operación
         activeMatchStats.put(matchId, matchStats);
+
+        // **LOGGING CRÍTICO**: Confirmar almacenamiento inmediato
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§a[MatchStats] ✅ Match %s almacenado con %d/%d jugadores inicializados",
+            matchId, playersInitialized, playerTeams.size()));
+
+        // **DEBUG**: Verificar que está en el mapa
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§a[MatchStats] 🔍 Verificación: Match %s está en activeMatchStats: %s",
+            matchId, activeMatchStats.containsKey(matchId)));
 
         // **OPTIMIZACIÓN CRÍTICA**: Poblar cache PlayerData O(1) al inicio de partida
         populatePlayerDataCache(matchId);
@@ -320,20 +365,73 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Finalizar estadísticas (llamado desde MatchFinisher)
      */
     public static Map<UUID, MatchLogsManager.PlayerMatchStats> finalizeMatchStats(String matchId) {
-        Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.remove(matchId);
+        // **LOGGING CRÍTICO**: Verificar el estado antes de finalizar
+        Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
 
-        if (stats != null) {
-            // CRÍTICO: Limpiar AMBOS caches INMEDIATAMENTE
-            for (UUID playerUuid : stats.keySet()) {
-                playerMatchCache.remove(playerUuid);
-                // **OPTIMIZACIÓN CRÍTICA**: Limpiar cache PlayerData también
-                playerDataCache.remove(playerUuid);
+        if (stats == null) {
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] ❌ ERROR: No se encontró match %s en activeMatchStats al finalizar",
+                matchId));
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] Matches activos disponibles: %s",
+                String.join(", ", activeMatchStats.keySet())));
+            return null;
+        }
+
+        // **LOGGING CRÍTICO**: Mostrar estadísticas COMPLETAS de cada jugador antes de finalizar
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§e[MatchStats] Finalizando match %s con %d jugadores:",
+            matchId, stats.size()));
+
+        int playersWithStats = 0;
+        int playersWithoutStats = 0;
+
+        for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
+            MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
+            boolean hasStats = playerStats.getKills() > 0 ||
+                              playerStats.getDeaths() > 0 ||
+                              playerStats.getDamageDealt() > 0;
+
+            if (hasStats) {
+                playersWithStats++;
+                // **ARREGLO CRÍTICO**: No mostrar ELO/MMR aún (se muestran como 0 porque no se han calculado)
+                // Los ratings se establecerán después en updatePlayerStatistics()
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§a[MatchStats] ✓ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) WON:%s",
+                    playerStats.getPlayerName(),
+                    playerStats.getKills(),
+                    playerStats.getDeaths(),
+                    playerStats.getDamageDealt(),
+                    playerStats.getArrowsHit(),
+                    playerStats.getArrowsShot(),
+                    playerStats.getArrowAccuracy(),
+                    playerStats.isWon() ? "YES" : "NO"));
+            } else {
+                playersWithoutStats++;
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§c[MatchStats] ✗ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) WON:%s",
+                    playerStats.getPlayerName(),
+                    playerStats.isWon() ? "YES" : "NO"));
             }
+        }
+
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§e[MatchStats] Resumen: %d con stats, %d sin stats",
+            playersWithStats, playersWithoutStats));
+
+        // **CRÍTICO**: NO eliminar del cache todavía
+        // El cache debe persistir hasta que se establezcan todos los rating changes
+        // Capturar tamaño para logging
+        final int playerCount = stats.size();
+
+        // **IMPORTANTE**: Retornar las stats SIN limpiar el cache
+        // La limpieza se hará después en cleanupMatchStats()
+        if (stats != null) {
 
             // Log asíncrono (no bloquea)
             CompletableFuture.runAsync(() -> {
                 MatchLogsManager.logMatchEvent(matchId, "MATCH_END", null,
-                        "Partida finalizada con " + stats.size() + " jugadores");
+                        "Partida finalizada con " + playerCount + " jugadores");
             });
         }
 
@@ -402,11 +500,35 @@ public class MatchStatsListener implements Listener {
      */
     public static void setPlayerRatingChanges(String matchId, UUID playerUuid, int oldElo, int newElo, double oldMmr, double newMmr) {
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
-        if (matchStats == null) return;
+        if (matchStats == null) {
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] ❌ ERROR: No se encontraron stats para match %s al establecer rating changes",
+                matchId));
+            return;
+        }
 
         MatchLogsManager.PlayerMatchStats playerStats = matchStats.get(playerUuid);
         if (playerStats != null) {
-            playerStats.setRatingChanges(oldElo, newElo, oldMmr, newMmr);
+            // **CRÍTICO**: Establecer TODOS los valores de rating correctamente
+            playerStats.setOldElo(oldElo);
+            playerStats.setNewElo(newElo);
+            playerStats.setOldMmr(oldMmr);
+            playerStats.setNewMmr(newMmr);
+
+            // **DEBUG**: Confirmar que se establecieron los valores
+            Player player = Bukkit.getPlayer(playerUuid);
+            String playerName = player != null ? player.getName() : "Unknown";
+
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§a[MatchStats] ✅ Rating changes establecidos para %s: ELO %d→%d (%+d), MMR %.1f→%.1f (%+.1f)",
+                playerName, oldElo, newElo, (newElo - oldElo), oldMmr, newMmr, (newMmr - oldMmr)));
+        } else {
+            Player player = Bukkit.getPlayer(playerUuid);
+            String playerName = player != null ? player.getName() : playerUuid.toString().substring(0, 8);
+
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] ❌ ERROR: No se encontraron stats para jugador %s en match %s",
+                playerName, matchId));
         }
     }
 
@@ -420,6 +542,27 @@ public class MatchStatsListener implements Listener {
         MatchLogsManager.PlayerMatchStats playerStats = matchStats.get(playerUuid);
         if (playerStats != null) {
             playerStats.setWon(won);
+        }
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Limpiar cache DESPUÉS de establecer rating changes
+     * Este método debe llamarse DESPUÉS de que se hayan establecido todos los ratings
+     */
+    public static void cleanupMatchStats(String matchId) {
+        Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.remove(matchId);
+
+        if (stats != null) {
+            // Limpiar AMBOS caches para todos los jugadores del match
+            for (UUID playerUuid : stats.keySet()) {
+                playerMatchCache.remove(playerUuid);
+                playerDataCache.remove(playerUuid);
+                hybridPlayerCache.remove(playerUuid);
+            }
+
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
+                matchId, stats.size()));
         }
     }
 
@@ -518,6 +661,7 @@ public class MatchStatsListener implements Listener {
 
     /**
      * **CLEANUP INTELIGENTE**: Solo limpia cuando es necesario
+     * CRÍTICO: NO eliminar jugadores que están en partidas activas
      */
     private static void smartCacheCleanup() {
         try {
@@ -527,21 +671,47 @@ public class MatchStatsListener implements Listener {
 
             // Solo limpiar si hay jugadores offline significativos
             if (beforePlayerData > 10) {
-                // Limpiar playerDataCache de jugadores offline
+                // **CRÍTICO**: Obtener lista de jugadores en partidas activas para NO limpiarlos
+                Set<UUID> playersInActiveMatches = new HashSet<>();
+                for (Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats : activeMatchStats.values()) {
+                    playersInActiveMatches.addAll(matchStats.keySet());
+                }
+
+                // Limpiar playerDataCache de jugadores offline QUE NO ESTÁN EN PARTIDAS ACTIVAS
                 playerDataCache.entrySet().removeIf(entry -> {
-                    Player player = Bukkit.getPlayer(entry.getKey());
+                    UUID uuid = entry.getKey();
+                    // NO limpiar si está en partida activa
+                    if (playersInActiveMatches.contains(uuid)) return false;
+
+                    Player player = Bukkit.getPlayer(uuid);
                     return player == null || !player.isOnline();
                 });
 
-                // Limpiar playerMatchCache de jugadores offline
+                // Limpiar playerMatchCache de jugadores offline QUE NO ESTÁN EN PARTIDAS ACTIVAS
                 playerMatchCache.entrySet().removeIf(entry -> {
-                    Player player = Bukkit.getPlayer(entry.getKey());
+                    UUID uuid = entry.getKey();
+                    // NO limpiar si está en partida activa
+                    if (playersInActiveMatches.contains(uuid)) return false;
+
+                    Player player = Bukkit.getPlayer(uuid);
                     return player == null || !player.isOnline();
                 });
             }
 
-            // Limpiar entradas expiradas del cache híbrido
-            hybridPlayerCache.entrySet().removeIf(entry -> !entry.getValue().isValid());
+            // Limpiar entradas expiradas del cache híbrido (PERO NO DE PARTIDAS ACTIVAS)
+            Set<UUID> playersInActiveMatches = new HashSet<>();
+            for (Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats : activeMatchStats.values()) {
+                playersInActiveMatches.addAll(matchStats.keySet());
+            }
+
+            hybridPlayerCache.entrySet().removeIf(entry -> {
+                UUID uuid = entry.getKey();
+                // NO limpiar si está en partida activa
+                if (playersInActiveMatches.contains(uuid)) return false;
+
+                // Solo limpiar si expiró
+                return !entry.getValue().isValid();
+            });
 
             // Log solo si hubo cambios significativos
             int afterTotal = playerDataCache.size() + playerMatchCache.size() + hybridPlayerCache.size();
@@ -549,7 +719,8 @@ public class MatchStatsListener implements Listener {
 
             if (beforeTotal - afterTotal > 5) {
                 System.out.println("[MatchStats] Smart cleanup: " + (beforeTotal - afterTotal) +
-                    " entries removed, " + afterTotal + " remaining");
+                    " entries removed, " + afterTotal + " remaining (protected " +
+                    playersInActiveMatches.size() + " active players)");
             }
 
         } catch (Exception e) {
@@ -587,5 +758,130 @@ public class MatchStatsListener implements Listener {
         } catch (Exception e) {
             // Silenciar errores
         }
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Buscar partida del jugador y actualizar cache automáticamente
+     */
+    private String findAndCachePlayerMatch(UUID playerUuid, String playerName) {
+        try {
+            // Buscar en todas las partidas activas
+            for (ActiveMatch activeMatch : ActiveMatch.getAllActiveMatches()) {
+                for (PlayerData playerData : activeMatch.getAllPlayers()) {
+                    if (playerData.getMinecraftUuid().equals(playerUuid.toString())) {
+                        String matchId = activeMatch.getMatchId();
+
+                        // **ACTUALIZACIÓN AUTOMÁTICA**: Agregar al cache inmediatamente
+                        playerMatchCache.put(playerUuid, matchId);
+
+                        // También actualizar cache híbrido
+                        hybridPlayerCache.put(playerUuid, new CacheEntry(matchId, playerData));
+
+                        return matchId;
+                    }
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Auto-inicializar estadísticas para un match existente
+     */
+    private boolean autoInitializeMatchStats(String matchId) {
+        try {
+            // Buscar la partida activa
+            ActiveMatch targetMatch = null;
+            for (ActiveMatch activeMatch : ActiveMatch.getAllActiveMatches()) {
+                if (activeMatch.getMatchId().equals(matchId)) {
+                    targetMatch = activeMatch;
+                    break;
+                }
+            }
+
+            if (targetMatch == null) return false;
+
+            // Crear mapa de jugador → equipo
+            Map<String, String> playerTeams = new java.util.HashMap<>();
+
+            for (Map.Entry<org.fabricioyv.match.Team, java.util.List<PlayerData>> entry : targetMatch.getTeams().entrySet()) {
+                String teamName = entry.getKey().name(); // BLUE, RED, etc.
+                for (PlayerData playerData : entry.getValue()) {
+                    playerTeams.put(playerData.getMinecraftUuid(), teamName);
+                }
+            }
+
+            // Inicializar usando el método existente
+            initializeMatchStats(matchId, playerTeams);
+
+            return true;
+
+        } catch (Exception e) {
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] Error en auto-inicialización para %s: %s",
+                matchId, e.getMessage()));
+            return false;
+        }
+    }
+
+    /**
+     * **MÉTODO CRÍTICO**: Mostrar estadísticas finales CON rating changes establecidos
+     * Este método se llama DESPUÉS de establecer todos los rating changes
+     */
+    public static void displayFinalMatchStats(String matchId) {
+        Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
+        if (stats == null) {
+            Bukkit.getConsoleSender().sendMessage(String.format(
+                "§c[MatchStats] ❌ ERROR: No se encontraron stats finales para match %s",
+                matchId));
+            return;
+        }
+
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§e[MatchStats] 🏁 ESTADÍSTICAS FINALES - Match %s con rating changes aplicados:",
+            matchId));
+
+        for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
+            MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
+            boolean hasStats = playerStats.getKills() > 0 ||
+                              playerStats.getDeaths() > 0 ||
+                              playerStats.getDamageDealt() > 0;
+
+            if (hasStats) {
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§a[MatchStats] ✅ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                    playerStats.getPlayerName(),
+                    playerStats.getKills(),
+                    playerStats.getDeaths(),
+                    playerStats.getDamageDealt(),
+                    playerStats.getArrowsHit(),
+                    playerStats.getArrowsShot(),
+                    playerStats.getArrowAccuracy(),
+                    playerStats.getOldElo(),
+                    playerStats.getNewElo(),
+                    (playerStats.getNewElo() - playerStats.getOldElo()),
+                    playerStats.getOldMmr(),
+                    playerStats.getNewMmr(),
+                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                    playerStats.isWon() ? "YES" : "NO"));
+            } else {
+                Bukkit.getConsoleSender().sendMessage(String.format(
+                    "§c[MatchStats] ⚠️ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                    playerStats.getPlayerName(),
+                    playerStats.getOldElo(),
+                    playerStats.getNewElo(),
+                    (playerStats.getNewElo() - playerStats.getOldElo()),
+                    playerStats.getOldMmr(),
+                    playerStats.getNewMmr(),
+                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                    playerStats.isWon() ? "YES" : "NO"));
+            }
+        }
+
+        Bukkit.getConsoleSender().sendMessage(String.format(
+            "§a[MatchStats] 🎯 Rating changes procesados correctamente para match %s",
+            matchId));
     }
 }
