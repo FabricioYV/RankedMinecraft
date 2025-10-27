@@ -189,8 +189,8 @@ public class QueueManager {
         Member member = guild.getMemberById(discordId);
         if (member == null) return false;
         // Replace with your actual sponsor role IDs
-        String SPONSOR_ROLE_ID = "YOUR_SPONSOR_ROLE_ID";
-        String MAIN_SPONSOR_ROLE_ID = "YOUR_MAIN_SPONSOR_ROLE_ID";
+        String SPONSOR_ROLE_ID = "1413243740231041174";
+        String MAIN_SPONSOR_ROLE_ID = "1413241361087332505";
         return member.getRoles().stream().anyMatch(role ->
                 role.getId().equals(SPONSOR_ROLE_ID) || role.getId().equals(MAIN_SPONSOR_ROLE_ID)
         );

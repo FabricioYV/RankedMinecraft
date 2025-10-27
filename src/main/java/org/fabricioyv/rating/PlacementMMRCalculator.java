@@ -6,6 +6,9 @@ import org.fabricioyv.database.PlacementHistoryManager;
 /**
  * Calculador de MMR especializado para partidas de prueba (placement matches)
  * ACTUALIZADO: Usa el nuevo sistema de análisis avanzado para evaluación final más precisa
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PlacementMMRCalculator {
 
@@ -73,7 +76,7 @@ public class PlacementMMRCalculator {
 
                 // Crear breakdown detallado con el reporte del análisis
                 breakdown = new StringBuilder();
-                breakdown.append("**🎯 PLACEMENT FINALIZADO CON ANÁLISIS AVANZADO**\n\n");
+                breakdown.append("** PLACEMENT FINALIZADO CON ANÁLISIS AVANZADO**\n\n");
                 breakdown.append(analysis.analysisReport);
                 breakdown.append("\n**📊 Resultado Final:**\n");
                 breakdown.append(String.format("• MMR Inicial: %.0f\n", oldMMR));

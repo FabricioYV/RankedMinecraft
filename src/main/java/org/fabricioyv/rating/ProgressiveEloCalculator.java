@@ -5,6 +5,12 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 
+/**
+ * Utilidad para cargar y gestionar la configuración del sistema ELO progresivo
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
+ */
 public class ProgressiveEloCalculator {
 
     private static FileConfiguration eloConfig;
@@ -296,10 +302,10 @@ public class ProgressiveEloCalculator {
             StringBuilder msg = new StringBuilder();
 
             if (promoted) {
-                msg.append("§a🎉 ¡PROMOCIÓN! ");
+                msg.append("§a ¡PROMOCIÓN! ");
                 msg.append(oldRank.getFormattedName()).append(" → ").append(newRank.getFormattedName());
             } else if (demoted) {
-                msg.append("§c📉 Degradación: ");
+                msg.append("§c Degradación: ");
                 msg.append(oldRank.getFormattedName()).append(" → ").append(newRank.getFormattedName());
             } else {
                 msg.append("Rango: ").append(newRank.getFormattedName());

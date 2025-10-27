@@ -8,7 +8,6 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.Compression;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.commands.MatchDetailsCommand;
-import org.fabricioyv.commands.RecentMatchesCommand;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.Rank;
@@ -46,7 +45,6 @@ public class DiscordBot {
             // Registrar comandos slash globalmente
             jda.updateCommands()
                 .addCommands(
-                    RecentMatchesCommand.getSlashCommand(),
                     MatchDetailsCommand.getSlashCommand()
                 )
                 .queue(
@@ -70,17 +68,14 @@ public class DiscordBot {
     private void registerMatchCommands() {
         try {
             // Crear instancias de los comandos
-            RecentMatchesCommand recentMatchesCommand = new RecentMatchesCommand();
             MatchDetailsCommand matchDetailsCommand = new MatchDetailsCommand();
 
             // Registrar listeners para los comandos
-            jda.addEventListener(recentMatchesCommand);
             jda.addEventListener(matchDetailsCommand);
 
             // Registrar comandos slash globalmente
             jda.updateCommands()
                 .addCommands(
-                    RecentMatchesCommand.getSlashCommand(),
                     MatchDetailsCommand.getSlashCommand()
                 )
                 .queue(

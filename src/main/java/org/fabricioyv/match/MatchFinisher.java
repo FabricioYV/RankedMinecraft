@@ -556,7 +556,6 @@ public class MatchFinisher {
                     activeMatch.getRedCaptain()
             );
         } else {
-            // Usar método tradicional sin información de capitanes
             logger.matchComplete(
                     activeMatch.getMatchId(),
                     activeMatch.getMatchType(),
@@ -759,15 +758,6 @@ public class MatchFinisher {
                 "Estado global de partida finalizado - Sistema listo para nuevas colas");
     }
 
-    /**
-     * Determina el equipo ganador del estado actual de la partida
-     */
-    private static Team determineWinnerFromCurrentState(ActiveMatch activeMatch) {
-        // Este método debería ser implementado según cómo determines el ganador
-        // Por ahora retornamos null, pero debería obtener el ganador actual
-        // Podrías guardarlo en ActiveMatch cuando se determina el ganador
-        return activeMatch.getWinnerTeam(); // Necesitas agregar este campo a ActiveMatch
-    }
 
 
     /**
@@ -808,20 +798,7 @@ public class MatchFinisher {
         logger.warning("Emergencia Completada",
                 "Limpieza de emergencia completada - puede requerir intervención manual");
     }
-    /**
-     * Obtiene el nombre de display de un jugador
-     */
-    private static String getPlayerName(PlayerData playerData) {
-        try {
-            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-            if (mcPlayer != null) {
-                return mcPlayer.getName();
-            }
-        } catch (Exception e) {
-            // Fallback
-        }
-        return "UUID:" + playerData.getMinecraftUuid().substring(0, 8);
-    }
+
 
     private static void updateDiscordRoles(ActiveMatch activeMatch,
                                            Map<String, ProgressiveEloCalculator.EloChange> eloChanges,
@@ -1097,7 +1074,7 @@ public class MatchFinisher {
 
                     // **PASO 3**: Esperar procesamiento de eventos pendientes
                     try {
-                        Thread.sleep(100 * attemptCount); // Espera incremental: 100ms, 200ms, 300ms
+                        Thread.sleep(100L * attemptCount); // Espera incremental: 100ms, 200ms, 300ms
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         break;
@@ -1129,7 +1106,7 @@ public class MatchFinisher {
     }
 
     /**
-     * **MÉTODO CRÍTICO**: Asigna ELO y rango final cuando un jugador completa placement matches
+     * Asigna el rango final después de completar las 8 partidas de placement
      * Implementa el sistema completo de evaluación basado en las 8 partidas
      */
     private static void assignFinalPlacementRank(PlayerData player, String matchId, DiscordLogger logger, boolean wonLastMatch, org.fabricioyv.discord.DiscordBot discordBot) {

@@ -13,11 +13,11 @@ public class PlayerData {
     private double currentMatchDamage;
 
     // Estadísticas generales
-    private int wins;
-    private int losses;
-    private int gamesPlayed;
-    private int totalKills;
-    private int totalDeaths;
+    private final int wins;
+    private final int losses;
+    private final int gamesPlayed;
+    private final int totalKills;
+    private final int totalDeaths;
 
     // Sistema de partidas de prueba (placement matches)
     private boolean isInPlacement;
@@ -105,7 +105,6 @@ public class PlayerData {
 
     /**
      * Obtiene el nombre de Minecraft del jugador
-     * Nota: Este método requiere una consulta a Bukkit para obtener el nombre actual
      */
     public String getMinecraftName() {
         try {
@@ -163,10 +162,7 @@ public class PlayerData {
     public static int getPlacementMatchesRequired() {
         return PLACEMENT_MATCHES_REQUIRED;
     }
-
-    /**
-     * Método para establecer datos de placement (usado en DatabaseManager)
-     */
+    
     public void setPlacementData(boolean isInPlacement, int placementMatchesPlayed) {
         this.isInPlacement = isInPlacement;
         this.placementMatchesPlayed = placementMatchesPlayed;

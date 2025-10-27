@@ -1,6 +1,7 @@
 package org.fabricioyv.discord;
 
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.unions.AudioChannelUnion;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -252,7 +253,7 @@ public class VoiceChannelListener extends ListenerAdapter {
             try {
                 Thread.sleep(1000); // 1 segundo de delay
 
-                net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel waitingRoom =
+                VoiceChannel waitingRoom =
                         member.getGuild().getVoiceChannelById(VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID);
 
                 if (waitingRoom != null) {

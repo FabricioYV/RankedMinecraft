@@ -23,6 +23,9 @@ import java.util.concurrent.*;
 /**
  * Listener OPTIMIZADO para estadísticas PvP - NO bloquea hit registration
  * Las estadísticas son completamente secundarias
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class MatchStatsListener implements Listener {
 

@@ -485,7 +485,7 @@ public class MatchLogsManager {
                         if (rs.next() && rs.getInt(1) > 0) {
                             Bukkit.getConsoleSender().sendMessage(
                                 "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
-                                        startTimeLima.toString() + ")"
+                                        startTimeLima + ")"
                             );
                             return true;
                         } else {

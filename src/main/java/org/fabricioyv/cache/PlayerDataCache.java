@@ -5,11 +5,13 @@ import org.fabricioyv.model.PlayerData;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * OPTIMIZACIÓN: Sistema de cache separado para PlayerData
  * Evita consultas repetidas a la base de datos durante partidas activas
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PlayerDataCache {
     
@@ -39,8 +41,7 @@ public class PlayerDataCache {
      */
     private static void cleanupExpiredCache() {
         long currentTime = System.currentTimeMillis();
-        int cleanedEntries = 0;
-        
+
         // Limpiar entradas expiradas
         cacheTimestamps.entrySet().removeIf(entry -> {
             if (currentTime - entry.getValue() > CACHE_TTL) {
@@ -55,9 +56,6 @@ public class PlayerDataCache {
             }
             return false;
         });
-        
-        // ELIMINADO: Log innecesario de limpieza de cache que se ejecuta cada 5 minutos
-        // Solo limpiar en silencio, no spam en consola
     }
 
     /**

@@ -20,6 +20,9 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Listener para manejar el rejoin de jugadores a partidas activas
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PlayerRejoinListener implements Listener {
 

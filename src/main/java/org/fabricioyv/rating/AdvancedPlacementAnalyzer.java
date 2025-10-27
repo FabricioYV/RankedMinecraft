@@ -9,6 +9,9 @@ import java.util.List;
  * NUEVO: Analizador avanzado de placement matches
  * Evalúa patrones profundos en el historial para asignar rangos más precisos
  * Soluciona el problema de desequilibrio cuando hay 8 jugadores experimentados vs 2 nuevos
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class AdvancedPlacementAnalyzer {
 
@@ -257,32 +260,27 @@ public class AdvancedPlacementAnalyzer {
                                                PressureResponse pressure,
                                                double finalScore,
                                                Rank assignedRank) {
-        StringBuilder report = new StringBuilder();
-        
-        report.append("**🔍 ANÁLISIS AVANZADO DE PLACEMENT**\n");
-        report.append(String.format("**Rango Final:** %s (Puntuación: %.0f/1000)\n\n",
-                     assignedRank.getFormattedName(), finalScore));
 
-        report.append("**📈 Progresión:**\n");
-        report.append(String.format("• Win Rate: %.1f%% (%d/8 victorias)\n", progression.winRate, (int)(progression.winRate * 8 / 100)));
-        report.append(String.format("• Mejora detectada: %s\n", progression.showedImprovement ? "✅ Sí" : "❌ No"));
-        report.append(String.format("• Rendimiento consistente: %s\n", progression.consistentPerformance ? "✅ Sí" : "❌ No"));
+        String report = "**🔍 ANÁLISIS AVANZADO DE PLACEMENT**\n" +
+                String.format("**Rango Final:** %s (Puntuación: %.0f/1000)\n\n",
+                        assignedRank.getFormattedName(), finalScore) +
+                "**📈 Progresión:**\n" +
+                String.format("• Win Rate: %.1f%% (%d/8 victorias)\n", progression.winRate, (int) (progression.winRate * 8 / 100)) +
+                String.format("• Mejora detectada: %s\n", progression.showedImprovement ? "✅ Sí" : "❌ No") +
+                String.format("• Rendimiento consistente: %s\n", progression.consistentPerformance ? "✅ Sí" : "❌ No") +
+                "\n**🎯 Nivel de Habilidad:**\n" +
+                String.format("• Tier: %s\n", skillLevel.skillTier.getDisplayName()) +
+                String.format("• K/D General: %.2f\n", skillLevel.overallKD) +
+                String.format("• Damage Promedio: %.0f\n", skillLevel.avgDamage) +
+                String.format("• Partidas MVP: %d/8\n", skillLevel.mvpMatches) +
+                "\n**⚡ Consistencia:**\n" +
+                String.format("• Consistencia K/D: %.0f%%\n", consistency.kdConsistency) +
+                String.format("• Consistencia Damage: %.0f%%\n", consistency.damageConsistency) +
+                String.format("• Clutch Wins: %d\n", consistency.clutchWins) +
+                "\n**🔥 Bajo Presión:**\n" +
+                String.format("• Mantiene rendimiento: %s\n", pressure.performsUnderPressure ? "✅ Sí" : "❌ No");
 
-        report.append("\n**🎯 Nivel de Habilidad:**\n");
-        report.append(String.format("• Tier: %s\n", skillLevel.skillTier.getDisplayName()));
-        report.append(String.format("• K/D General: %.2f\n", skillLevel.overallKD));
-        report.append(String.format("• Damage Promedio: %.0f\n", skillLevel.avgDamage));
-        report.append(String.format("• Partidas MVP: %d/8\n", skillLevel.mvpMatches));
-
-        report.append("\n**⚡ Consistencia:**\n");
-        report.append(String.format("• Consistencia K/D: %.0f%%\n", consistency.kdConsistency));
-        report.append(String.format("• Consistencia Damage: %.0f%%\n", consistency.damageConsistency));
-        report.append(String.format("• Clutch Wins: %d\n", consistency.clutchWins));
-
-        report.append("\n**🔥 Bajo Presión:**\n");
-        report.append(String.format("• Mantiene rendimiento: %s\n", pressure.performsUnderPressure ? "✅ Sí" : "❌ No"));
-
-        return report.toString();
+        return report;
     }
 
     private static double calculateVariance(double[] values) {

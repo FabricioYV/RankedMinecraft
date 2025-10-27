@@ -12,7 +12,6 @@ public class MatchState {
     public static boolean isMatchActive() {
         return matchActive.get();
 
-
     }
 
     /**

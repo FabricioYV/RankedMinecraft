@@ -30,11 +30,6 @@ public class AbandonmentDetectionSystem implements Listener {
 
     // Configuración del sistema
     private static final long RECONNECTION_GRACE_PERIOD = 120L; // CAMBIADO: 2 minutos en segundos
-    private static final int ABANDONMENT_ELO_PENALTY = 50; // Pérdida de ELO por abandono
-    private static final long ABANDONMENT_COOLDOWN_MINUTES = 30; // 30 minutos de cooldown
-
-    // NUEVO: Configuración de baneo permanente
-    private static final int PERMANENT_BAN_THRESHOLD = 7; // Baneo permanente después de 7 abandonos
 
     // Configuración escalonada de castigos
     private static final Map<Integer, AbandonmentPenalty> PENALTY_TIERS = Map.of(
@@ -149,7 +144,7 @@ public class AbandonmentDetectionSystem implements Listener {
             AbandonmentPenalty penalty = calculatePenalty(abandonmentCount + 1);
 
             // Aplicar castigo
-            applyAbandonmentPenalty(playerData, penalty, activeMatch);
+            applyAbandonmentPenalty(playerData, penalty);
 
             // Registrar abandono en base de datos
             DatabaseManager.recordAbandonment(playerUuid, activeMatch.getMatchId(),
@@ -172,7 +167,7 @@ public class AbandonmentDetectionSystem implements Listener {
     /**
      * Aplica la penalización por abandono
      */
-    private void applyAbandonmentPenalty(PlayerData playerData, AbandonmentPenalty penalty, ActiveMatch activeMatch) {
+    private void applyAbandonmentPenalty(PlayerData playerData, AbandonmentPenalty penalty) {
         // Verificar si es baneo permanente
         if (penalty.cooldownMinutes == -1) {
             // BANEO PERMANENTE
@@ -185,7 +180,7 @@ public class AbandonmentDetectionSystem implements Listener {
         playerData.setElo(newElo);
 
         // Aplicar cooldown de queue
-        long cooldownEndTime = System.currentTimeMillis() + (penalty.cooldownMinutes * 60 * 1000);
+        long cooldownEndTime = System.currentTimeMillis() + ((long) penalty.cooldownMinutes * 60 * 1000);
 
         // NUEVO: Aplicar pérdidas dobles (cuenta como 2 derrotas)
         applyDoubleLosses(playerData);

@@ -1,26 +1,32 @@
 package org.fabricioyv.rating;
 
+/**
+ * Enumeración de rangos usados por el sistema de ELO
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
+ */
 public enum Rank {
-    COBRE_3("Cobre III", "§c", 0, 99),
-    COBRE_2("Cobre II", "§c", 100, 199),
-    COBRE_1("Cobre I", "§c", 200, 299),
+    COBRE_3("Cobre III", "\u00a7c", 0, 99),
+    COBRE_2("Cobre II", "\u00a7c", 100, 199),
+    COBRE_1("Cobre I", "\u00a7c", 200, 299),
 
-    HIERRO_3("Hierro III", "§7", 300, 399),
-    HIERRO_2("Hierro II", "§7", 400, 499),
-    HIERRO_1("Hierro I", "§7", 500, 599),
+    HIERRO_3("Hierro III", "\u00a77", 300, 399),
+    HIERRO_2("Hierro II", "\u00a77", 400, 499),
+    HIERRO_1("Hierro I", "\u00a77", 500, 599),
 
-    ORO_3("Oro III", "§6", 600, 699),
-    ORO_2("Oro II", "§6", 700, 799),
-    ORO_1("Oro I", "§6", 800, 899),
+    ORO_3("Oro III", "\u00a76", 600, 699),
+    ORO_2("Oro II", "\u00a76", 700, 799),
+    ORO_1("Oro I", "\u00a76", 800, 899),
 
-    DIAMANTE_3("Diamante III", "§b", 900, 999),
-    DIAMANTE_2("Diamante II", "§b", 1000, 1099),
-    DIAMANTE_1("Diamante I", "§b", 1100, 1199),
+    DIAMANTE_3("Diamante III", "\u00a7b", 900, 999),
+    DIAMANTE_2("Diamante II", "\u00a7b", 1000, 1099),
+    DIAMANTE_1("Diamante I", "\u00a7b", 1100, 1199),
 
-    ESMERALDA("Esmeralda", "§a", 1200, Integer.MAX_VALUE),
+    ESMERALDA("Esmeralda", "\u00a7a", 1200, Integer.MAX_VALUE),
 
     // Rango especial para jugadores en placement matches
-    PLACEMENT("En Evaluación", "§e", -1, -1);
+    PLACEMENT("En Evaluación", "\u00a7e", -1, -1);
 
     private final String displayName;
     private final String colorCode;

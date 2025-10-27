@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 
 public class DiscordLogger {
     // NUEVO: Zona horaria de Perú (GMT-5) para timestamps consistentes
+    //Uso de Emojis para los mensajes de log tipo embed.
     private static final ZoneId PERU_ZONE = ZoneId.of("America/Lima");
 
     private final JDA jda;

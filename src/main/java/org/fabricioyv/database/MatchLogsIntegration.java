@@ -22,12 +22,9 @@ public class MatchLogsIntegration {
 
     /**
      * Inicia el tracking de estadísticas para una nueva partida
-     * Llamar este método cuando se inicie una partida
      * MODIFICADO: Inicializa estadísticas en memoria INMEDIATAMENTE, BD es secundaria
      */
     public static void startMatchTracking(String matchId, Map<Team, List<PlayerData>> teams, String matchType, String mapName) {
-        // **LOGGING CRÍTICO**: Verificar que el método se está llamando
-        System.out.println("[DEBUG] startMatchTracking llamado para " + matchId);
         Bukkit.getConsoleSender().sendMessage(
             "§c[DEBUG] startMatchTracking EJECUTÁNDOSE para " + matchId
         );
@@ -121,8 +118,7 @@ public class MatchLogsIntegration {
             );
             e.printStackTrace();
 
-            // **LOGGING DETALLADO DEL ERROR**
-            System.out.println("[ERROR] Excepción en startMatchTracking:");
+
             e.printStackTrace();
         }
 
@@ -141,8 +137,8 @@ public class MatchLogsIntegration {
 
     /**
      * Actualiza los cambios de rating (ELO/MMR) para un jugador
-     * Llamar este método después de calcular los nuevos ratings
-     * IMPORTANTE: Este método solo registra los datos, NO modifica la base de datos principal
+     * Call this method after the match ends, when you have the final ratings
+     * IMPORTANTE: This method should be called AFTER the match ends, when you have the final ratings
      */
     public static void updatePlayerRating(String matchId, PlayerData player, int oldElo, double oldMmr, int newElo, double newMmr) {
         MatchStatsListener.setPlayerRatingChanges(
@@ -228,11 +224,6 @@ public class MatchLogsIntegration {
                 // Guardar en base de datos
                 Boolean saved = MatchLogsManager.saveMatchData(matchSummary).get();
 
-                if (saved) {
-                    // Log de éxito con estadísticas resumidas
-                    logMatchSummary(matchSummary);
-                }
-
                 return saved;
 
             } catch (Exception e) {
@@ -246,7 +237,6 @@ public class MatchLogsIntegration {
     }
 
     /**
-     * Método de conveniencia para usar con ActiveMatch
      * MODIFICADO: Ahora acepta estadísticas pre-finalizadas
      */
     public static CompletableFuture<Boolean> finalizeActiveMatch(ActiveMatch match, Team winnerTeam,
@@ -286,13 +276,5 @@ public class MatchLogsIntegration {
     }
 
 
-
-    /**
-     * Log detallado del resumen de la partida - ELIMINADO para evitar spam
-     */
-    private static void logMatchSummary(MatchLogsManager.MatchSummary matchSummary) {
-        // ELIMINADO: Logs excesivos que generaban spam por cada partida
-        // Solo mantener el registro en base de datos, no spam en consola
-    }
 
 }

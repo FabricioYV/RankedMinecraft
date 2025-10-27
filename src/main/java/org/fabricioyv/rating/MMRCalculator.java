@@ -2,6 +2,13 @@ package org.fabricioyv.rating;
 
 import org.fabricioyv.model.PlayerData;
 
+/**
+ * Sistema MMR mejorado centrado en daño para PvP 5v5
+ * Detecta automáticamente si el jugador está en placement matches
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
+ */
 public class MMRCalculator {
 
     // Factores rebalanceados priorizando daño
@@ -44,6 +51,9 @@ public class MMRCalculator {
     /**
      * Sistema MMR mejorado centrado en daño para PvP 5v5
      * Detecta automáticamente si el jugador está en placement matches
+     *
+     * Created by FabricioYV
+     * @author FabricioYV
      */
     public static MMRChange calculateMMRChange(PlayerData player, boolean won,
                                                double teamAvgMMR, double opponentAvgMMR) {

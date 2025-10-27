@@ -521,35 +521,7 @@ public class ActiveMatch {
         }
     }
 
-    /**
-     * Método para mover un jugador específico al canal de su equipo (usado para rejoin)
-     */
-    public void movePlayerToTeamChannel(PlayerData playerData, Team team) {
-        VoiceChannel targetChannel = (team == Team.BLUE) ? blueTeamChannel : redTeamChannel;
 
-        if (targetChannel == null) {
-            logger.error("Team Channel Not Available",
-                "Canal del equipo " + team.getDisplayName() + " no está disponible para rejoin");
-            return;
-        }
-
-        try {
-            Member member = guild.getMemberById(playerData.getDiscordId());
-            if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
-                guild.moveVoiceMember(member, targetChannel).queue(
-                        success -> logger.success("Rejoin Voice Move",
-                            "✅ " + member.getEffectiveName() + " movido al canal " + team.getDisplayName() + " (rejoin)"),
-                        error -> logger.error("Rejoin Voice Move Failed",
-                            "❌ Error moviendo " + member.getEffectiveName() + " al canal " + team.getDisplayName() + ": " + error.getMessage())
-                );
-            } else {
-                logger.info("Player Not In Voice",
-                    "Jugador " + playerData.getMinecraftName() + " no está en un canal de voz para mover (rejoin)");
-            }
-        } catch (Exception e) {
-            logger.systemError("ActiveMatch", "Error en rejoin voice move", e.getMessage());
-        }
-    }
 
     /**
      * Obtiene el ID de la partida

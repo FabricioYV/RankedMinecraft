@@ -4,14 +4,17 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.database.DatabaseManager;
+import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.rating.AdvancedPlacementAnalyzer;
 
 /**
  * Comando para probar y verificar el sistema de análisis avanzado de placement matches
  * Este comando es para administradores y permite analizar el historial de placement
  * de cualquier jugador usando el AdvancedPlacementAnalyzer
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class TestPlacementAnalysisCommand implements CommandExecutor {
 

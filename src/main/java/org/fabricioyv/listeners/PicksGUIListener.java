@@ -18,10 +18,13 @@ import java.util.List;
 /**
  * Listener para el sistema de GUI de picks
  * Maneja la interacción con el libro de picks y los clicks en el inventario
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PicksGUIListener implements Listener {
 
-    private static final String PICKS_BOOK_NAME = "§6§l⚔ Libro de Picks";
+    private static final String PICKS_BOOK_NAME = "\u00a76\u00a7l\u2694 Libro de Picks";
 
     /**
      * Maneja el click derecho en el libro de picks
@@ -87,11 +90,10 @@ public class PicksGUIListener implements Listener {
         event.setCancelled(true);
 
         // Verificar que sea un jugador
-        if (!(event.getWhoClicked() instanceof Player)) {
+        if (!(event.getWhoClicked() instanceof Player captain)) {
             return;
         }
 
-        Player captain = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
 
         // Verificar que clickeó en algo

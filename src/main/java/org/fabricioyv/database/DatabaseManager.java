@@ -166,7 +166,7 @@ public class DatabaseManager {
         }
     }
 
-    // Método para obtener conexi��n de una base de datos específica
+    //Method to get connection from a specific database pool
     public static Connection getConnection(String databaseName) throws SQLException {
         HikariDataSource dataSource = dataSources.get(databaseName);
         if (dataSource == null || dataSource.isClosed()) {
@@ -175,7 +175,7 @@ public class DatabaseManager {
         return dataSource.getConnection();
     }
 
-    // Método para obtener conexión de la base de datos principal (retrocompatibilidad)
+    //Method to get connection from the ranked database pool
     private static Connection getConnection() throws SQLException {
         return getConnection("ranked");
     }

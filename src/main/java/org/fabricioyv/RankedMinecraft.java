@@ -8,13 +8,20 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
-import org.fabricioyv.listeners.PGMMatchListener; // Descomentado - disponible cuando instales PGM
+import org.fabricioyv.listeners.PGMMatchListener;
 import org.fabricioyv.listeners.PlayerRejoinListener;
 import org.fabricioyv.match.AbandonmentDetectionSystem;
 import org.fabricioyv.match.MapManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 
+/**
+ * Plugin principal para la gestión de partidas clasificatorias en Minecraft.
+ * Integra sistemas de ELO, votación de mapas, y un bot de Discord para administración y estadísticas.
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
+ */
 public final class RankedMinecraft extends JavaPlugin {
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
@@ -104,14 +111,12 @@ public final class RankedMinecraft extends JavaPlugin {
             for (org.bukkit.World world : Bukkit.getWorlds()) {
                 // Limpiar items en el suelo (excepto en los primeros 30 segundos)
                 for (org.bukkit.entity.Entity entity : world.getEntities()) {
-                    if (entity instanceof org.bukkit.entity.Item) {
-                        org.bukkit.entity.Item item = (org.bukkit.entity.Item) entity;
+                    if (entity instanceof org.bukkit.entity.Item item) {
                         if (item.getTicksLived() > 600) { // Más de 30 segundos
                             item.remove();
                             removedItems++;
                         }
-                    } else if (entity instanceof org.bukkit.entity.Arrow) {
-                        org.bukkit.entity.Arrow arrow = (org.bukkit.entity.Arrow) entity;
+                    } else if (entity instanceof org.bukkit.entity.Arrow arrow) {
                         if (arrow.isOnGround() && arrow.getTicksLived() > 200) { // Más de 10 segundos
                             arrow.remove();
                             removedArrows++;

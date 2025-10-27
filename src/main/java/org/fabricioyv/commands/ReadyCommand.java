@@ -11,12 +11,11 @@ public class ReadyCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player player)) {
             sender.sendMessage("§cEste comando solo puede ser ejecutado por jugadores.");
             return true;
         }
 
-        Player player = (Player) sender;
         String playerUuid = player.getUniqueId().toString();
 
         // Buscar partida activa del jugador
