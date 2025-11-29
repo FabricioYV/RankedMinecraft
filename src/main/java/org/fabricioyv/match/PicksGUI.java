@@ -20,7 +20,7 @@ import java.util.UUID;
  */
 public class PicksGUI {
 
-    private static final String GUI_TITLE = "§6§l⚔ Seleccionar Jugador";
+    private static final String GUI_TITLE = "§6Seleccionar Jugador";
     private static final int GUI_SIZE = 54; // 6 filas
 
     /**
@@ -59,26 +59,30 @@ public class PicksGUI {
         ItemStack head = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
 
-        // Obtener jugador de Minecraft
-        Player mcPlayer = null;
-        try {
-            mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-        } catch (Exception e) {
-            // Ignorar error
-        }
-
         if (meta != null) {
-            // Establecer nombre del jugador
-            String playerName = mcPlayer != null ? mcPlayer.getName() : "Jugador";
+            // Obtener nombre del jugador (online u offline)
+            String playerName = "Jugador";
+            try {
+                UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+
+                Player online = Bukkit.getPlayer(uuid);
+                if (online != null) {
+                    playerName = online.getName();
+                } else {
+                    org.bukkit.OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
+                    if (off != null && off.getName() != null) {
+                        playerName = off.getName();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
             meta.setDisplayName("§a§l" + playerName);
 
-            // Establecer textura de la cabeza (1.8.8 usa setOwner con String)
-            if (mcPlayer != null) {
-                try {
-                    meta.setOwner(mcPlayer.getName());
-                } catch (Exception e) {
-                    // Fallback si hay error
-                }
+            // Establecer textura de la cabeza (setOwner usa el nombre, no importa si está offline)
+            try {
+                meta.setOwner(playerName);
+            } catch (Exception ignored) {
             }
 
             // Crear lore con información detallada
@@ -108,8 +112,8 @@ public class PicksGUI {
 
             // K/D ratio
             double kdRatio = playerData.getTotalDeaths() > 0
-                ? (double) playerData.getTotalKills() / playerData.getTotalDeaths()
-                : playerData.getTotalKills();
+                    ? (double) playerData.getTotalKills() / playerData.getTotalDeaths()
+                    : playerData.getTotalKills();
             lore.add("§7K/D Ratio: §f" + String.format("%.2f", kdRatio));
             lore.add("");
 
@@ -168,20 +172,31 @@ public class PicksGUI {
         }
 
         // En 1.8.8 se usa getOwner() en lugar de getOwningPlayer()
-        String playerName = meta.getOwner();
-        if (playerName == null) {
+        String ownerName = meta.getOwner();
+        if (ownerName == null) {
             return null;
         }
 
-        // Buscar PlayerData por nombre
+        // Buscar PlayerData por nombre (online u offline)
         for (PlayerData playerData : availablePlayers) {
             try {
-                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-                if (mcPlayer != null && mcPlayer.getName().equals(playerName)) {
+                UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+
+                String name = null;
+                Player online = Bukkit.getPlayer(uuid);
+                if (online != null) {
+                    name = online.getName();
+                } else {
+                    org.bukkit.OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
+                    if (off != null && off.getName() != null) {
+                        name = off.getName();
+                    }
+                }
+
+                if (name != null && name.equalsIgnoreCase(ownerName)) {
                     return playerData;
                 }
-            } catch (Exception e) {
-                // Continuar buscando
+            } catch (Exception ignored) {
             }
         }
 

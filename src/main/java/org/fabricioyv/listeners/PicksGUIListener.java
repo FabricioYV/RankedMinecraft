@@ -18,13 +18,10 @@ import java.util.List;
 /**
  * Listener para el sistema de GUI de picks
  * Maneja la interacción con el libro de picks y los clicks en el inventario
- *
- * Created by FabricioYV
- * @author FabricioYV
  */
 public class PicksGUIListener implements Listener {
 
-    private static final String PICKS_BOOK_NAME = "\u00a76\u00a7l\u2694 Libro de Picks";
+    private static final String PICKS_BOOK_NAME = "§6Libro de Picks";
 
     /**
      * Maneja el click derecho en el libro de picks
@@ -82,7 +79,7 @@ public class PicksGUIListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         // Verificar que sea el GUI de picks
         if (event.getView().getTitle() == null ||
-            !event.getView().getTitle().equals("§6§l⚔ Seleccionar Jugador")) {
+            !event.getView().getTitle().equals("§6Seleccionar Jugador")) {
             return;
         }
 
@@ -90,10 +87,11 @@ public class PicksGUIListener implements Listener {
         event.setCancelled(true);
 
         // Verificar que sea un jugador
-        if (!(event.getWhoClicked() instanceof Player captain)) {
+        if (!(event.getWhoClicked() instanceof Player)) {
             return;
         }
 
+        Player captain = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
 
         // Verificar que clickeó en algo
@@ -147,7 +145,7 @@ public class PicksGUIListener implements Listener {
         );
 
         // Feedback visual
-        captain.sendMessage("§a✓ Seleccionaste a §e" + getPlayerName(selectedPlayer));
+        captain.sendMessage("§aSeleccionaste a §e" + getPlayerName(selectedPlayer));
     }
 
     /**
@@ -155,14 +153,18 @@ public class PicksGUIListener implements Listener {
      */
     private String getPlayerName(PlayerData playerData) {
         try {
-            Player mcPlayer = org.bukkit.Bukkit.getPlayer(
-                java.util.UUID.fromString(playerData.getMinecraftUuid())
-            );
-            if (mcPlayer != null) {
-                return mcPlayer.getName();
+            java.util.UUID uuid = java.util.UUID.fromString(playerData.getMinecraftUuid());
+
+            Player online = org.bukkit.Bukkit.getPlayer(uuid);
+            if (online != null) {
+                return online.getName();
             }
-        } catch (Exception e) {
-            // Ignorar
+
+            org.bukkit.OfflinePlayer off = org.bukkit.Bukkit.getOfflinePlayer(uuid);
+            if (off != null && off.getName() != null) {
+                return off.getName();
+            }
+        } catch (Exception ignored) {
         }
         return "Jugador";
     }
