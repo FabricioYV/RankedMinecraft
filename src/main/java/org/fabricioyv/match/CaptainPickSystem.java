@@ -36,7 +36,7 @@ public class CaptainPickSystem {
     private static final String SERVER_BOOSTER_ROLE_ID = "1407203727076491295";
 
     private static final int PICK_TIMEOUT_SECONDS = 20; // AUMENTADO: 15 -> 20 segundos
-
+    private static final int MIN_WINS_FOR_CAPTAIN = 10;
     /**
      * Inicia el sistema de picks después de seleccionar el mapa
      */
@@ -87,44 +87,86 @@ public class CaptainPickSystem {
         }
     }
 
-    /**
-     * Selecciona los dos mejores jugadores de la partida por MMR (desc).
-     * Si hay empate en MMR, preferir al jugador que tenga rol de sponsor (Main Sponsor/Sponsor/Server Booster)
-     * Si sigue habiendo empate, usar un criterio estable (discordId o minecraftUuid) para desempatar.
-     */
+    // IMPORTANTE: asegúrate de tener este import
+// import java.util.Comparator;
+
     private static List<PlayerData> selectTopTwoCaptainsByMmr(List<PlayerData> players, Guild guild) {
-        List<PlayerData> copy = new ArrayList<>(players);
-        copy.sort((p1, p2) -> {
-            // Comparar por MMR (descendente)
-            int cmp = Double.compare(p2.getMmr(), p1.getMmr());
-            if (cmp != 0) return cmp;
+        // 1) Filtrar jugadores con suficientes victorias
+        List<PlayerData> eligible = new ArrayList<>();
+        for (PlayerData p : players) {
+            int wins = p.getWins();
 
-            // Si MMR igual, preferir al que tenga rol sponsor
-            try {
-                if (guild != null) {
-                    Member m1 = (p1.getDiscordId() == null) ? null : guild.getMemberById(p1.getDiscordId());
-                    Member m2 = (p2.getDiscordId() == null) ? null : guild.getMemberById(p2.getDiscordId());
+            if (wins >= MIN_WINS_FOR_CAPTAIN) {
+                eligible.add(p);
+            }
+        }
 
-                    boolean s1 = m1 != null && hasSponsorRole(m1);
-                    boolean s2 = m2 != null && hasSponsorRole(m2);
+        // 2) Si hay menos de 2 “veteranos”, usar a todos como fallback
+        if (eligible.size() < 2) {
+            eligible = new ArrayList<>(players);
+        }
 
-                    if (s1 && !s2) return -1;
-                    if (!s1 && s2) return 1;
+        // Si al final solo hay 0, 1 o 2 jugadores, devolverlos tal cual
+        if (eligible.size() <= 2) {
+            return new ArrayList<>(eligible);
+        }
+
+        // 3) Ordenar por MMR descendente (sin sponsor, solo Elo)
+        eligible.sort(Comparator.comparingDouble(PlayerData::getMmr).reversed());
+
+        List<PlayerData> result = new ArrayList<>(2);
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+
+        // --- Elegir primer capitán ---
+        double topMmr = eligible.get(0).getMmr();
+
+        // Grupo de jugadores empatados en el MMR más alto
+        List<PlayerData> topGroup = new ArrayList<>();
+        for (PlayerData p : eligible) {
+            if (Double.compare(p.getMmr(), topMmr) == 0) {
+                topGroup.add(p);
+            } else {
+                break; // ya pasamos a un MMR menor
+            }
+        }
+
+        if (topGroup.size() >= 2) {
+            // Hay varios con el MMR más alto -> elegir 2 aleatorios de ese grupo
+            int idx1 = rnd.nextInt(topGroup.size());
+            int idx2;
+            do {
+                idx2 = rnd.nextInt(topGroup.size());
+            } while (idx2 == idx1);
+
+            result.add(topGroup.get(idx1));
+            result.add(topGroup.get(idx2));
+            return result;
+        } else {
+            // Solo 1 con el MMR más alto -> es el primer capitán
+            PlayerData firstCaptain = topGroup.get(0);
+            result.add(firstCaptain);
+
+            // --- Elegir segundo capitán ---
+            // Quitar al primer capitán de la lista y volver a buscar el mejor MMR
+            eligible.remove(firstCaptain);
+            eligible.sort(Comparator.comparingDouble(PlayerData::getMmr).reversed());
+
+            double secondMmr = eligible.get(0).getMmr();
+            List<PlayerData> secondGroup = new ArrayList<>();
+            for (PlayerData p : eligible) {
+                if (Double.compare(p.getMmr(), secondMmr) == 0) {
+                    secondGroup.add(p);
+                } else {
+                    break;
                 }
-             } catch (Exception ignored) {
-                 // En caso de error, continuar con criterio estable
-             }
+            }
 
-            // Criterio final estable para desempatar: discordId si existe, sino minecraftUuid
-            String id1 = p1.getDiscordId() != null ? p1.getDiscordId() : p1.getMinecraftUuid();
-            String id2 = p2.getDiscordId() != null ? p2.getDiscordId() : p2.getMinecraftUuid();
-            return id1.compareTo(id2);
-        });
+            // Elegir uno aleatorio entre los empatados en el segundo mejor MMR
+            PlayerData secondCaptain = secondGroup.get(rnd.nextInt(secondGroup.size()));
+            result.add(secondCaptain);
 
-        List<PlayerData> result = new ArrayList<>();
-        if (!copy.isEmpty()) result.add(copy.get(0));
-        if (copy.size() > 1) result.add(copy.get(1));
-        return result;
+            return result;
+        }
     }
 
     /**
@@ -810,12 +852,17 @@ public class CaptainPickSystem {
 
         private String getAvailablePlayersString() {
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < availablePlayers.size(); i++) {
-                if (i > 0) sb.append(", ");
-                sb.append("§a").append(getPlayerName(availablePlayers.get(i)));
+
+            // Salto de línea inicial para que se vea debajo de "Jugadores disponibles:"
+            sb.append("\n");
+
+            for (PlayerData playerData : availablePlayers) {
+                sb.append("§e- ").append(getPlayerName(playerData)).append("\n");
             }
+
             return sb.toString();
         }
+
 
         private void schedulePickTimeout() {
             timeoutTask = new BukkitRunnable() {

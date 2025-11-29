@@ -375,6 +375,20 @@ public class MatchFinisher {
 
                         mmrChange = MMRCalculator.calculateMMRChange(player, won, teamAvgMMR, opponentAvgMMR);
                     }
+                    // DEBUG: log del cálculo de ELO para este jugador
+                    logger.info("ELO DEBUG",
+                            String.format(
+                                    "%s | Match=%s | Won=%s | Placement=%s | Rank=%s | OldElo=%d | Change=%+d | NewElo=%d",
+                                    player.getMinecraftName(),
+                                    activeMatch.getMatchId().substring(0, 8),
+                                    won,
+                                    player.isInPlacement(),
+                                    Rank.getRankByElo(oldElo).name(),
+                                    oldElo,
+                                    eloChange.getEloChange(),
+                                    eloChange.getNewElo()
+                            )
+                    );
 
                     eloChanges.put(player.getMinecraftUuid(), eloChange.getEloChange());
                     detailedChanges.put(player.getMinecraftUuid(), eloChange);
