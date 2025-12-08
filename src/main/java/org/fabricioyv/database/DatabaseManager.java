@@ -54,7 +54,7 @@ public class DatabaseManager {
             "3306",
             "s181642_ranked",
             "u181642_EmzxRextoT",
-            "O=VjTvdt30P=tA3=QRhBMOks"
+            "X4^pijD5zUWpY5UCrYM=W2e!"
         );
 
         // Configuración de la base de datos de logs de matches
@@ -384,19 +384,12 @@ public class DatabaseManager {
                                 rs.getInt("total_deaths")
                         );
 
-                        // Cargar datos de placement si existen las columnas
-                        try {
-                            boolean isInPlacement = rs.getBoolean("is_in_placement");
-                            int placementMatchesPlayed = rs.getInt("placement_matches_played");
-                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
-                        } catch (SQLException e) {
-                            // Si las columnas no existen aún, usar valores por defecto
-                            boolean isInPlacement = player.getGamesPlayed() < PlayerData.getPlacementMatchesRequired();
-                            int placementMatchesPlayed = Math.min(player.getGamesPlayed(), PlayerData.getPlacementMatchesRequired());
-                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
-                        }
+                        // ✅ Cargar placement DIRECTO desde la BD
+                        boolean isInPlacement = rs.getBoolean("is_in_placement");
+                        int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                        player.setPlacementData(isInPlacement, placementMatchesPlayed);
 
-                        // OPTIMIZACIÓN: Cache el resultado
+                        // Cachear resultado
                         PlayerDataCache.cachePlayer(player);
                         return player;
                     }
@@ -408,7 +401,7 @@ public class DatabaseManager {
                     e.printStackTrace();
                 } else {
                     System.err.println("⚠️ Intento " + attempt + " fallido, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 }
             }
         }
@@ -471,18 +464,13 @@ public class DatabaseManager {
                                 rs.getInt("total_deaths")
                         );
 
-                        // Cargar datos de placement si existen las columnas
-                        try {
-                            boolean isInPlacement = rs.getBoolean("is_in_placement");
-                            int placementMatchesPlayed = rs.getInt("placement_matches_played");
-                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
-                        } catch (SQLException e) {
-                            // Si las columnas no existen aún, usar valores por defecto
-                            boolean isInPlacement = player.getGamesPlayed() < PlayerData.getPlacementMatchesRequired();
-                            int placementMatchesPlayed = Math.min(player.getGamesPlayed(), PlayerData.getPlacementMatchesRequired());
-                            player.setPlacementData(isInPlacement, placementMatchesPlayed);
-                        }
+                        // ✅ Cargar placement DIRECTO desde la BD
+                        boolean isInPlacement = rs.getBoolean("is_in_placement");
+                        int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                        player.setPlacementData(isInPlacement, placementMatchesPlayed);
 
+                        // Cachear también por UUID
+                        PlayerDataCache.cachePlayer(player);
                         return player;
                     }
                 }
@@ -493,7 +481,7 @@ public class DatabaseManager {
                     e.printStackTrace();
                 } else {
                     System.err.println("⚠️ Intento " + attempt + " fallido, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 }
             }
         }

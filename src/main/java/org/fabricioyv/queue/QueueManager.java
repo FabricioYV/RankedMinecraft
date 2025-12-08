@@ -76,7 +76,6 @@ public class QueueManager {
         if(!isPlayerInCorrectVoiceChannel(player.getDiscordId(), queueType)){
             return QueueResult.failure("Debes estar conectado al canal de voz correcto");
         }
-
 //        Player mcPlayer = Bukkit.getPlayer(UUID.fromString(player.getMinecraftUuid()));
 //        if (mcPlayer == null || !mcPlayer.isOnline()) {
 //            return QueueResult.failure("Debes estar conectado al servidor de Minecraft");
