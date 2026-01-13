@@ -57,15 +57,15 @@ public class MMRCalculator {
      */
     public static MMRChange calculateMMRChange(PlayerData player, boolean won,
                                                double teamAvgMMR, double opponentAvgMMR) {
-        
+
         // Si el jugador está en placement matches, usar el calculador especializado
         if (player.isInPlacement()) {
             MMRChange placementResult = PlacementMMRCalculator.calculatePlacementMMRChange(
-                player, won, teamAvgMMR, opponentAvgMMR);
-            
+                    player, won, teamAvgMMR, opponentAvgMMR);
+
             return placementResult;
         }
-        
+
         // Código normal para jugadores post-placement
         double oldMMR = player.getMmr();
         double mmrChange = 0.0;

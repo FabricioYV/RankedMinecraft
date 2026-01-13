@@ -33,13 +33,13 @@ public class AbandonmentDetectionSystem implements Listener {
 
     // Configuración escalonada de castigos
     private static final Map<Integer, AbandonmentPenalty> PENALTY_TIERS = Map.of(
-        1, new AbandonmentPenalty(60, 30, "Primer abandono"),
-        2, new AbandonmentPenalty(120, 50, "Segundo abandono"),
-        3, new AbandonmentPenalty(240, 75, "Tercer abandono"),
-        4, new AbandonmentPenalty(480, 100, "Cuarto abandono"),
-        5, new AbandonmentPenalty(960, 125, "Quinto abandono"),
-        6, new AbandonmentPenalty(1440, 150, "Sexto abandono - Última advertencia"),
-        7, new AbandonmentPenalty(-1, 200, "BANEO PERMANENTE") // -1 indica baneo permanente
+            1, new AbandonmentPenalty(60, 30, "Primer abandono"),
+            2, new AbandonmentPenalty(120, 50, "Segundo abandono"),
+            3, new AbandonmentPenalty(240, 75, "Tercer abandono"),
+            4, new AbandonmentPenalty(480, 100, "Cuarto abandono"),
+            5, new AbandonmentPenalty(960, 125, "Quinto abandono"),
+            6, new AbandonmentPenalty(1440, 150, "Sexto abandono - Última advertencia"),
+            7, new AbandonmentPenalty(-1, 200, "BANEO PERMANENTE") // -1 indica baneo permanente
     );
 
     public AbandonmentDetectionSystem(RankedMinecraft plugin, DiscordLogger logger) {
@@ -70,8 +70,8 @@ public class AbandonmentDetectionSystem implements Listener {
         }
 
         logger.warning("Desconexión Durante Partida",
-            String.format("Jugador %s se desconectó durante partida %s",
-                player.getName(), activeMatch.getMatchId()));
+                String.format("Jugador %s se desconectó durante partida %s",
+                        player.getName(), activeMatch.getMatchId()));
 
         // Iniciar rastreo de desconexión
         startDisconnectionTracking(playerUuid, activeMatch, player.getName());
@@ -82,7 +82,7 @@ public class AbandonmentDetectionSystem implements Listener {
      */
     private void startDisconnectionTracking(String playerUuid, ActiveMatch activeMatch, String playerName) {
         DisconnectionTracker tracker = new DisconnectionTracker(
-            playerUuid, activeMatch.getMatchId(), LocalDateTime.now(), playerName
+                playerUuid, activeMatch.getMatchId(), LocalDateTime.now(), playerName
         );
 
         disconnectedPlayers.put(playerUuid, tracker);
@@ -127,9 +127,9 @@ public class AbandonmentDetectionSystem implements Listener {
      */
     private void processAbandonment(String playerUuid, DisconnectionTracker tracker, ActiveMatch activeMatch) {
         logger.error("Abandono Confirmado",
-            String.format("Jugador %s abandonó partida %s tras %d minutos",
-                tracker.playerName, tracker.matchId,
-                ChronoUnit.MINUTES.between(tracker.disconnectTime, LocalDateTime.now())));
+                String.format("Jugador %s abandonó partida %s tras %d minutos",
+                        tracker.playerName, tracker.matchId,
+                        ChronoUnit.MINUTES.between(tracker.disconnectTime, LocalDateTime.now())));
 
         try {
             // Obtener datos del jugador
@@ -148,7 +148,7 @@ public class AbandonmentDetectionSystem implements Listener {
 
             // Registrar abandono en base de datos
             DatabaseManager.recordAbandonment(playerUuid, activeMatch.getMatchId(),
-                penalty.eloPenalty, penalty.cooldownMinutes);
+                    penalty.eloPenalty, penalty.cooldownMinutes);
 
             // Anunciar abandono al resto del equipo
             announceAbandonment(activeMatch, playerData, penalty);
@@ -197,14 +197,14 @@ public class AbandonmentDetectionSystem implements Listener {
                 DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
             } catch (Exception e) {
                 logger.warning("Async DB Update Failed",
-                    "Error actualizando BD para castigo: " + e.getMessage());
+                        "Error actualizando BD para castigo: " + e.getMessage());
             }
         });
 
         logger.info("Castigo Aplicado",
-            String.format("Jugador %s castigado: -%d ELO, %d min cooldown, +2 derrotas (BD actualizándose en segundo plano)",
-                playerData.getMinecraftUuid().substring(0, 8),
-                penalty.eloPenalty, penalty.cooldownMinutes));
+                String.format("Jugador %s castigado: -%d ELO, %d min cooldown, +2 derrotas (BD actualizándose en segundo plano)",
+                        playerData.getMinecraftUuid().substring(0, 8),
+                        penalty.eloPenalty, penalty.cooldownMinutes));
     }
 
     /**
@@ -234,7 +234,7 @@ public class AbandonmentDetectionSystem implements Listener {
                 DatabaseManager.updatePlayerMatchStatus(playerData.getMinecraftUuid(), false, null);
             } catch (Exception e) {
                 logger.warning("Async DB Update Failed",
-                    "Error actualizando BD para baneo permanente: " + e.getMessage());
+                        "Error actualizando BD para baneo permanente: " + e.getMessage());
             }
         });
 
@@ -247,13 +247,13 @@ public class AbandonmentDetectionSystem implements Listener {
         }
 
         logger.error("BANEO PERMANENTE APLICADO",
-            String.format("Jugador %s BANEADO PERMANENTEMENTE por abandono excesivo (%d abandonos)",
-                playerData.getMinecraftUuid().substring(0, 8), 7));
+                String.format("Jugador %s BANEADO PERMANENTEMENTE por abandono excesivo (%d abandonos)",
+                        playerData.getMinecraftUuid().substring(0, 8), 7));
 
         // Log crítico en Discord
         logger.matchEvent("PERMANENT_BAN", "Baneo Permanente",
-            String.format("Jugador baneado permanentemente por %d abandonos. ELO final: %d",
-                7, newElo), 1);
+                String.format("Jugador baneado permanentemente por %d abandonos. ELO final: %d",
+                        7, newElo), 1);
     }
 
     /**
@@ -265,8 +265,8 @@ public class AbandonmentDetectionSystem implements Listener {
             DatabaseManager.addDoubleLossesToPlayer(playerData.getMinecraftUuid());
 
             logger.info("Pérdidas Dobles Aplicadas",
-                String.format("Jugador %s recibió 2 derrotas adicionales por abandono",
-                    playerData.getMinecraftUuid().substring(0, 8)));
+                    String.format("Jugador %s recibió 2 derrotas adicionales por abandono",
+                            playerData.getMinecraftUuid().substring(0, 8)));
 
         } catch (Exception e) {
             logger.logError("Error aplicando pérdidas dobles", e);
@@ -291,7 +291,7 @@ public class AbandonmentDetectionSystem implements Listener {
         for (PlayerData teammate : teammates) {
             if (!teammate.equals(abandoner)) {
                 DatabaseManager.markPlayerProtectedFromLoss(teammate.getMinecraftUuid(),
-                    activeMatch.getMatchId(), "teammate_abandonment");
+                        activeMatch.getMatchId(), "teammate_abandonment");
 
                 // Notificar protección
                 Player mcPlayer = Bukkit.getPlayer(UUID.fromString(teammate.getMinecraftUuid()));
@@ -303,8 +303,8 @@ public class AbandonmentDetectionSystem implements Listener {
         }
 
         logger.info("Compañeros Protegidos",
-            String.format("Protegidos %d compañeros del abandono en partida %s",
-                teammates.size() - 1, activeMatch.getMatchId()));
+                String.format("Protegidos %d compañeros del abandono en partida %s",
+                        teammates.size() - 1, activeMatch.getMatchId()));
     }
 
     /**
@@ -344,9 +344,9 @@ public class AbandonmentDetectionSystem implements Listener {
 
         // Log en Discord
         logger.matchEvent(activeMatch.getMatchId(), "Jugador Abandonó",
-            String.format("Jugador penalizado con %d ELO y %d minutos de cooldown por %s",
-                penalty.eloPenalty, penalty.cooldownMinutes, penalty.description),
-            activeMatch.getAllPlayers().size());
+                String.format("Jugador penalizado con %d ELO y %d minutos de cooldown por %s",
+                        penalty.eloPenalty, penalty.cooldownMinutes, penalty.description),
+                activeMatch.getAllPlayers().size());
     }
 
     /**
@@ -358,8 +358,8 @@ public class AbandonmentDetectionSystem implements Listener {
             long minutesDisconnected = ChronoUnit.MINUTES.between(tracker.disconnectTime, LocalDateTime.now());
 
             logger.info("Reconexión Exitosa",
-                String.format("Jugador %s se reconectó tras %d minutos - abandono cancelado",
-                    tracker.playerName, minutesDisconnected));
+                    String.format("Jugador %s se reconectó tras %d minutos - abandono cancelado",
+                            tracker.playerName, minutesDisconnected));
 
             // Anunciar reconexión al equipo
             ActiveMatch activeMatch = ActiveMatch.getActiveMatch(tracker.matchId);
@@ -435,8 +435,8 @@ public class AbandonmentDetectionSystem implements Listener {
             if (obj == null || getClass() != obj.getClass()) return false;
             DisconnectionTracker that = (DisconnectionTracker) obj;
             return Objects.equals(playerUuid, that.playerUuid) &&
-                   Objects.equals(matchId, that.matchId) &&
-                   Objects.equals(disconnectTime, that.disconnectTime);
+                    Objects.equals(matchId, that.matchId) &&
+                    Objects.equals(disconnectTime, that.disconnectTime);
         }
 
         @Override
@@ -460,4 +460,3 @@ public class AbandonmentDetectionSystem implements Listener {
         }
     }
 }
-

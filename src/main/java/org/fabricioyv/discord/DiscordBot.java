@@ -8,6 +8,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.Compression;
 import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.commands.MatchDetailsCommand;
+import org.fabricioyv.commands.RecentMatchesCommand;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.Rank;
@@ -44,13 +45,14 @@ public class DiscordBot {
             // Registrar DuoCommand
             // Registrar comandos slash globalmente
             jda.updateCommands()
-                .addCommands(
-                    MatchDetailsCommand.getSlashCommand()
-                )
-                .queue(
-                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
-                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
-                );
+                    .addCommands(
+                            RecentMatchesCommand.getSlashCommand(),
+                            MatchDetailsCommand.getSlashCommand()
+                    )
+                    .queue(
+                            success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
+                            error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                    );
 
             logger.systemStart();
 
@@ -68,20 +70,23 @@ public class DiscordBot {
     private void registerMatchCommands() {
         try {
             // Crear instancias de los comandos
+            RecentMatchesCommand recentMatchesCommand = new RecentMatchesCommand();
             MatchDetailsCommand matchDetailsCommand = new MatchDetailsCommand();
 
             // Registrar listeners para los comandos
+            jda.addEventListener(recentMatchesCommand);
             jda.addEventListener(matchDetailsCommand);
 
             // Registrar comandos slash globalmente
             jda.updateCommands()
-                .addCommands(
-                    MatchDetailsCommand.getSlashCommand()
-                )
-                .queue(
-                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
-                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
-                );
+                    .addCommands(
+                            RecentMatchesCommand.getSlashCommand(),
+                            MatchDetailsCommand.getSlashCommand()
+                    )
+                    .queue(
+                            success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
+                            error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                    );
 
         } catch (Exception e) {
             logger.systemError("DiscordBot", "Error registrando comandos de partidas", e.getMessage());

@@ -58,13 +58,13 @@ public class TestPlacementAnalysisCommand implements CommandExecutor {
 
         try {
             // Ejecutar análisis avanzado
-            AdvancedPlacementAnalyzer.PlacementAnalysisResult analysis = 
-                AdvancedPlacementAnalyzer.analyzeCompleteHistory(targetPlayer.getMinecraftUuid());
+            AdvancedPlacementAnalyzer.PlacementAnalysisResult analysis =
+                    AdvancedPlacementAnalyzer.analyzeCompleteHistory(targetPlayer.getMinecraftUuid());
 
             // Mostrar resultados
             sender.sendMessage("§a✅ Análisis completado:");
             sender.sendMessage("§7" + "=".repeat(50));
-            
+
             // Enviar el reporte línea por línea para mejor formato
             String[] reportLines = analysis.analysisReport.split("\n");
             for (String line : reportLines) {
@@ -72,10 +72,10 @@ public class TestPlacementAnalysisCommand implements CommandExecutor {
                     sender.sendMessage("§f" + line);
                 }
             }
-            
+
             sender.sendMessage("§7" + "=".repeat(50));
-            sender.sendMessage(String.format("§e📊 ELO Calculado: §a%d §7(MMR: %.0f)", 
-                             analysis.finalElo, analysis.finalMMR));
+            sender.sendMessage(String.format("§e📊 ELO Calculado: §a%d §7(MMR: %.0f)",
+                    analysis.finalElo, analysis.finalMMR));
             sender.sendMessage(String.format("§e🎯 Puntuación Final: §a%.0f/1000", analysis.score));
             sender.sendMessage(String.format("§e🏆 Rango Asignado: §a%s", analysis.assignedRank.getDisplayName()));
 
@@ -86,11 +86,11 @@ public class TestPlacementAnalysisCommand implements CommandExecutor {
             double mmrDiff = analysis.finalMMR - targetPlayer.getMmr();
 
             sender.sendMessage(String.format("§7• ELO Actual: §f%d §7→ Calculado: §a%d §7(Diferencia: %s%d§7)",
-                             targetPlayer.getElo(), analysis.finalElo,
-                             eloDiff >= 0 ? "§a+" : "§c", eloDiff));
+                    targetPlayer.getElo(), analysis.finalElo,
+                    eloDiff >= 0 ? "§a+" : "§c", eloDiff));
             sender.sendMessage(String.format("§7• MMR Actual: §f%.0f §7→ Calculado: §a%.0f §7(Diferencia: %s%.0f§7)",
-                             targetPlayer.getMmr(), analysis.finalMMR,
-                             mmrDiff >= 0 ? "§a+" : "§c", mmrDiff));
+                    targetPlayer.getMmr(), analysis.finalMMR,
+                    mmrDiff >= 0 ? "§a+" : "§c", mmrDiff));
 
             // Mostrar recomendaciones si hay diferencias significativas
             if (Math.abs(eloDiff) > 100) {

@@ -144,7 +144,7 @@ public class VoiceChannelListener extends ListenerAdapter {
             getPlayerDataAsync(discordId).thenAccept(freshPlayerData -> {
                 if (freshPlayerData == null) {
                     logger.warning("Player Data Not Found",
-                        "No se encontraron datos para " + member.getEffectiveName());
+                            "No se encontraron datos para " + member.getEffectiveName());
                     return;
                 }
 
@@ -153,20 +153,20 @@ public class VoiceChannelListener extends ListenerAdapter {
                     // Jugador está en partida - bloquear acceso
                     String queueTypeName = getQueueTypeName(newChannel.getId());
                     sendMinecraftMessage(freshPlayerData,
-                        "§c❌ No puedes entrar a la cola " + queueTypeName + " mientras estás en una partida activa.");
+                            "§c❌ No puedes entrar a la cola " + queueTypeName + " mientras estás en una partida activa.");
 
                     logger.queueEvent(
-                        member.getEffectiveName(),
-                        member.getId(),
-                        "Acceso Denegado",
-                        "Intento de entrar a cola " + queueTypeName + " bloqueado - jugador en partida activa"
+                            member.getEffectiveName(),
+                            member.getId(),
+                            "Acceso Denegado",
+                            "Intento de entrar a cola " + queueTypeName + " bloqueado - jugador en partida activa"
                     );
 
                     moveToWaitingRoomDelayed(member);
                 } else {
                     // Jugador NO está en partida - permitir acceso a cola
                     logger.info("Queue Entry Allowed",
-                        member.getEffectiveName() + " verificado como disponible - permitiendo acceso a cola");
+                            member.getEffectiveName() + " verificado como disponible - permitiendo acceso a cola");
 
                     // Procesar entrada a cola con datos frescos
                     processQueueEntry(member, newChannel, freshPlayerData);

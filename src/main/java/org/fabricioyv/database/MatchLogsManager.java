@@ -484,27 +484,27 @@ public class MatchLogsManager {
 
                         if (rs.next() && rs.getInt(1) > 0) {
                             Bukkit.getConsoleSender().sendMessage(
-                                "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
-                                        startTimeLima + ")"
+                                    "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
+                                            startTimeLima.toString() + ")"
                             );
                             return true;
                         } else {
                             Bukkit.getConsoleSender().sendMessage(
-                                "§c⚠️ Partida " + matchId + " insertada pero NO ENCONTRADA en verificación"
+                                    "§c⚠️ Partida " + matchId + " insertada pero NO ENCONTRADA en verificación"
                             );
                             return false;
                         }
                     }
                 } else {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId + " (rowsAffected = 0)"
+                            "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId + " (rowsAffected = 0)"
                     );
                     return false;
                 }
 
             } catch (SQLException e) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
+                        "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
                 );
                 Bukkit.getLogger().severe("Error inicializando partida " + matchId + ": " + e.getMessage());
 

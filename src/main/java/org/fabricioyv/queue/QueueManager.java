@@ -76,7 +76,6 @@ public class QueueManager {
         if(!isPlayerInCorrectVoiceChannel(player.getDiscordId(), queueType)){
             return QueueResult.failure("Debes estar conectado al canal de voz correcto");
         }
-
 //        Player mcPlayer = Bukkit.getPlayer(UUID.fromString(player.getMinecraftUuid()));
 //        if (mcPlayer == null || !mcPlayer.isOnline()) {
 //            return QueueResult.failure("Debes estar conectado al servidor de Minecraft");
@@ -182,7 +181,7 @@ public class QueueManager {
 
         if (removed) {
             logger.debug("Jugador Removido de Colas",
-                String.format("Jugador %s removido de todas las colas", minecraftUuid));
+                    String.format("Jugador %s removido de todas las colas", minecraftUuid));
         }
     }
     private boolean hasSponsorRole(String discordId) {
@@ -207,11 +206,11 @@ public class QueueManager {
             movePlayerToWaitingRoom(getDiscordIdByMinecraftUuid(minecraftUuid));
 
             logger.debug("Limpieza Forzada",
-                String.format("Limpieza forzada completada para jugador %s", minecraftUuid));
+                    String.format("Limpieza forzada completada para jugador %s", minecraftUuid));
 
         } catch (Exception e) {
             logger.warning("Error en limpieza forzada",
-                String.format("Error en limpieza forzada de %s: %s", minecraftUuid, e.getMessage()));
+                    String.format("Error en limpieza forzada de %s: %s", minecraftUuid, e.getMessage()));
         }
     }
 
@@ -341,10 +340,10 @@ public class QueueManager {
             }
 
             logger.queueEvent(
-                getPlayerDisplayName(disconnected),
-                disconnected.getDiscordId(),
-                "Removido de Cola",
-                "Removido por no estar en canal correcto al final del countdown"
+                    getPlayerDisplayName(disconnected),
+                    disconnected.getDiscordId(),
+                    "Removido de Cola",
+                    "Removido por no estar en canal correcto al final del countdown"
             );
         }
     }
@@ -415,7 +414,7 @@ public class QueueManager {
      * NUEVO: Cancela partida por jugadores insuficientes
      */
     private void cancelMatchDueToInsufficientPlayers(List<PlayerData> connectedPlayers, List<PlayerData> disconnectedPlayers,
-                                                    QueueType queueType, List<PlayerData> targetQueue) {
+                                                     QueueType queueType, List<PlayerData> targetQueue) {
         // CRÍTICO: Resetear estado del match
         MatchState.endMatch();
 
@@ -423,14 +422,14 @@ public class QueueManager {
             Player mcPlayer = Bukkit.getPlayer(UUID.fromString(connected.getMinecraftUuid()));
             if (mcPlayer != null && mcPlayer.isOnline()) {
                 mcPlayer.sendMessage("§c❌ Partida cancelada por falta de jugadores conectados. " +
-                    "Sigues en la cola (" + targetQueue.size() + "/" + queueType.getRequiredPlayers() + ")");
+                        "Sigues en la cola (" + targetQueue.size() + "/" + queueType.getRequiredPlayers() + ")");
             }
         }
 
         logger.warning("Partida Cancelada",
-            "Insuficientes jugadores conectados (" + connectedPlayers.size() +
-            "/" + queueType.getRequiredPlayers() + "). " +
-            disconnectedPlayers.size() + " jugadores removidos. Cola actual: " + targetQueue.size());
+                "Insuficientes jugadores conectados (" + connectedPlayers.size() +
+                        "/" + queueType.getRequiredPlayers() + "). " +
+                        disconnectedPlayers.size() + " jugadores removidos. Cola actual: " + targetQueue.size());
     }
 
     /**
@@ -479,7 +478,7 @@ public class QueueManager {
 
         if (cleanedCount > 0) {
             Bukkit.getLogger().info("[QueueManager] Limpiado tracking de " + cleanedCount +
-                " jugadores tras finalizar partida (colas no afectadas)");
+                    " jugadores tras finalizar partida (colas no afectadas)");
         }
     }
 

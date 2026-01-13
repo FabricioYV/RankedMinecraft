@@ -73,7 +73,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // NUEVO: Registrar listener de ELO Decay
             getServer().getPluginManager().registerEvents(
-                new org.fabricioyv.listeners.EloDecayListener(eloDecaySystem), this);
+                    new org.fabricioyv.listeners.EloDecayListener(eloDecaySystem), this);
 
             // Registrar listeners de PGM (ya verifica internamente si discordBot está listo)
             registerPGMListeners();
@@ -127,7 +127,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
             if (removedItems > 0 || removedArrows > 0) {
                 getLogger().info(String.format("§a✓ Limpieza automática: %d items, %d flechas removidas",
-                    removedItems, removedArrows));
+                        removedItems, removedArrows));
             }
         }, 6000L, 6000L); // Cada 5 minutos (6000 ticks)
     }
@@ -183,11 +183,11 @@ public final class RankedMinecraft extends JavaPlugin {
         if (discordBot != null && discordBot.getLogger() != null) {
             // Registrar listener de PGM
             getServer().getPluginManager().registerEvents(
-                new PGMMatchListener(this, discordBot.getLogger()), this);
+                    new PGMMatchListener(this, discordBot.getLogger()), this);
 
             // Registrar listener de rejoin para jugadores
             getServer().getPluginManager().registerEvents(
-                new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
+                    new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
 
             getLogger().info("✅ Listeners de PGM y Rejoin registrados exitosamente");
         } else {
