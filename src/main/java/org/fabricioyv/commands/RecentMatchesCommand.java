@@ -45,10 +45,10 @@ public class RecentMatchesCommand extends ListenerAdapter {
             }
 
             EmbedBuilder embed = new EmbedBuilder()
-                .setTitle("🏆 Partidas Recientes")
-                .setDescription("Últimas " + matches.size() + " partidas jugadas")
-                .setColor(Color.BLUE)
-                .setFooter("Usa /matchdetails <match_id> para ver detalles completos");
+                    .setTitle("🏆 Partidas Recientes")
+                    .setDescription("Últimas " + matches.size() + " partidas jugadas")
+                    .setColor(Color.BLUE)
+                    .setFooter("Usa /matchdetails <match_id> para ver detalles completos");
 
             for (int i = 0; i < matches.size(); i++) {
                 MatchLogsManager.MatchSummary match = matches.get(i);
@@ -60,18 +60,18 @@ public class RecentMatchesCommand extends ListenerAdapter {
                     **Ganador:** %s
                     **Fecha:** %s
                     **Duración:** %s""".formatted(
-                    match.getMatchId(),
-                    match.getMatchType(),
-                    match.getMapName(),
-                    getWinnerEmoji(match.getWinnerTeam()) + " " + match.getWinnerTeam(),
-                    match.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM HH:mm")),
-                    formatDuration(match.getDurationSeconds())
+                        match.getMatchId(),
+                        match.getMatchType(),
+                        match.getMapName(),
+                        getWinnerEmoji(match.getWinnerTeam()) + " " + match.getWinnerTeam(),
+                        match.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM HH:mm")),
+                        formatDuration(match.getDurationSeconds())
                 );
 
                 embed.addField(
-                    String.format("#%d - %s", i + 1, match.getMatchId()),
-                    matchInfo,
-                    false // Cambiar a false para mejor legibilidad con IDs largos
+                        String.format("#%d - %s", i + 1, match.getMatchId()),
+                        matchInfo,
+                        false // Cambiar a false para mejor legibilidad con IDs largos
                 );
 
                 // Agregar separador entre partidas para mejor formato

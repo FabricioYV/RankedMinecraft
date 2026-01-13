@@ -19,7 +19,7 @@ public class PlacementMMRCalculator {
      * NUEVO: Usa análisis avanzado al finalizar las 8 partidas
      */
     public static MMRCalculator.MMRChange calculatePlacementMMRChange(PlayerData player, boolean won,
-                                                                     double teamAvgMMR, double opponentAvgMMR) {
+                                                                      double teamAvgMMR, double opponentAvgMMR) {
         double oldMMR = player.getMmr();
         StringBuilder breakdown = new StringBuilder();
 
@@ -51,12 +51,12 @@ public class PlacementMMRCalculator {
 
         // Guardar estadísticas para evaluación final
         PlacementHistoryManager.savePlacementMatch(
-            player.getMinecraftUuid(),
-            player.getCurrentMatchId(),
-            won,
-            player.getCurrentMatchKills(),
-            player.getCurrentMatchDeaths(),
-            player.getCurrentMatchDamage()
+                player.getMinecraftUuid(),
+                player.getCurrentMatchId(),
+                won,
+                player.getCurrentMatchKills(),
+                player.getCurrentMatchDeaths(),
+                player.getCurrentMatchDamage()
         );
 
         // Verificar si completó las placement matches
@@ -66,7 +66,7 @@ public class PlacementMMRCalculator {
             try {
                 // NUEVO: Usar el analizador avanzado para evaluación final
                 AdvancedPlacementAnalyzer.PlacementAnalysisResult analysis =
-                    AdvancedPlacementAnalyzer.analyzeCompleteHistory(player.getMinecraftUuid());
+                        AdvancedPlacementAnalyzer.analyzeCompleteHistory(player.getMinecraftUuid());
 
                 // Asignar ELO y MMR finales basados en el análisis completo
                 double newMMR = analysis.finalMMR;
@@ -88,10 +88,10 @@ public class PlacementMMRCalculator {
                 System.err.println("❌ Error en análisis avanzado, usando sistema de fallback: " + e.getMessage());
 
                 PlacementRankAssignment.PlacementMatchHistory history =
-                    PlacementHistoryManager.getPlacementHistory(player.getMinecraftUuid());
+                        PlacementHistoryManager.getPlacementHistory(player.getMinecraftUuid());
 
                 PlacementRankAssignment.PlacementResult result =
-                    PlacementRankAssignment.calculateFinalPlacement(player, history);
+                        PlacementRankAssignment.calculateFinalPlacement(player, history);
 
                 double newMMR = result.finalMMR;
                 breakdown = new StringBuilder(result.summary);

@@ -29,18 +29,18 @@ public class MatchLogsIntegration {
         // **LOGGING CRÍTICO**: Verificar que el método se está llamando
         System.out.println("[DEBUG] startMatchTracking llamado para " + matchId);
         Bukkit.getConsoleSender().sendMessage(
-            "§c[DEBUG] startMatchTracking EJECUTÁNDOSE para " + matchId
+                "§c[DEBUG] startMatchTracking EJECUTÁNDOSE para " + matchId
         );
 
         try {
             Bukkit.getConsoleSender().sendMessage(
-                "§e[MatchLogs] Iniciando tracking para partida " + matchId + " con " + teams.size() + " equipos"
+                    "§e[MatchLogs] Iniciando tracking para partida " + matchId + " con " + teams.size() + " equipos"
             );
 
             // **CRÍTICO**: Verificar que teams no esté vacío
             if (teams == null || teams.isEmpty()) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c[MatchLogs] ERROR: teams está vacío o nulo"
+                        "§c[MatchLogs] ERROR: teams está vacío o nulo"
                 );
                 return;
             }
@@ -54,7 +54,7 @@ public class MatchLogsIntegration {
                 List<PlayerData> teamPlayers = entry.getValue();
 
                 Bukkit.getConsoleSender().sendMessage(
-                    "§e[MatchLogs] Procesando equipo " + teamName + " con " + teamPlayers.size() + " jugadores"
+                        "§e[MatchLogs] Procesando equipo " + teamName + " con " + teamPlayers.size() + " jugadores"
                 );
 
                 for (PlayerData player : teamPlayers) {
@@ -62,62 +62,62 @@ public class MatchLogsIntegration {
                     totalPlayers++;
 
                     Bukkit.getConsoleSender().sendMessage(
-                        "§a[MatchLogs] ✓ Agregado " + player.getMinecraftName() + " al equipo " + teamName
+                            "§a[MatchLogs] ✓ Agregado " + player.getMinecraftName() + " al equipo " + teamName
                     );
                 }
             }
 
             Bukkit.getConsoleSender().sendMessage(
-                "§e[MatchLogs] Convertidos " + totalPlayers + " jugadores a formato de tracking"
+                    "§e[MatchLogs] Convertidos " + totalPlayers + " jugadores a formato de tracking"
             );
 
             // **CRÍTICO**: Verificar que playerTeams no esté vacío
             if (playerTeams.isEmpty()) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c[MatchLogs] ERROR: playerTeams está vacío después de conversión"
+                        "§c[MatchLogs] ERROR: playerTeams está vacío después de conversión"
                 );
                 return;
             }
 
             // **CRÍTICO**: Inicializar estadísticas EN MEMORIA INMEDIATAMENTE
             Bukkit.getConsoleSender().sendMessage(
-                "§e[MatchLogs] Llamando a MatchStatsListener.initializeMatchStats..."
+                    "§e[MatchLogs] Llamando a MatchStatsListener.initializeMatchStats..."
             );
 
             MatchStatsListener.initializeMatchStats(matchId, playerTeams);
 
             Bukkit.getConsoleSender().sendMessage(
-                "§a✅ Estadísticas en memoria inicializadas para partida " + matchId
+                    "§a✅ Estadísticas en memoria inicializadas para partida " + matchId
             );
 
             // **SECUNDARIO**: Inicializar en BD de forma asíncrona (no bloquear)
             CompletableFuture.supplyAsync(() -> {
                 try {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§e[MatchLogs] Iniciando inicialización en BD para " + matchId
+                            "§e[MatchLogs] Iniciando inicialización en BD para " + matchId
                     );
                     return MatchLogsManager.initializeMatch(matchId, matchType, mapName).get(5, TimeUnit.SECONDS);
                 } catch (Exception e) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ Error al inicializar en BD (no crítico): " + e.getMessage()
+                            "§c⚠️ Error al inicializar en BD (no crítico): " + e.getMessage()
                     );
                     return false;
                 }
             }).thenAccept(success -> {
                 if (success) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§a✅ Inicialización en BD completada para " + matchId
+                            "§a✅ Inicialización en BD completada para " + matchId
                     );
                 } else {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ Falló inicialización en BD para " + matchId + " (estadísticas en memoria OK)"
+                            "§c⚠️ Falló inicialización en BD para " + matchId + " (estadísticas en memoria OK)"
                     );
                 }
             });
 
         } catch (Exception e) {
             Bukkit.getConsoleSender().sendMessage(
-                "§c❌ Error crítico al inicializar tracking de partida " + matchId + ": " + e.getMessage()
+                    "§c❌ Error crítico al inicializar tracking de partida " + matchId + ": " + e.getMessage()
             );
             e.printStackTrace();
 
@@ -127,7 +127,7 @@ public class MatchLogsIntegration {
         }
 
         Bukkit.getConsoleSender().sendMessage(
-            "§c[DEBUG] startMatchTracking FINALIZADO para " + matchId
+                "§c[DEBUG] startMatchTracking FINALIZADO para " + matchId
         );
     }
 
@@ -146,12 +146,12 @@ public class MatchLogsIntegration {
      */
     public static void updatePlayerRating(String matchId, PlayerData player, int oldElo, double oldMmr, int newElo, double newMmr) {
         MatchStatsListener.setPlayerRatingChanges(
-            matchId,
-            UUID.fromString(player.getMinecraftUuid()),
-            oldElo,        // ELO anterior (antes de la partida)
-            newElo,        // ELO nuevo (después de la partida)
-            oldMmr,        // MMR anterior (antes de la partida)
-            newMmr         // MMR nuevo (después de la partida)
+                matchId,
+                UUID.fromString(player.getMinecraftUuid()),
+                oldElo,        // ELO anterior (antes de la partida)
+                newElo,        // ELO nuevo (después de la partida)
+                oldMmr,        // MMR anterior (antes de la partida)
+                newMmr         // MMR nuevo (después de la partida)
         );
     }
 
@@ -165,9 +165,9 @@ public class MatchLogsIntegration {
 
             for (PlayerData player : entry.getValue()) {
                 MatchStatsListener.setPlayerMatchResult(
-                    matchId,
-                    UUID.fromString(player.getMinecraftUuid()),
-                    won
+                        matchId,
+                        UUID.fromString(player.getMinecraftUuid()),
+                        won
                 );
             }
         }
@@ -196,14 +196,14 @@ public class MatchLogsIntegration {
                 // Fallback: Si no se proporcionaron stats pre-finalizadas, intentar finalizarlas aquí
                 if (playerStats == null) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§e⚠️ Usando fallback para finalizar stats de partida " + matchId
+                            "§e⚠️ Usando fallback para finalizar stats de partida " + matchId
                     );
                     playerStats = MatchStatsListener.finalizeMatchStats(matchId);
                 }
 
                 if (playerStats == null || playerStats.isEmpty()) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ No se encontraron estadísticas para la partida " + matchId
+                            "§c⚠️ No se encontraron estadísticas para la partida " + matchId
                     );
                     return false;
                 }
@@ -216,13 +216,13 @@ public class MatchLogsIntegration {
 
                 // Crear resumen de la partida
                 MatchLogsManager.MatchSummary matchSummary = new MatchLogsManager.MatchSummary(
-                    matchId,
-                    matchType,
-                    mapName,
-                    winnerTeam.name(),
-                    startTime,
-                    LocalDateTime.now(),
-                    statsMap
+                        matchId,
+                        matchType,
+                        mapName,
+                        winnerTeam.name(),
+                        startTime,
+                        LocalDateTime.now(),
+                        statsMap
                 );
 
                 // Guardar en base de datos
@@ -237,7 +237,7 @@ public class MatchLogsIntegration {
 
             } catch (Exception e) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al finalizar y guardar partida " + matchId + ": " + e.getMessage()
+                        "§c❌ Error al finalizar y guardar partida " + matchId + ": " + e.getMessage()
                 );
                 e.printStackTrace();
                 return false;
@@ -252,13 +252,13 @@ public class MatchLogsIntegration {
     public static CompletableFuture<Boolean> finalizeActiveMatch(ActiveMatch match, Team winnerTeam,
                                                                  Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
         return finalizeAndSaveMatch(
-            match.getMatchId(),
-            match.getMatchType(),
-            match.getSelectedMap(),
-            winnerTeam,
-            match.getStartTime(),
-            match.getTeams(),
-            preFinalizedStats
+                match.getMatchId(),
+                match.getMatchType(),
+                match.getSelectedMap(),
+                winnerTeam,
+                match.getStartTime(),
+                match.getTeams(),
+                preFinalizedStats
         );
     }
 
@@ -268,7 +268,7 @@ public class MatchLogsIntegration {
      */
     public static void logCustomEvent(String matchId, String eventType, UUID playerUuid, String eventData) {
         MatchLogsManager.logMatchEvent(matchId, eventType,
-            playerUuid != null ? playerUuid.toString() : null, eventData);
+                playerUuid != null ? playerUuid.toString() : null, eventData);
     }
 
     /**
@@ -276,13 +276,13 @@ public class MatchLogsIntegration {
      */
     public static void logMatchStart(String matchId, String mapName, int playerCount) {
         logCustomEvent(matchId, "MATCH_START", null,
-            String.format("Partida iniciada en mapa %s con %d jugadores", mapName, playerCount));
+                String.format("Partida iniciada en mapa %s con %d jugadores", mapName, playerCount));
     }
 
     public static void logMatchEnd(String matchId, Team winnerTeam, long durationSeconds) {
         logCustomEvent(matchId, "MATCH_END", null,
-            String.format("Partida finalizada - Ganador: %s - Duración: %d segundos",
-                winnerTeam.name(), durationSeconds));
+                String.format("Partida finalizada - Ganador: %s - Duración: %d segundos",
+                        winnerTeam.name(), durationSeconds));
     }
 
 

@@ -9,7 +9,7 @@ import java.util.*;
  * ENFOQUE: Distribución inteligente que equilibra experiencia y MMR
  */
 public class PlacementAwareMatchmaking {
-    
+
     // Configuración optimizada para balance placement/regular
     private static final double MAX_MMR_DIFFERENCE = 120.0; // Reducido para mejor balance
     private static final double PLACEMENT_MMR_TOLERANCE = 180.0; // Tolerancia para placement players
@@ -24,11 +24,11 @@ public class PlacementAwareMatchmaking {
         if (players.size() != 10) {
             throw new IllegalArgumentException("El matchmaking requiere exactamente 10 jugadores");
         }
-        
+
         // Separar jugadores por tipo
         List<PlayerData> placementPlayers = new ArrayList<>();
         List<PlayerData> regularPlayers = new ArrayList<>();
-        
+
         for (PlayerData player : players) {
             if (player.isInPlacement()) {
                 placementPlayers.add(player);
@@ -36,21 +36,21 @@ public class PlacementAwareMatchmaking {
                 regularPlayers.add(player);
             }
         }
-        
+
         // Ordenar por MMR (mayor a menor)
         placementPlayers.sort((p1, p2) -> Double.compare(p2.getMmr(), p1.getMmr()));
         regularPlayers.sort((p1, p2) -> Double.compare(p2.getMmr(), p1.getMmr()));
-        
+
         // Usar algoritmo optimizado específico para placement/regular balance
         return createOptimalPlacementBalance(placementPlayers, regularPlayers);
     }
-    
+
     /**
      * Crea balance óptimo considerando placement vs regular players
      * NUEVO ALGORITMO: Enfoque en equidad de experiencia y MMR
      */
     private static BalancedTeams createOptimalPlacementBalance(List<PlayerData> placementPlayers,
-                                                              List<PlayerData> regularPlayers) {
+                                                               List<PlayerData> regularPlayers) {
         int totalPlacement = placementPlayers.size();
         int totalRegular = regularPlayers.size();
 
@@ -74,23 +74,23 @@ public class PlacementAwareMatchmaking {
                 team1Placement--;
             }
         }
-        
+
         // Crear equipos con distribución optimizada
         return createBalancedTeamsWithDistribution(placementPlayers, regularPlayers,
-                                                  team1Placement, team2Placement);
+                team1Placement, team2Placement);
     }
-    
+
     /**
      * Crea equipos balanceados con distribución específica de placement players
      * ALGORITMO CORE: Distribución inteligente por pares MMR
      */
     private static BalancedTeams createBalancedTeamsWithDistribution(List<PlayerData> placementPlayers,
-                                                                    List<PlayerData> regularPlayers,
-                                                                    int team1Placement,
-                                                                    int team2Placement) {
+                                                                     List<PlayerData> regularPlayers,
+                                                                     int team1Placement,
+                                                                     int team2Placement) {
         List<PlayerData> team1 = new ArrayList<>();
         List<PlayerData> team2 = new ArrayList<>();
-        
+
         // FASE 1: Distribuir placement players con balance de MMR
         distributePlacementPlayers(placementPlayers, team1, team2, team1Placement, team2Placement);
 
@@ -111,8 +111,8 @@ public class PlacementAwareMatchmaking {
      * ESTRATEGIA: Alternar por MMR para equilibrar skill
      */
     private static void distributePlacementPlayers(List<PlayerData> placementPlayers,
-                                                  List<PlayerData> team1, List<PlayerData> team2,
-                                                  int team1Placement, int team2Placement) {
+                                                   List<PlayerData> team1, List<PlayerData> team2,
+                                                   int team1Placement, int team2Placement) {
 
         // Distribución por pares para balance de MMR
         for (int i = 0; i < placementPlayers.size(); i++) {
@@ -143,7 +143,7 @@ public class PlacementAwareMatchmaking {
      * ESTRATEGIA: Priorizar balance de MMR total
      */
     private static void distributeRegularPlayers(List<PlayerData> regularPlayers,
-                                                List<PlayerData> team1, List<PlayerData> team2) {
+                                                 List<PlayerData> team1, List<PlayerData> team2) {
 
         List<PlayerData> regularCopy = new ArrayList<>(regularPlayers);
 
@@ -220,25 +220,25 @@ public class PlacementAwareMatchmaking {
                 team2.add(placementPlayers.get(i));
             }
         }
-        
+
         return new BalancedTeams(team1, team2);
     }
-    
+
     /**
      * Fallback simple si el algoritmo principal falla
      */
     private static BalancedTeams createSimpleFallback(List<PlayerData> placementPlayers,
-                                                     List<PlayerData> regularPlayers) {
+                                                      List<PlayerData> regularPlayers) {
         List<PlayerData> allPlayers = new ArrayList<>();
         allPlayers.addAll(placementPlayers);
         allPlayers.addAll(regularPlayers);
-        
+
         // Ordenar por MMR
         allPlayers.sort((p1, p2) -> Double.compare(p2.getMmr(), p1.getMmr()));
-        
+
         List<PlayerData> team1 = new ArrayList<>();
         List<PlayerData> team2 = new ArrayList<>();
-        
+
         // Distribución 1-2-2-1 pattern
         for (int i = 0; i < 10; i++) {
             if (i % 4 < 2) {
@@ -247,10 +247,10 @@ public class PlacementAwareMatchmaking {
                 team2.add(allPlayers.get(i));
             }
         }
-        
+
         return new BalancedTeams(team1, team2);
     }
-    
+
     /**
      * Calcula score de balance optimizado para placement/regular
      * ENFOQUE: Mayor peso a distribución de experiencia
@@ -258,7 +258,7 @@ public class PlacementAwareMatchmaking {
     private static double calculatePlacementAwareBalanceScore(BalancedTeams teams) {
         double team1MMR = MMRCalculator.calculateAverageMMR(teams.team1);
         double team2MMR = MMRCalculator.calculateAverageMMR(teams.team2);
-        
+
         // Factor 1: Diferencia de MMR (peso alto)
         double mmrDifference = Math.abs(team1MMR - team2MMR);
         double mmrScore = mmrDifference * 2.0;
@@ -307,7 +307,7 @@ public class PlacementAwareMatchmaking {
         // Penalizar equipos con varianza muy alta (un carry + 4 noobs)
         return Math.abs(team1Variance - team2Variance) / 100.0;
     }
-    
+
     /**
      * Calcula varianza de MMR dentro de un equipo
      */
@@ -323,7 +323,7 @@ public class PlacementAwareMatchmaking {
      */
     public static String generateMatchmakingReport(BalancedTeams teams) {
         StringBuilder report = new StringBuilder();
-        
+
         double team1MMR = MMRCalculator.calculateAverageMMR(teams.team1);
         double team2MMR = MMRCalculator.calculateAverageMMR(teams.team2);
         double mmrDifference = Math.abs(team1MMR - team2MMR);
@@ -336,9 +336,9 @@ public class PlacementAwareMatchmaking {
 
         report.append("⚖️ **BALANCE PLACEMENT/REGULAR OPTIMIZADO**\n");
         report.append(String.format("🔵 **Equipo 1**: %.0f MMR | %d placement | %.1f partidas\n",
-            team1MMR, team1Placement, team1AvgGames));
+                team1MMR, team1Placement, team1AvgGames));
         report.append(String.format("🔴 **Equipo 2**: %.0f MMR | %d placement | %.1f partidas\n",
-            team2MMR, team2Placement, team2AvgGames));
+                team2MMR, team2Placement, team2AvgGames));
         report.append(String.format("📊 **Diferencia MMR**: %.0f", mmrDifference));
 
         // Evaluación de calidad específica para placement/regular
@@ -361,10 +361,10 @@ public class PlacementAwareMatchmaking {
         } else {
             report.append("\n⚠️ **Placement Balance**: Desigual (diferencia: " + placementDiff + ")");
         }
-        
+
         return report.toString();
     }
-    
+
     /**
      * Validación optimizada para balance placement/regular
      */
@@ -395,7 +395,7 @@ public class PlacementAwareMatchmaking {
     public static class BalancedTeams {
         public final List<PlayerData> team1;
         public final List<PlayerData> team2;
-        
+
         public BalancedTeams(List<PlayerData> team1, List<PlayerData> team2) {
             this.team1 = new ArrayList<>(team1);
             this.team2 = new ArrayList<>(team2);

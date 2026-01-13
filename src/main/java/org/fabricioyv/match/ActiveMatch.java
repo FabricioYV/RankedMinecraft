@@ -88,11 +88,11 @@ public class ActiveMatch {
 
             if (placementCount > 0) {
                 logger.info("Placement Detectado",
-                    String.format("Detectados %d jugadores en partidas de prueba - Aplicando algoritmo de predicción de MMR", placementCount));
+                        String.format("Detectados %d jugadores en partidas de prueba - Aplicando algoritmo de predicción de MMR", placementCount));
 
                 // Usar el nuevo sistema de matchmaking inteligente
                 SmartPlacementMatchmaking.BalancedTeams balancedTeams =
-                    SmartPlacementMatchmaking.balanceTeamsWithPrediction(allPlayers);
+                        SmartPlacementMatchmaking.balanceTeamsWithPrediction(allPlayers);
 
                 // Asignar equipos
                 teams.put(Team.BLUE, new ArrayList<>(balancedTeams.team1));
@@ -315,15 +315,15 @@ public class ActiveMatch {
         // CRÍTICO: Borrar canales de Discord si existen
         if (blueTeamChannel != null) {
             blueTeamChannel.delete().queue(
-                success -> logger.info("Canal Limpiado", "Canal azul borrado durante cleanup"),
-                error -> logger.warning("Error Limpieza Canal", "Error borrando canal azul en cleanup: " + error.getMessage())
+                    success -> logger.info("Canal Limpiado", "Canal azul borrado durante cleanup"),
+                    error -> logger.warning("Error Limpieza Canal", "Error borrando canal azul en cleanup: " + error.getMessage())
             );
         }
 
         if (redTeamChannel != null) {
             redTeamChannel.delete().queue(
-                success -> logger.info("Canal Limpiado", "Canal rojo borrado durante cleanup"),
-                error -> logger.warning("Error Limpieza Canal", "Error borrando canal rojo en cleanup: " + error.getMessage())
+                    success -> logger.info("Canal Limpiado", "Canal rojo borrado durante cleanup"),
+                    error -> logger.warning("Error Limpieza Canal", "Error borrando canal rojo en cleanup: " + error.getMessage())
             );
         }
 
@@ -350,18 +350,18 @@ public class ActiveMatch {
                             .putPermissionOverride(guild.getPublicRole(),
                                     EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_SPEAK), // Permitir ver y hablar, pero NO conectar
                                     EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
-                                             Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
+                                            Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
                             .queue(
-                                success -> {
-                                    logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER y HABLAR, pero NO CONECTAR");
-                                    // PASO 2: Configurar permisos para el rol @Queue
-                                    setupQueueRolePermissions(channel, team, teamPlayers);
-                                },
-                                error -> {
-                                    logger.error("Permission Error", "Error configurando permisos a @everyone: " + error.getMessage());
-                                    // Intentar configurar permisos del rol Queue de todos modos
-                                    setupQueueRolePermissions(channel, team, teamPlayers);
-                                }
+                                    success -> {
+                                        logger.debug("Permissions Set", "Permisos @everyone configurados en " + channel.getName() + " - Pueden VER y HABLAR, pero NO CONECTAR");
+                                        // PASO 2: Configurar permisos para el rol @Queue
+                                        setupQueueRolePermissions(channel, team, teamPlayers);
+                                    },
+                                    error -> {
+                                        logger.error("Permission Error", "Error configurando permisos a @everyone: " + error.getMessage());
+                                        // Intentar configurar permisos del rol Queue de todos modos
+                                        setupQueueRolePermissions(channel, team, teamPlayers);
+                                    }
                             );
 
                 } catch (Exception e) {
@@ -387,19 +387,19 @@ public class ActiveMatch {
                         .putPermissionOverride(queueRole,
                                 EnumSet.of(Permission.VIEW_CHANNEL), // Solo permitir ver el canal
                                 EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
-                                         Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
-                                         Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
+                                        Permission.VOICE_MUTE_OTHERS, Permission.VOICE_DEAF_OTHERS,
+                                        Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS))
                         .queue(
-                            success -> {
-                                logger.debug("Queue Role Permissions Set", "Permisos del rol @Queue configurados en " + channel.getName() + " - Solo VER canal");
-                                // PASO 3: Configurar permisos para cada miembro del equipo
-                                setupTeamMemberPermissions(channel, team, teamPlayers, 0);
-                            },
-                            error -> {
-                                logger.warning("Queue Role Permission Error", "Error configurando permisos para rol @Queue: " + error.getMessage());
-                                // Continuar con permisos de miembros del equipo
-                                setupTeamMemberPermissions(channel, team, teamPlayers, 0);
-                            }
+                                success -> {
+                                    logger.debug("Queue Role Permissions Set", "Permisos del rol @Queue configurados en " + channel.getName() + " - Solo VER canal");
+                                    // PASO 3: Configurar permisos para cada miembro del equipo
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                },
+                                error -> {
+                                    logger.warning("Queue Role Permission Error", "Error configurando permisos para rol @Queue: " + error.getMessage());
+                                    // Continuar con permisos de miembros del equipo
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, 0);
+                                }
                         );
             } else {
                 logger.warning("Queue Role Not Found", "No se encontró el rol @Queue con ID: " + VoiceChannelConfig.QUEUE_ROLE_ID);
@@ -433,31 +433,31 @@ public class ActiveMatch {
                 channel.getManager()
                         .putPermissionOverride(member,
                                 EnumSet.of(
-                                    Permission.VIEW_CHANNEL,           // Ver el canal
-                                    Permission.VOICE_CONNECT,          // Conectarse al canal
-                                    Permission.VOICE_SPEAK,            // Hablar en el canal
-                                    Permission.VOICE_USE_VAD,          // Usar detección de voz automática// Usar actividad de voz
-                                    Permission.VOICE_STREAM            // Compartir pantalla/cámara si está disponible
+                                        Permission.VIEW_CHANNEL,           // Ver el canal
+                                        Permission.VOICE_CONNECT,          // Conectarse al canal
+                                        Permission.VOICE_SPEAK,            // Hablar en el canal
+                                        Permission.VOICE_USE_VAD,          // Usar detección de voz automática// Usar actividad de voz
+                                        Permission.VOICE_STREAM            // Compartir pantalla/cámara si está disponible
                                 ),
                                 EnumSet.of(
-                                    Permission.VOICE_MUTE_OTHERS,      // No puede mutear a otros
-                                    Permission.VOICE_DEAF_OTHERS       // No puede ensordecer a otros
+                                        Permission.VOICE_MUTE_OTHERS,      // No puede mutear a otros
+                                        Permission.VOICE_DEAF_OTHERS       // No puede ensordecer a otros
                                 )) // Permisos denegados explícitamente
                         .queue(
-                            success -> {
-                                logger.debug("Member Permission Set",
-                                        String.format("✅ Permisos COMPLETOS otorgados a %s en canal %s (ver, conectar, hablar, PTT)",
-                                                member.getEffectiveName(), team.getDisplayName()));
-                                // Configurar siguiente miembro
-                                setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
-                            },
-                            error -> {
-                                logger.warning("Member Permission Error",
-                                        String.format("⚠️ Error configurando permisos para %s: %s",
-                                                member.getEffectiveName(), error.getMessage()));
-                                // Continuar con el siguiente miembro
-                                setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
-                            }
+                                success -> {
+                                    logger.debug("Member Permission Set",
+                                            String.format("✅ Permisos COMPLETOS otorgados a %s en canal %s (ver, conectar, hablar, PTT)",
+                                                    member.getEffectiveName(), team.getDisplayName()));
+                                    // Configurar siguiente miembro
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+                                },
+                                error -> {
+                                    logger.warning("Member Permission Error",
+                                            String.format("⚠️ Error configurando permisos para %s: %s",
+                                                    member.getEffectiveName(), error.getMessage()));
+                                    // Continuar con el siguiente miembro
+                                    setupTeamMemberPermissions(channel, team, teamPlayers, memberIndex + 1);
+                                }
                         );
             } else {
                 logger.warning("Member Not Found", "No se encontró miembro Discord ID: " + playerData.getDiscordId());
@@ -494,13 +494,13 @@ public class ActiveMatch {
                         channel.getManager()
                                 .putPermissionOverride(member,
                                         EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK,
-                                                 Permission.VIEW_CHANNEL, Permission.VOICE_USE_VAD),
+                                                Permission.VIEW_CHANNEL, Permission.VOICE_USE_VAD),
                                         Collections.emptyList())
                                 .queue(
-                                    success -> logger.debug("Basic Permission Set",
-                                            "✅ Permisos básicos para " + member.getEffectiveName()),
-                                    error -> logger.warning("Basic Permission Failed",
-                                            "⚠️ Falló configuración básica para " + member.getEffectiveName())
+                                        success -> logger.debug("Basic Permission Set",
+                                                "✅ Permisos básicos para " + member.getEffectiveName()),
+                                        error -> logger.warning("Basic Permission Failed",
+                                                "⚠️ Falló configuración básica para " + member.getEffectiveName())
                                 );
                     }
 
@@ -509,12 +509,12 @@ public class ActiveMatch {
 
                 } catch (Exception e) {
                     logger.warning("Basic Permission Error",
-                        "Error configurando permisos básicos para jugador: " + e.getMessage());
+                            "Error configurando permisos básicos para jugador: " + e.getMessage());
                 }
             }
 
             logger.success("Basic Permissions Applied",
-                "Configuración básica aplicada para canal " + team.getDisplayName());
+                    "Configuración básica aplicada para canal " + team.getDisplayName());
 
         } catch (Exception e) {
             logger.systemError("ActiveMatch", "Error aplicando configuración básica de permisos", e.getMessage());
@@ -529,7 +529,7 @@ public class ActiveMatch {
 
         if (targetChannel == null) {
             logger.error("Team Channel Not Available",
-                "Canal del equipo " + team.getDisplayName() + " no está disponible para rejoin");
+                    "Canal del equipo " + team.getDisplayName() + " no está disponible para rejoin");
             return;
         }
 
@@ -538,13 +538,13 @@ public class ActiveMatch {
             if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
                 guild.moveVoiceMember(member, targetChannel).queue(
                         success -> logger.success("Rejoin Voice Move",
-                            "✅ " + member.getEffectiveName() + " movido al canal " + team.getDisplayName() + " (rejoin)"),
+                                "✅ " + member.getEffectiveName() + " movido al canal " + team.getDisplayName() + " (rejoin)"),
                         error -> logger.error("Rejoin Voice Move Failed",
-                            "❌ Error moviendo " + member.getEffectiveName() + " al canal " + team.getDisplayName() + ": " + error.getMessage())
+                                "❌ Error moviendo " + member.getEffectiveName() + " al canal " + team.getDisplayName() + ": " + error.getMessage())
                 );
             } else {
                 logger.info("Player Not In Voice",
-                    "Jugador " + playerData.getMinecraftName() + " no está en un canal de voz para mover (rejoin)");
+                        "Jugador " + playerData.getMinecraftName() + " no está en un canal de voz para mover (rejoin)");
             }
         } catch (Exception e) {
             logger.systemError("ActiveMatch", "Error en rejoin voice move", e.getMessage());

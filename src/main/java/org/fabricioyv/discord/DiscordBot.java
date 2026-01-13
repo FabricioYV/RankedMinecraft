@@ -45,14 +45,14 @@ public class DiscordBot {
             // Registrar DuoCommand
             // Registrar comandos slash globalmente
             jda.updateCommands()
-                .addCommands(
-                    RecentMatchesCommand.getSlashCommand(),
-                    MatchDetailsCommand.getSlashCommand()
-                )
-                .queue(
-                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
-                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
-                );
+                    .addCommands(
+                            RecentMatchesCommand.getSlashCommand(),
+                            MatchDetailsCommand.getSlashCommand()
+                    )
+                    .queue(
+                            success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
+                            error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                    );
 
             logger.systemStart();
 
@@ -79,14 +79,14 @@ public class DiscordBot {
 
             // Registrar comandos slash globalmente
             jda.updateCommands()
-                .addCommands(
-                    RecentMatchesCommand.getSlashCommand(),
-                    MatchDetailsCommand.getSlashCommand()
-                )
-                .queue(
-                    success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
-                    error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
-                );
+                    .addCommands(
+                            RecentMatchesCommand.getSlashCommand(),
+                            MatchDetailsCommand.getSlashCommand()
+                    )
+                    .queue(
+                            success -> logger.info("Commands Registered", "Todos los comandos registrados exitosamente"),
+                            error -> logger.error("Command Registration Failed", "Error registrando comandos: " + error.getMessage())
+                    );
 
         } catch (Exception e) {
             logger.systemError("DiscordBot", "Error registrando comandos de partidas", e.getMessage());

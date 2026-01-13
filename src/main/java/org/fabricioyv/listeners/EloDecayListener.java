@@ -30,4 +30,3 @@ public class EloDecayListener implements Listener {
         decaySystem.notifyPlayerOnLogin(player.getUniqueId());
     }
 }
-

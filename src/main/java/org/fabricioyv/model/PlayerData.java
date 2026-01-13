@@ -1,6 +1,7 @@
 package org.fabricioyv.model;
 
 public class PlayerData {
+
     private final String minecraftUuid;
     private final String discordId;
     private int elo;
@@ -20,36 +21,53 @@ public class PlayerData {
     private int totalDeaths;
 
     // Sistema de partidas de prueba (placement matches)
+    // OJO: estos campos ahora NO se calculan en base a gamesPlayed
     private boolean isInPlacement;
     private int placementMatchesPlayed;
     private static final int PLACEMENT_MATCHES_REQUIRED = 8; // 8 partidas de prueba
 
-
-    public PlayerData(String minecraftUuid, String discordId, int elo, boolean isInMatch, String currentMatchId ,double mmr,int wins ,int losses,int gamesPlayed,int totalKills,int totalDeaths ) {
+    public PlayerData(
+            String minecraftUuid,
+            String discordId,
+            int elo,
+            boolean isInMatch,
+            String currentMatchId,
+            double mmr,
+            int wins,
+            int losses,
+            int gamesPlayed,
+            int totalKills,
+            int totalDeaths
+    ) {
         this.minecraftUuid = minecraftUuid;
         this.discordId = discordId;
         this.elo = elo;
         this.isInMatch = isInMatch;
         this.mmr = mmr;
         this.currentMatchId = currentMatchId;
+
         this.currentMatchKills = 0;
         this.currentMatchDeaths = 0;
         this.currentMatchDamage = 0.0;
+
         this.wins = wins;
         this.losses = losses;
         this.gamesPlayed = gamesPlayed;
         this.totalKills = totalKills;
         this.totalDeaths = totalDeaths;
 
-        // Inicializar sistema de placement
-        this.isInPlacement = gamesPlayed < PLACEMENT_MATCHES_REQUIRED;
-        this.placementMatchesPlayed = Math.min(gamesPlayed, PLACEMENT_MATCHES_REQUIRED);
+        // ❗ IMPORTANTE:
+        // Ya NO inferimos el estado de placement a partir de gamesPlayed.
+        // Estos valores deben venir de la BD (DatabaseManager) usando setPlacementData(...)
+        this.isInPlacement = false;
+        this.placementMatchesPlayed = 0;
     }
 
-    // Getters y setters
+    // Getters y setters básicos
     public String getMinecraftUuid() { return minecraftUuid; }
     public String getDiscordId() { return discordId; }
     public int getElo() { return elo; }
+    public void setElo(int elo) { this.elo = elo; }
     public double getMmr() { return mmr; }
     public void setMmr(double mmr) { this.mmr = mmr; }
     public boolean isInMatch() { return isInMatch; }
@@ -92,8 +110,10 @@ public class PlayerData {
         PlayerData that = (PlayerData) obj;
         return minecraftUuid.equals(that.minecraftUuid);
     }
-    public void setElo(int elo) {
-        this.elo = elo;
+
+    @Override
+    public int hashCode() {
+        return minecraftUuid.hashCode();
     }
 
     /**
@@ -105,7 +125,7 @@ public class PlayerData {
 
     /**
      * Obtiene el nombre de Minecraft del jugador
-     * Nota: Este método requiere una consulta a Bukkit para obtener el nombre actual
+     * Nota: NO hay consultas a BD aquí, solo Bukkit.
      */
     public String getMinecraftName() {
         try {
@@ -114,28 +134,19 @@ public class PlayerData {
                 return player.getName();
             }
 
-            // Si el jugador no está online, intentar obtener el nombre desde el UUID
             org.bukkit.OfflinePlayer offlinePlayer = org.bukkit.Bukkit.getOfflinePlayer(getUuid());
             if (offlinePlayer != null && offlinePlayer.getName() != null) {
                 return offlinePlayer.getName();
             }
 
-            // Fallback: usar los primeros 8 caracteres del UUID
             return "Player_" + minecraftUuid.substring(0, 8);
         } catch (Exception e) {
-            // Fallback en caso de error
             return "Unknown_Player";
         }
     }
 
-    @Override
-    public int hashCode() {
-        return minecraftUuid.hashCode();
-    }
+    // ---------- Placement matches ----------
 
-    /**
-     * Métodos para el sistema de placement matches
-     */
     public boolean isInPlacement() {
         return isInPlacement;
     }
@@ -154,7 +165,6 @@ public class PlayerData {
 
     public void incrementPlacementMatches() {
         this.placementMatchesPlayed++;
-        // Si completó todas las partidas de placement, salir del sistema
         if (this.placementMatchesPlayed >= PLACEMENT_MATCHES_REQUIRED) {
             this.isInPlacement = false;
         }
@@ -165,7 +175,8 @@ public class PlayerData {
     }
 
     /**
-     * Método para establecer datos de placement (usado en DatabaseManager)
+     * Método para establecer datos de placement desde DatabaseManager.
+     * Aquí NO hay lógica, solo asignación directa.
      */
     public void setPlacementData(boolean isInPlacement, int placementMatchesPlayed) {
         this.isInPlacement = isInPlacement;

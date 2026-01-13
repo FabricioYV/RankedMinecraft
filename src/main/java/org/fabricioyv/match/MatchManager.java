@@ -283,27 +283,27 @@ public class MatchManager {
 
         // **LOGGING CRÍTICO**: Verificar que se está llamando startMatchTracking
         Bukkit.getConsoleSender().sendMessage(
-            "§c[DEBUG] MatchManager.startOfficialMatch - Llamando a startMatchTracking para " + activeMatch.getMatchId()
+                "§c[DEBUG] MatchManager.startOfficialMatch - Llamando a startMatchTracking para " + activeMatch.getMatchId()
         );
 
         try {
             // INICIALIZAR SISTEMA DE LOGS DE PARTIDAS
             MatchLogsIntegration.startMatchTracking(activeMatch.getMatchId(), activeMatch.getTeams(),
-                activeMatch.getMatchType(), activeMatch.getSelectedMap());
+                    activeMatch.getMatchType(), activeMatch.getSelectedMap());
 
             Bukkit.getConsoleSender().sendMessage(
-                "§a[DEBUG] MatchManager.startOfficialMatch - startMatchTracking ejecutado exitosamente"
+                    "§a[DEBUG] MatchManager.startOfficialMatch - startMatchTracking ejecutado exitosamente"
             );
 
         } catch (Exception e) {
             Bukkit.getConsoleSender().sendMessage(
-                "§c[ERROR] MatchManager.startOfficialMatch - Error en startMatchTracking: " + e.getMessage()
+                    "§c[ERROR] MatchManager.startOfficialMatch - Error en startMatchTracking: " + e.getMessage()
             );
             e.printStackTrace();
         }
 
         MatchLogsIntegration.logMatchStart(activeMatch.getMatchId(), activeMatch.getSelectedMap(),
-            activeMatch.getAllPlayers().size());
+                activeMatch.getAllPlayers().size());
 
         // Anunciar inicio
         announceToPlayers(activeMatch.getAllPlayers(),
@@ -357,15 +357,15 @@ public class MatchManager {
                 // Borrar canales si existen
                 if (activeMatch.getBlueTeamChannel() != null) {
                     activeMatch.getBlueTeamChannel().delete().queue(
-                        success -> logger.info("Canal Cancelado", "Canal azul eliminado tras cancelación en matchmaking"),
-                        error -> logger.warning("Error Borrando Canal", "Error borrando canal azul en cancelación: " + error.getMessage())
+                            success -> logger.info("Canal Cancelado", "Canal azul eliminado tras cancelación en matchmaking"),
+                            error -> logger.warning("Error Borrando Canal", "Error borrando canal azul en cancelación: " + error.getMessage())
                     );
                 }
 
                 if (activeMatch.getRedTeamChannel() != null) {
                     activeMatch.getRedTeamChannel().delete().queue(
-                        success -> logger.info("Canal Cancelado", "Canal rojo eliminado tras cancelación en matchmaking"),
-                        error -> logger.warning("Error Borrando Canal", "Error borrando canal rojo en cancelación: " + error.getMessage())
+                            success -> logger.info("Canal Cancelado", "Canal rojo eliminado tras cancelación en matchmaking"),
+                            error -> logger.warning("Error Borrando Canal", "Error borrando canal rojo en cancelación: " + error.getMessage())
                     );
                 }
 
@@ -410,7 +410,7 @@ public class MatchManager {
                     DatabaseManager.updatePlayerMatchStatus(player.getMinecraftUuid(), inMatch, matchId);
                 } catch (Exception e) {
                     plugin.getLogger().warning("Error actualizando estado BD para " +
-                        player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
+                            player.getMinecraftUuid().substring(0, 8) + ": " + e.getMessage());
                 }
             }
         });

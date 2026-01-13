@@ -52,7 +52,7 @@ public class MapVoting {
             String selectedMap = MapManager.getRandomMap(matchType);
 
             logger.info("Selección Automática",
-                "Mapa seleccionado automáticamente para " + matchType + ": " + selectedMap);
+                    "Mapa seleccionado automáticamente para " + matchType + ": " + selectedMap);
 
             // Anunciar a los jugadores que se seleccionó automáticamente
             announceAutomaticSelection(selectedMap);

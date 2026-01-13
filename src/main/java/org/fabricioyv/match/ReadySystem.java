@@ -233,15 +233,15 @@ public class ReadySystem {
                 String playerName = mcPlayer != null ? mcPlayer.getName() : "Unknown";
 
                 teamStatus.append("  §f")
-                          .append(hasVoted ? "✅" : "❌")
-                          .append(" ")
-                          .append(playerName)
-                          .append("\n");
+                        .append(hasVoted ? "✅" : "❌")
+                        .append(" ")
+                        .append(playerName)
+                        .append("\n");
             }
 
             status.append(team.getFormattedName())
-                  .append(" §f[").append(teamReadyCount).append("/").append(requiredPerTeam).append("]\n")
-                  .append(teamStatus);
+                    .append(" §f[").append(teamReadyCount).append("/").append(requiredPerTeam).append("]\n")
+                    .append(teamStatus);
         }
 
         return status.toString();

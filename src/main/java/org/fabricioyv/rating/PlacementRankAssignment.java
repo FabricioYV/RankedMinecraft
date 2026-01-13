@@ -44,7 +44,7 @@ public class PlacementRankAssignment {
         double finalMMR = convertEloToMMR(finalElo);
 
         return new PlacementResult(finalElo, finalMMR, assignedRank, metrics,
-                                 generatePlacementSummary(metrics, finalElo, assignedRank));
+                generatePlacementSummary(metrics, finalElo, assignedRank));
     }
 
     /**
@@ -104,7 +104,7 @@ public class PlacementRankAssignment {
                 .mapToLong(m -> (m.kills >= 6 && m.damage >= 2500) ? 1 : 0).sum();
 
         return new PlacementMetrics(winRate, avgKills, avgDeaths, avgDamage, kd,
-                                  damageVariance, killVariance, mvpMatches, history.matches.size());
+                damageVariance, killVariance, mvpMatches, history.matches.size());
     }
 
     /**
@@ -183,11 +183,11 @@ public class PlacementRankAssignment {
 
         summary.append("**🎯 PLACEMENT COMPLETADO**\n");
         summary.append(String.format("**Rango Asignado:** %s (%.0f ELO)\n\n",
-                      rank.getFormattedName(), finalElo));
+                rank.getFormattedName(), finalElo));
 
         summary.append("**📊 Rendimiento General:**\n");
         summary.append(String.format("• Victorias: %.0f/8 (%.1f%%)\n",
-                      metrics.totalMatches * metrics.winRate / 100, metrics.winRate));
+                metrics.totalMatches * metrics.winRate / 100, metrics.winRate));
         summary.append(String.format("• K/D Promedio: %.2f\n", metrics.kd));
         summary.append(String.format("• Damage Promedio: %.0f\n", metrics.avgDamage));
         summary.append(String.format("• Partidas MVP: %d/8\n", metrics.mvpMatches));
@@ -210,7 +210,7 @@ public class PlacementRankAssignment {
         if (rank.isPromotionPossible()) {
             Rank nextRank = rank.getNextRank();
             summary.append(String.format("\n**🎯 Próximo Objetivo:** %s (%d ELO)\n",
-                          nextRank.getFormattedName(), nextRank.getMinElo()));
+                    nextRank.getFormattedName(), nextRank.getMinElo()));
         }
 
         return summary.toString();
@@ -235,7 +235,7 @@ public class PlacementRankAssignment {
         public final String summary;
 
         public PlacementResult(double finalElo, double finalMMR, Rank assignedRank,
-                             PlacementMetrics metrics, String summary) {
+                               PlacementMetrics metrics, String summary) {
             this.finalElo = finalElo;
             this.finalMMR = finalMMR;
             this.assignedRank = assignedRank;
@@ -256,7 +256,7 @@ public class PlacementRankAssignment {
         public final int totalMatches;
 
         public PlacementMetrics(double winRate, double avgKills, double avgDeaths, double avgDamage,
-                              double kd, double damageVariance, double killVariance, long mvpMatches, int totalMatches) {
+                                double kd, double damageVariance, double killVariance, long mvpMatches, int totalMatches) {
             this.winRate = winRate;
             this.avgKills = avgKills;
             this.avgDeaths = avgDeaths;

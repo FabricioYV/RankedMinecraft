@@ -31,7 +31,7 @@ public class MatchmakingAnalyzer {
 
             try {
                 PlacementAwareMatchmaking.BalancedTeams teams =
-                    PlacementAwareMatchmaking.balanceTeamsWithPlacement(shuffledPlayers);
+                        PlacementAwareMatchmaking.balanceTeamsWithPlacement(shuffledPlayers);
 
                 if (teams != null) {
                     double mmrDifference = teams.getMMRDifference();
@@ -72,18 +72,18 @@ public class MatchmakingAnalyzer {
 
         // Calcular desviación estándar de MMR
         double variance = players.stream()
-            .mapToDouble(p -> Math.pow(p.getMmr() - avgMMR, 2))
-            .average().orElse(0);
+                .mapToDouble(p -> Math.pow(p.getMmr() - avgMMR, 2))
+                .average().orElse(0);
         double stdDeviation = Math.sqrt(variance);
 
         // Experiencia promedio
         double avgGamesPlayed = players.stream()
-            .mapToDouble(PlayerData::getGamesPlayed)
-            .average().orElse(0);
+                .mapToDouble(PlayerData::getGamesPlayed)
+                .average().orElse(0);
 
         return new PlayerPoolAnalysis(
-            totalPlayers, placementPlayers, regularPlayers,
-            avgMMR, minMMR, maxMMR, stdDeviation, avgGamesPlayed
+                totalPlayers, placementPlayers, regularPlayers,
+                avgMMR, minMMR, maxMMR, stdDeviation, avgGamesPlayed
         );
     }
 
@@ -93,7 +93,7 @@ public class MatchmakingAnalyzer {
     public static MatchmakingPrediction predictMatchmakingQuality(List<PlayerData> players) {
         if (players.size() != 10) {
             return new MatchmakingPrediction(MatchmakingPrediction.Quality.IMPOSSIBLE,
-                "Se requieren exactamente 10 jugadores", 0.0);
+                    "Se requieren exactamente 10 jugadores", 0.0);
         }
 
         PlayerPoolAnalysis analysis = analyzePlayerPool(players);
@@ -152,7 +152,7 @@ public class MatchmakingAnalyzer {
         report.append("📊 **Pool de Jugadores:**\n");
         report.append(String.format("• Total: %d jugadores\n", poolAnalysis.totalPlayers));
         report.append(String.format("• En Placement: %d | Regulares: %d\n",
-            poolAnalysis.placementPlayers, poolAnalysis.regularPlayers));
+                poolAnalysis.placementPlayers, poolAnalysis.regularPlayers));
         report.append(String.format("• MMR Promedio: %.0f\n", poolAnalysis.avgMMR));
         report.append(String.format("• Rango MMR: %.0f - %.0f\n", poolAnalysis.minMMR, poolAnalysis.maxMMR));
         report.append(String.format("• Desviación Estándar: %.0f\n", poolAnalysis.mmrStdDeviation));
@@ -194,8 +194,8 @@ public class MatchmakingAnalyzer {
         public final int acceptableResults;
 
         public MatchmakingSimulationResult(List<BalanceResult> results,
-                                         PlacementAwareMatchmaking.BalancedTeams bestTeams,
-                                         double bestBalance) {
+                                           PlacementAwareMatchmaking.BalancedTeams bestTeams,
+                                           double bestBalance) {
             this.results = results;
             this.bestTeams = bestTeams;
             this.bestBalance = bestBalance;
@@ -227,8 +227,8 @@ public class MatchmakingAnalyzer {
         public final double avgGamesPlayed;
 
         public PlayerPoolAnalysis(int totalPlayers, int placementPlayers, int regularPlayers,
-                                double avgMMR, double minMMR, double maxMMR,
-                                double mmrStdDeviation, double avgGamesPlayed) {
+                                  double avgMMR, double minMMR, double maxMMR,
+                                  double mmrStdDeviation, double avgGamesPlayed) {
             this.totalPlayers = totalPlayers;
             this.placementPlayers = placementPlayers;
             this.regularPlayers = regularPlayers;

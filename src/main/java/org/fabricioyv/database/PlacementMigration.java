@@ -8,7 +8,7 @@ import java.sql.Statement;
  * Migración para agregar campos de placement matches a la base de datos
  */
 public class PlacementMigration {
-    
+
     /**
      * Ejecuta la migración para agregar campos de placement matches
      */
@@ -16,33 +16,33 @@ public class PlacementMigration {
         try (Connection conn = DatabaseManager.getConnectionTo("ranked")) {
             // Agregar campos para placement matches
             addPlacementFields(conn);
-            
+
             // Inicializar datos de placement para jugadores existentes
             initializePlacementData(conn);
-            
+
             System.out.println("✅ Migración de placement matches completada exitosamente");
-            
+
         } catch (SQLException e) {
             System.err.println("❌ Error ejecutando migración de placement matches: " + e.getMessage());
             e.printStackTrace();
         }
     }
-    
+
     /**
      * Agrega los campos de placement matches a la tabla
      */
     private static void addPlacementFields(Connection conn) throws SQLException {
         String[] alterTableQueries = {
-            // Campo para indicar si el jugador está en placement matches
-            "ALTER TABLE ranked_players ADD COLUMN IF NOT EXISTS is_in_placement TINYINT(1) DEFAULT 1",
-            
-            // Campo para contar cuántas placement matches ha jugado
-            "ALTER TABLE ranked_players ADD COLUMN IF NOT EXISTS placement_matches_played INT DEFAULT 0",
-            
-            // Índice para optimizar consultas de placement
-            "CREATE INDEX IF NOT EXISTS idx_placement ON ranked_players (is_in_placement, placement_matches_played)"
+                // Campo para indicar si el jugador está en placement matches
+                "ALTER TABLE ranked_players ADD COLUMN IF NOT EXISTS is_in_placement TINYINT(1) DEFAULT 1",
+
+                // Campo para contar cuántas placement matches ha jugado
+                "ALTER TABLE ranked_players ADD COLUMN IF NOT EXISTS placement_matches_played INT DEFAULT 0",
+
+                // Índice para optimizar consultas de placement
+                "CREATE INDEX IF NOT EXISTS idx_placement ON ranked_players (is_in_placement, placement_matches_played)"
         };
-        
+
         // Crear tabla para historial de placement matches
         String createPlacementHistoryTable = """
             CREATE TABLE IF NOT EXISTS placement_match_history (
@@ -68,8 +68,8 @@ public class PlacementMigration {
                     System.out.println("✅ Ejecutado: " + query);
                 } catch (SQLException e) {
                     // Si la columna ya existe, ignorar el error
-                    if (e.getMessage().contains("Duplicate column name") || 
-                        e.getMessage().contains("already exists")) {
+                    if (e.getMessage().contains("Duplicate column name") ||
+                            e.getMessage().contains("already exists")) {
                         System.out.println("ℹ️ Campo ya existe, saltando: " + query);
                     } else {
                         throw e;
@@ -90,7 +90,7 @@ public class PlacementMigration {
             }
         }
     }
-    
+
     /**
      * Inicializa los datos de placement para jugadores existentes
      */
@@ -109,13 +109,13 @@ public class PlacementMigration {
                 END
             WHERE is_in_placement IS NULL OR placement_matches_played IS NULL
         """;
-        
+
         try (Statement stmt = conn.createStatement()) {
             int affectedRows = stmt.executeUpdate(updateExistingPlayers);
             System.out.println("✅ Inicializados datos de placement para " + affectedRows + " jugadores");
         }
     }
-    
+
     /**
      * Verifica si la migración ya fue aplicada
      */
@@ -129,7 +129,7 @@ public class PlacementMigration {
                 AND TABLE_NAME = 'ranked_players' 
                 AND COLUMN_NAME IN ('is_in_placement', 'placement_matches_played')
             """;
-            
+
             try (var stmt = conn.prepareStatement(checkColumns)) {
                 var rs = stmt.executeQuery();
                 if (rs.next()) {
@@ -139,7 +139,7 @@ public class PlacementMigration {
         } catch (SQLException e) {
             System.err.println("Error verificando migración: " + e.getMessage());
         }
-        
+
         return false;
     }
 }
