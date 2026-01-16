@@ -69,13 +69,8 @@ public class PlayerData {
     public void setCurrentMatchDamage(double damage) { this.currentMatchDamage = damage; }
     public void addDamage(double damage) { this.currentMatchDamage += damage; }
 
-    // Resetear estadísticas de partida
-    public void resetMatchStats() {
-        this.currentMatchKills = 0;
-        this.currentMatchDeaths = 0;
-        this.currentMatchDamage = 0.0;
-    }
-    public int getWins() { return wins; }
+
+    public inWt getWins() { return wins; }
     public int getLosses() { return losses; }
     public int getGamesPlayed() { return gamesPlayed; }
     public int getTotalKills() { return totalKills; }

@@ -12,7 +12,7 @@ import org.fabricioyv.rating.EloDecaySystem;
  * Listener para manejar notificaciones de ELO Decay al entrar al servidor
  *
  * Created by FabricioYV
- * @author FabricioYV
+ * @author FabricioYV|
  */
 public class EloDecayListener implements Listener {
 
