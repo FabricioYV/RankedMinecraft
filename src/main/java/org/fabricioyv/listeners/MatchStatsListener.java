@@ -126,8 +126,8 @@ public class MatchStatsListener implements Listener {
             // Intentar auto-inicializar las estadísticas para este match
             if (autoInitializeMatchStats(matchId)) {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ⚡ Auto-inicialización exitosa para match %s",
-                    matchId));
+                        "§a[MatchStats] ⚡ Auto-inicialización exitosa para match %s",
+                        matchId));
             } else {
                 return; // No se pudo inicializar
             }
@@ -278,8 +278,8 @@ public class MatchStatsListener implements Listener {
 
         // **LOGGING CRÍTICO**: Verificar que se está llamando correctamente
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Inicializando estadísticas para match %s con %d jugadores",
-            matchId, playerTeams.size()));
+                "§e[MatchStats] Inicializando estadísticas para match %s con %d jugadores",
+                matchId, playerTeams.size()));
 
         int playersInitialized = 0;
         for (Map.Entry<String, String> entry : playerTeams.entrySet()) {
@@ -301,13 +301,13 @@ public class MatchStatsListener implements Listener {
 
                 // **LOGGING**: Confirmar cada jugador inicializado
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✓ Jugador %s (%s) inicializado para match %s",
-                    player.getName(), team, matchId));
+                        "§a[MatchStats] ✓ Jugador %s (%s) inicializado para match %s",
+                        player.getName(), team, matchId));
             } else {
                 // **LOGGING**: Jugador no encontrado
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ✗ Jugador UUID %s no está online - SKIP",
-                    playerUuid.toString().substring(0, 8)));
+                        "§c[MatchStats] ✗ Jugador UUID %s no está online - SKIP",
+                        playerUuid.toString().substring(0, 8)));
             }
         }
 
@@ -316,13 +316,13 @@ public class MatchStatsListener implements Listener {
 
         // **LOGGING CRÍTICO**: Confirmar almacenamiento inmediato
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] ✅ Match %s almacenado con %d/%d jugadores inicializados",
-            matchId, playersInitialized, playerTeams.size()));
+                "§a[MatchStats] ✅ Match %s almacenado con %d/%d jugadores inicializados",
+                matchId, playersInitialized, playerTeams.size()));
 
         // **DEBUG**: Verificar que está en el mapa
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] 🔍 Verificación: Match %s está en activeMatchStats: %s",
-            matchId, activeMatchStats.containsKey(matchId)));
+                "§a[MatchStats] 🔍 Verificación: Match %s está en activeMatchStats: %s",
+                matchId, activeMatchStats.containsKey(matchId)));
 
         // **OPTIMIZACIÓN CRÍTICA**: Poblar cache PlayerData O(1) al inicio de partida
         populatePlayerDataCache(matchId);
@@ -370,18 +370,18 @@ public class MatchStatsListener implements Listener {
 
         if (stats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontró match %s en activeMatchStats al finalizar",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontró match %s en activeMatchStats al finalizar",
+                    matchId));
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] Matches activos disponibles: %s",
-                String.join(", ", activeMatchStats.keySet())));
+                    "§c[MatchStats] Matches activos disponibles: %s",
+                    String.join(", ", activeMatchStats.keySet())));
             return null;
         }
 
         // **LOGGING CRÍTICO**: Mostrar estadísticas COMPLETAS de cada jugador antes de finalizar
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Finalizando match %s con %d jugadores:",
-            matchId, stats.size()));
+                "§e[MatchStats] Finalizando match %s con %d jugadores:",
+                matchId, stats.size()));
 
         int playersWithStats = 0;
         int playersWithoutStats = 0;
@@ -389,35 +389,35 @@ public class MatchStatsListener implements Listener {
         for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
             MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
             boolean hasStats = playerStats.getKills() > 0 ||
-                              playerStats.getDeaths() > 0 ||
-                              playerStats.getDamageDealt() > 0;
+                    playerStats.getDeaths() > 0 ||
+                    playerStats.getDamageDealt() > 0;
 
             if (hasStats) {
                 playersWithStats++;
                 // **ARREGLO CRÍTICO**: No mostrar ELO/MMR aún (se muestran como 0 porque no se han calculado)
                 // Los ratings se establecerán después en updatePlayerStatistics()
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✓ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getKills(),
-                    playerStats.getDeaths(),
-                    playerStats.getDamageDealt(),
-                    playerStats.getArrowsHit(),
-                    playerStats.getArrowsShot(),
-                    playerStats.getArrowAccuracy(),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§a[MatchStats] ✓ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getKills(),
+                        playerStats.getDeaths(),
+                        playerStats.getDamageDealt(),
+                        playerStats.getArrowsHit(),
+                        playerStats.getArrowsShot(),
+                        playerStats.getArrowAccuracy(),
+                        playerStats.isWon() ? "YES" : "NO"));
             } else {
                 playersWithoutStats++;
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ✗ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§c[MatchStats] ✗ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.isWon() ? "YES" : "NO"));
             }
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Resumen: %d con stats, %d sin stats",
-            playersWithStats, playersWithoutStats));
+                "§e[MatchStats] Resumen: %d con stats, %d sin stats",
+                playersWithStats, playersWithoutStats));
 
         // **CRÍTICO**: NO eliminar del cache todavía
         // El cache debe persistir hasta que se establezcan todos los rating changes
@@ -502,8 +502,8 @@ public class MatchStatsListener implements Listener {
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
         if (matchStats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats para match %s al establecer rating changes",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats para match %s al establecer rating changes",
+                    matchId));
             return;
         }
 
@@ -520,15 +520,15 @@ public class MatchStatsListener implements Listener {
             String playerName = player != null ? player.getName() : "Unknown";
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§a[MatchStats] ✅ Rating changes establecidos para %s: ELO %d→%d (%+d), MMR %.1f→%.1f (%+.1f)",
-                playerName, oldElo, newElo, (newElo - oldElo), oldMmr, newMmr, (newMmr - oldMmr)));
+                    "§a[MatchStats] ✅ Rating changes establecidos para %s: ELO %d→%d (%+d), MMR %.1f→%.1f (%+.1f)",
+                    playerName, oldElo, newElo, (newElo - oldElo), oldMmr, newMmr, (newMmr - oldMmr)));
         } else {
             Player player = Bukkit.getPlayer(playerUuid);
             String playerName = player != null ? player.getName() : playerUuid.toString().substring(0, 8);
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats para jugador %s en match %s",
-                playerName, matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats para jugador %s en match %s",
+                    playerName, matchId));
         }
     }
 
@@ -561,8 +561,8 @@ public class MatchStatsListener implements Listener {
             }
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
-                matchId, stats.size()));
+                    "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
+                    matchId, stats.size()));
         }
     }
 
@@ -719,8 +719,8 @@ public class MatchStatsListener implements Listener {
 
             if (beforeTotal - afterTotal > 5) {
                 System.out.println("[MatchStats] Smart cleanup: " + (beforeTotal - afterTotal) +
-                    " entries removed, " + afterTotal + " remaining (protected " +
-                    playersInActiveMatches.size() + " active players)");
+                        " entries removed, " + afterTotal + " remaining (protected " +
+                        playersInActiveMatches.size() + " active players)");
             }
 
         } catch (Exception e) {
@@ -820,8 +820,8 @@ public class MatchStatsListener implements Listener {
 
         } catch (Exception e) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] Error en auto-inicialización para %s: %s",
-                matchId, e.getMessage()));
+                    "§c[MatchStats] Error en auto-inicialización para %s: %s",
+                    matchId, e.getMessage()));
             return false;
         }
     }
@@ -834,54 +834,54 @@ public class MatchStatsListener implements Listener {
         Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
         if (stats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats finales para match %s",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats finales para match %s",
+                    matchId));
             return;
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] 🏁 ESTADÍSTICAS FINALES - Match %s con rating changes aplicados:",
-            matchId));
+                "§e[MatchStats] 🏁 ESTADÍSTICAS FINALES - Match %s con rating changes aplicados:",
+                matchId));
 
         for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
             MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
             boolean hasStats = playerStats.getKills() > 0 ||
-                              playerStats.getDeaths() > 0 ||
-                              playerStats.getDamageDealt() > 0;
+                    playerStats.getDeaths() > 0 ||
+                    playerStats.getDamageDealt() > 0;
 
             if (hasStats) {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✅ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getKills(),
-                    playerStats.getDeaths(),
-                    playerStats.getDamageDealt(),
-                    playerStats.getArrowsHit(),
-                    playerStats.getArrowsShot(),
-                    playerStats.getArrowAccuracy(),
-                    playerStats.getOldElo(),
-                    playerStats.getNewElo(),
-                    (playerStats.getNewElo() - playerStats.getOldElo()),
-                    playerStats.getOldMmr(),
-                    playerStats.getNewMmr(),
-                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§a[MatchStats] ✅ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getKills(),
+                        playerStats.getDeaths(),
+                        playerStats.getDamageDealt(),
+                        playerStats.getArrowsHit(),
+                        playerStats.getArrowsShot(),
+                        playerStats.getArrowAccuracy(),
+                        playerStats.getOldElo(),
+                        playerStats.getNewElo(),
+                        (playerStats.getNewElo() - playerStats.getOldElo()),
+                        playerStats.getOldMmr(),
+                        playerStats.getNewMmr(),
+                        (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                        playerStats.isWon() ? "YES" : "NO"));
             } else {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ⚠️ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getOldElo(),
-                    playerStats.getNewElo(),
-                    (playerStats.getNewElo() - playerStats.getOldElo()),
-                    playerStats.getOldMmr(),
-                    playerStats.getNewMmr(),
-                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§c[MatchStats] ⚠️ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getOldElo(),
+                        playerStats.getNewElo(),
+                        (playerStats.getNewElo() - playerStats.getOldElo()),
+                        playerStats.getOldMmr(),
+                        playerStats.getNewMmr(),
+                        (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                        playerStats.isWon() ? "YES" : "NO"));
             }
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] 🎯 Rating changes procesados correctamente para match %s",
-            matchId));
+                "§a[MatchStats] 🎯 Rating changes procesados correctamente para match %s",
+                matchId));
     }
 }

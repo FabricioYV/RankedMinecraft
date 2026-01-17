@@ -91,7 +91,7 @@ public class MatchFinisher {
                     } catch (Exception e) {
                         // Continúa si hay error con un jugador específico
                         logger.warning("Player Message Failed",
-                            "Error enviando mensaje a " + playerData.getMinecraftUuid());
+                                "Error enviando mensaje a " + playerData.getMinecraftUuid());
                     }
                 }
             }
@@ -200,17 +200,17 @@ public class MatchFinisher {
             finalizedStats = MatchStatsListener.finalizeMatchStats(activeMatch.getMatchId());
             if (finalizedStats != null && !finalizedStats.isEmpty()) {
                 logger.success("Match Stats Finalized",
-                    String.format("✅ Estadísticas finalizadas para %d jugadores en match %s",
-                        finalizedStats.size(), activeMatch.getMatchId()));
+                        String.format("✅ Estadísticas finalizadas para %d jugadores en match %s",
+                                finalizedStats.size(), activeMatch.getMatchId()));
             } else {
                 logger.warning("Match Stats Empty",
-                    String.format("⚠️ No se encontraron estadísticas para match %s - usando valores por defecto",
-                        activeMatch.getMatchId()));
+                        String.format("⚠️ No se encontraron estadísticas para match %s - usando valores por defecto",
+                                activeMatch.getMatchId()));
             }
         } catch (Exception e) {
             logger.error("Match Stats Finalization Failed",
-                String.format("❌ Error finalizando estadísticas: %s - continuando con valores por defecto",
-                    e.getMessage()));
+                    String.format("❌ Error finalizando estadísticas: %s - continuando con valores por defecto",
+                            e.getMessage()));
         }
 
         // **OPTIMIZACIÓN**: Crear mapa de referencia para lookup rápido
@@ -732,7 +732,7 @@ public class MatchFinisher {
      * Mueve todos los jugadores al canal de espera en Discord
      */
     public static void movePlayersToWaitingRoom(ActiveMatch activeMatch,
-                                                 RankedMinecraft plugin, DiscordLogger logger) {
+                                                RankedMinecraft plugin, DiscordLogger logger) {
 
         Guild guild = plugin.getDiscordBot().getJda().getGuilds().get(0);
         VoiceChannel waitingRoom = guild.getVoiceChannelById(VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID);
@@ -1071,37 +1071,37 @@ public class MatchFinisher {
      * MODIFICADO: Acepta estadísticas pre-finalizadas para evitar race condition
      */
     private static void saveMatchToDatabase(ActiveMatch activeMatch, Team winnerTeam, DiscordLogger logger,
-                                           Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
+                                            Map<UUID, MatchLogsManager.PlayerMatchStats> preFinalizedStats) {
         try {
             // Calcular duración antes de operaciones asíncronas
             long durationSeconds = java.time.Duration.between(activeMatch.getStartTime(),
-                java.time.LocalDateTime.now()).getSeconds();
+                    java.time.LocalDateTime.now()).getSeconds();
 
             // MEJORADO: Guardar asíncronamente pero con confirmación ordenada
             // **CRÍTICO**: Pasar estadísticas pre-finalizadas para evitar race condition
             MatchLogsIntegration.finalizeActiveMatch(activeMatch, winnerTeam, preFinalizedStats)
-                .thenAccept(saved -> {
-                    if (saved) {
-                        logger.success("Match Data Saved",
-                            "Datos completos de partida " + activeMatch.getMatchId() + " guardados en match_logs");
+                    .thenAccept(saved -> {
+                        if (saved) {
+                            logger.success("Match Data Saved",
+                                    "Datos completos de partida " + activeMatch.getMatchId() + " guardados en match_logs");
 
-                        // CRÍTICO: Solo log de evento DESPUÉS de guardar con éxito
-                        MatchLogsIntegration.logMatchEnd(activeMatch.getMatchId(), winnerTeam, durationSeconds);
-                    } else {
-                        logger.error("Match Data Save Failed",
-                            "Error guardando datos de partida " + activeMatch.getMatchId());
-                    }
-                })
-                .exceptionally(throwable -> {
-                    logger.systemError("MatchFinisher",
-                        "Excepción guardando datos de partida " + activeMatch.getMatchId(),
-                        throwable.getMessage());
-                    return null;
-                });
+                            // CRÍTICO: Solo log de evento DESPUÉS de guardar con éxito
+                            MatchLogsIntegration.logMatchEnd(activeMatch.getMatchId(), winnerTeam, durationSeconds);
+                        } else {
+                            logger.error("Match Data Save Failed",
+                                    "Error guardando datos de partida " + activeMatch.getMatchId());
+                        }
+                    })
+                    .exceptionally(throwable -> {
+                        logger.systemError("MatchFinisher",
+                                "Excepción guardando datos de partida " + activeMatch.getMatchId(),
+                                throwable.getMessage());
+                        return null;
+                    });
 
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
-                "Error guardando datos de partida " + activeMatch.getMatchId(), e.getMessage());
+                    "Error guardando datos de partida " + activeMatch.getMatchId(), e.getMessage());
         }
     }
 
@@ -1121,7 +1121,7 @@ public class MatchFinisher {
 
             logger.info("Queue Tracking Cleanup",
                     "Limpiado tracking de " + allPlayers.size() + " jugadores tras finalizar partida " +
-                    activeMatch.getMatchId() + " (jugadores en espera no afectados)");
+                            activeMatch.getMatchId() + " (jugadores en espera no afectados)");
 
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
@@ -1149,26 +1149,26 @@ public class MatchFinisher {
                 if (finalStats != null) {
                     // **PASO 2**: Validar que las estadísticas no estén vacías
                     boolean hasValidStats = finalStats.getKills() > 0 ||
-                                          finalStats.getDeaths() > 0 ||
-                                          finalStats.getDamageDealt() > 0.0;
+                            finalStats.getDeaths() > 0 ||
+                            finalStats.getDamageDealt() > 0.0;
 
                     if (hasValidStats) {
                         logger.info("Stats Sync Success",
-                            String.format("📊 Intento %d/%d - Stats válidas obtenidas para %s",
-                                attemptCount, maxAttempts, finalStats.getPlayerName()));
+                                String.format("📊 Intento %d/%d - Stats válidas obtenidas para %s",
+                                        attemptCount, maxAttempts, finalStats.getPlayerName()));
                         break;
                     } else {
                         logger.warning("Stats Sync Empty",
-                            String.format("⚠️ Intento %d/%d - Stats vacías, reintentando para %s",
-                                attemptCount, maxAttempts, finalStats.getPlayerName()));
+                                String.format("⚠️ Intento %d/%d - Stats vacías, reintentando para %s",
+                                        attemptCount, maxAttempts, finalStats.getPlayerName()));
                         finalStats = null; // Reintentar
                     }
                 }
 
                 if (finalStats == null && attemptCount < maxAttempts) {
                     logger.warning("Stats Sync Retry",
-                        String.format("⏳ Intento %d/%d - Esperando sincronización para jugador %s",
-                            attemptCount, maxAttempts, playerUuid.toString().substring(0, 8)));
+                            String.format("⏳ Intento %d/%d - Esperando sincronización para jugador %s",
+                                    attemptCount, maxAttempts, playerUuid.toString().substring(0, 8)));
 
                     // **PASO 3**: Esperar procesamiento de eventos pendientes
                     try {
@@ -1183,22 +1183,22 @@ public class MatchFinisher {
             // **PASO 4**: Log final del resultado
             if (finalStats != null) {
                 logger.success("Stats Sync Final",
-                    String.format("✅ Sincronización exitosa - %s | K/D: %d/%d | Daño: %.1f",
-                        finalStats.getPlayerName(),
-                        finalStats.getKills(),
-                        finalStats.getDeaths(),
-                        finalStats.getDamageDealt()));
+                        String.format("✅ Sincronización exitosa - %s | K/D: %d/%d | Daño: %.1f",
+                                finalStats.getPlayerName(),
+                                finalStats.getKills(),
+                                finalStats.getDeaths(),
+                                finalStats.getDamageDealt()));
             } else {
                 logger.error("Stats Sync Failed",
-                    String.format("❌ Falló sincronización después de %d intentos para jugador %s",
-                        maxAttempts, playerUuid.toString().substring(0, 8)));
+                        String.format("❌ Falló sincronización después de %d intentos para jugador %s",
+                                maxAttempts, playerUuid.toString().substring(0, 8)));
             }
 
             return finalStats;
 
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
-                "Error crítico en getFinalPlayerStatsWithSync: " + e.getMessage(), e.toString());
+                    "Error crítico en getFinalPlayerStatsWithSync: " + e.getMessage(), e.toString());
             return null;
         }
     }
@@ -1210,16 +1210,16 @@ public class MatchFinisher {
     private static void assignFinalPlacementRank(PlayerData player, String matchId, DiscordLogger logger, boolean wonLastMatch, org.fabricioyv.discord.DiscordBot discordBot) {
         try {
             logger.info("Placement Evaluation Start",
-                String.format("🔍 Iniciando evaluación final para %s tras completar 8 partidas",
-                    player.getMinecraftName()));
+                    String.format("🔍 Iniciando evaluación final para %s tras completar 8 partidas",
+                            player.getMinecraftName()));
 
             // PASO 1: Obtener historial completo de placement matches desde la base de datos
             List<PlacementMatchData> placementHistory = getPlayerPlacementHistory(player.getMinecraftUuid());
 
             if (placementHistory.size() < PlayerData.getPlacementMatchesRequired()) {
                 logger.error("Placement History Incomplete",
-                    String.format("❌ %s - Solo se encontraron %d partidas, se requieren %d",
-                        player.getMinecraftName(), placementHistory.size(), PlayerData.getPlacementMatchesRequired()));
+                        String.format("❌ %s - Solo se encontraron %d partidas, se requieren %d",
+                                player.getMinecraftName(), placementHistory.size(), PlayerData.getPlacementMatchesRequired()));
                 // Fallback: asignar ELO base
                 assignFallbackElo(player, logger);
                 return;
@@ -1255,7 +1255,7 @@ public class MatchFinisher {
             player.setMmr(finalMMR);
             // PASO 11: Actualizar solo el ELO en la base de datos principal
             DatabaseManager.PlayerStatUpdate update = new DatabaseManager.PlayerStatUpdate(
-            player.getMinecraftUuid(), wonLastMatch, finalElo, finalMMR, player.getCurrentMatchKills(), player.getCurrentMatchDeaths());
+                    player.getMinecraftUuid(), wonLastMatch, finalElo, finalMMR, player.getCurrentMatchKills(), player.getCurrentMatchDeaths());
             DatabaseManager.updatePlayerStats(java.util.Collections.singletonList(update));
             // Ensure persistence: directly set elo/mmr (in case batch updates run later)
             try {
@@ -1263,38 +1263,38 @@ public class MatchFinisher {
             } catch (Exception e) {
                 logger.warning("Placement Direct ELO Persist Failed", "No se pudo persistir directamente elo/mmr: " + e.getMessage());
             }
-        // PASO 12: Asignar rol en Discord usando el nombre del rango calculado por el ELO
-        try {
-            if (discordBot != null && player.getDiscordId() != null && !player.getDiscordId().isEmpty()) {
-                discordBot.assignRankRole(player.getDiscordId(), assignedRank);
+            // PASO 12: Asignar rol en Discord usando el nombre del rango calculado por el ELO
+            try {
+                if (discordBot != null && player.getDiscordId() != null && !player.getDiscordId().isEmpty()) {
+                    discordBot.assignRankRole(player.getDiscordId(), assignedRank);
+                }
+            } catch (Exception e) {
+                logger.warning("Discord Role Assignment Failed", "No se pudo asignar el rol de Discord: " + e.getMessage());
             }
-        } catch (Exception e) {
-            logger.warning("Discord Role Assignment Failed", "No se pudo asignar el rol de Discord: " + e.getMessage());
-        }
             // PASO 13: Logs detallados del resultado
             logger.success("Placement Final Assignment",
-                String.format("🎉 %s | ELO: %d→%d | Rango: %s | WR: %.1f%% | K/D: %.2f | Daño Avg: %.1f",
-                    player.getMinecraftName(),
-                    oldElo,
-                    finalElo,
-                    assignedRank.getDisplayName(),
-                    metrics.winRate,
-                    metrics.kdRatio,
-                    metrics.avgDamage));
+                    String.format("🎉 %s | ELO: %d→%d | Rango: %s | WR: %.1f%% | K/D: %.2f | Daño Avg: %.1f",
+                            player.getMinecraftName(),
+                            oldElo,
+                            finalElo,
+                            assignedRank.getDisplayName(),
+                            metrics.winRate,
+                            metrics.kdRatio,
+                            metrics.avgDamage));
 
             // PASO 14: Log de análisis detallado
             logger.info("Placement Analysis",
-                String.format("📊 %s | Base: %d | Perf: x%.2f | Cons: x%.2f | MMR: %.1f",
-                    player.getMinecraftName(),
-                    baseElo,
-                    performanceMultiplier,
-                    consistencyMultiplier,
-                    finalMMR));
+                    String.format("📊 %s | Base: %d | Perf: x%.2f | Cons: x%.2f | MMR: %.1f",
+                            player.getMinecraftName(),
+                            baseElo,
+                            performanceMultiplier,
+                            consistencyMultiplier,
+                            finalMMR));
 
         } catch (Exception e) {
             logger.systemError("MatchFinisher",
-                String.format("Error asignando placement final para %s: %s",
-                    player.getMinecraftName(), e.getMessage()), e.toString());
+                    String.format("Error asignando placement final para %s: %s",
+                            player.getMinecraftName(), e.getMessage()), e.toString());
 
             // Fallback en caso de error
             assignFallbackElo(player, logger);
@@ -1346,7 +1346,7 @@ public class MatchFinisher {
         double kdRatio = totalDeaths > 0 ? (double) totalKills / totalDeaths : totalKills;
 
         return new PlacementMetrics(winRate, avgKills, avgDeaths, avgDamage, kdRatio,
-                                   calculateConsistency(matches), wins, matches.size());
+                calculateConsistency(matches), wins, matches.size());
     }
 
     /**
@@ -1440,8 +1440,8 @@ public class MatchFinisher {
         double[] damages = matches.stream().mapToDouble(m -> m.damage).toArray();
         double mean = Arrays.stream(damages).average().orElse(0.0);
         double variance = Arrays.stream(damages)
-            .map(d -> Math.pow(d - mean, 2))
-            .average().orElse(0.0);
+                .map(d -> Math.pow(d - mean, 2))
+                .average().orElse(0.0);
         double stdDev = Math.sqrt(variance);
 
         // Convertir a score de consistencia (0-1, donde 1 = muy consistente)
@@ -1460,10 +1460,10 @@ public class MatchFinisher {
         player.setMmr(fallbackMMR);
 
         logger.warning("Placement Fallback Applied",
-            String.format("⚠️ %s - ELO fallback asignado: %d | Rango: %s",
-                player.getMinecraftName(),
-                fallbackElo,
-                Rank.getRankByElo(fallbackElo).getDisplayName()));
+                String.format("⚠️ %s - ELO fallback asignado: %d | Rango: %s",
+                        player.getMinecraftName(),
+                        fallbackElo,
+                        Rank.getRankByElo(fallbackElo).getDisplayName()));
     }
 
     /**
@@ -1494,7 +1494,7 @@ public class MatchFinisher {
         final int totalMatches;
 
         PlacementMetrics(double winRate, double avgKills, double avgDeaths, double avgDamage,
-                        double kdRatio, double consistency, int wins, int totalMatches) {
+                         double kdRatio, double consistency, int wins, int totalMatches) {
             this.winRate = winRate;
             this.avgKills = avgKills;
             this.avgDeaths = avgDeaths;
@@ -1509,10 +1509,10 @@ public class MatchFinisher {
      * NUEVO: Procesa resultados de un equipo considerando protecciones por abandono
      */
     private static void processTeamResults(List<PlayerData> teamPlayers, boolean won,
-                                         Map<String, Boolean> playerProtections,
-                                         Map<String, Boolean> abandonmentProcessed,
-                                         ActiveMatch activeMatch, DiscordLogger logger,
-                                         RankedMinecraft plugin) {
+                                           Map<String, Boolean> playerProtections,
+                                           Map<String, Boolean> abandonmentProcessed,
+                                           ActiveMatch activeMatch, DiscordLogger logger,
+                                           RankedMinecraft plugin) {
 
         for (PlayerData player : teamPlayers) {
             try {
@@ -1523,8 +1523,8 @@ public class MatchFinisher {
                 // CRÍTICO: Si el jugador ya fue procesado por abandono, NO aplicar más penalizaciones
                 if (wasProcessedForAbandonment) {
                     logger.info("Jugador Ya Procesado",
-                        String.format("Jugador %s ya fue procesado por abandono - evitando doble penalización",
-                            player.getMinecraftUuid().substring(0, 8)));
+                            String.format("Jugador %s ya fue procesado por abandono - evitando doble penalización",
+                                    player.getMinecraftUuid().substring(0, 8)));
 
                     // Solo notificar que no se procesará más
                     Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerUuid));
@@ -1539,8 +1539,8 @@ public class MatchFinisher {
                 if (isProtected && !won) {
                     // El jugador está protegido de la pérdida por abandono de compañero
                     logger.info("Pérdida Protegida",
-                        String.format("Jugador %s protegido de pérdida por abandono - sin cambio de ELO",
-                            player.getMinecraftUuid().substring(0, 8)));
+                            String.format("Jugador %s protegido de pérdida por abandono - sin cambio de ELO",
+                                    player.getMinecraftUuid().substring(0, 8)));
 
                     // Notificar al jugador
                     Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerUuid));
@@ -1569,8 +1569,8 @@ public class MatchFinisher {
                 // AQUÍ ES DONDE SE PROCESARÍA NORMALMENTE EL ELO
                 // Pero este código ya existe en updatePlayerStatistics(), no necesito duplicarlo aquí
                 logger.debug("Procesamiento Normal",
-                    String.format("Jugador %s procesado normalmente - sin protecciones ni abandono previo",
-                        player.getMinecraftUuid().substring(0, 8)));
+                        String.format("Jugador %s procesado normalmente - sin protecciones ni abandono previo",
+                                player.getMinecraftUuid().substring(0, 8)));
 
             } catch (Exception e) {
                 logger.logError("Error procesando resultado de equipo para jugador " + player.getMinecraftUuid(), e);

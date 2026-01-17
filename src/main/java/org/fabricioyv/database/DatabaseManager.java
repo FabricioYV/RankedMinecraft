@@ -49,22 +49,22 @@ public class DatabaseManager {
     public static boolean initialize() {
         // Configuración de la base de datos principal (ranked)
         DatabaseConfig rankedConfig = new DatabaseConfig(
-            "ranked",
-            "db-dtx-03.sparkedhost.us",
-            "3306",
-            "s181642_ranked",
-            "u181642_EmzxRextoT",
-            "X4^pijD5zUWpY5UCrYM=W2e!"
+                "ranked",
+                "db-dtx-03.sparkedhost.us",
+                "3306",
+                "s181642_ranked",
+                "u181642_EmzxRextoT",
+                "X4^pijD5zUWpY5UCrYM=W2e!"
         );
 
         // Configuración de la base de datos de logs de matches
         DatabaseConfig matchLogsConfig = new DatabaseConfig(
-            "match_logs",
-            "db-mfl-01.sparkedhost.us",
-            "3306",
-            "s181642_matches",
-            "u181642_kO2S4fweyJ",
-            "@JQbP+M@A1!ingF9cola4OT1"
+                "match_logs",
+                "db-mfl-01.sparkedhost.us",
+                "3306",
+                "s181642_matches",
+                "u181642_kO2S4fweyJ",
+                "@JQbP+M@A1!ingF9cola4OT1"
         );
 
         // Inicializar ambas bases de datos
@@ -687,10 +687,10 @@ public class DatabaseManager {
 
             if (rs.next()) {
                 return new PlacementStats(
-                    rs.getInt("total_players"),
-                    rs.getInt("placement_players"),
-                    rs.getDouble("avg_placement_progress"),
-                    rs.getDouble("avg_established_mmr")
+                        rs.getInt("total_players"),
+                        rs.getInt("placement_players"),
+                        rs.getDouble("avg_placement_progress"),
+                        rs.getDouble("avg_established_mmr")
                 );
             }
         } catch (SQLException e) {

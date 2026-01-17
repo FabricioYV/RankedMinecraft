@@ -22,8 +22,8 @@ public class MapManager {
         // ASEGURAR que la carpeta del plugin existe
         if (!plugin.getDataFolder().exists()) {
             boolean created = plugin.getDataFolder().mkdirs();
-            plugin.getLogger().info("📁 Creando carpeta de datos del plugin: " + plugin.getDataFolder().getPath() + 
-                                  (created ? " (exitoso)" : " (falló)"));
+            plugin.getLogger().info("📁 Creando carpeta de datos del plugin: " + plugin.getDataFolder().getPath() +
+                    (created ? " (exitoso)" : " (falló)"));
         }
 
         loadMapPools();
@@ -84,7 +84,7 @@ public class MapManager {
         } else {
             plugin.getLogger().warning("⚠️ No se encontraron mapas 5v5 en pools.5v5, usando mapas por defecto");
             List<String> defaultMaps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
-                                                       "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+                    "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
             mapPools.put("5v5", defaultMaps5v5);
         }
 
@@ -114,7 +114,7 @@ public class MapManager {
         plugin.getLogger().warning("🔧 Cargando mapas por defecto como fallback...");
 
         List<String> defaultMaps5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
-                                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+                "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
         List<String> defaultMaps8v8 = Arrays.asList("Java II", "Jurassic", "NextGen", "Gobi", "Oriental");
 
         mapPools.put("5v5", new ArrayList<>(defaultMaps5v5));
@@ -286,7 +286,7 @@ public class MapManager {
             return selected;
         } else {
             List<String> fallback5v5 = Arrays.asList("Siege", "Smoke┈KotH┈5v5", "Topaz", "Willow", "Factori",
-                                                   "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
+                    "Revolution", "Space┈Race┈1969", "Rusteze┈5v5");
             String selected = fallback5v5.get(new Random().nextInt(fallback5v5.size()));
             plugin.getLogger().warning("⚠️ Usando mapa fallback 5v5: " + selected);
             return selected;
@@ -313,7 +313,7 @@ public class MapManager {
         }
 
         plugin.getLogger().fine("📝 Mapa " + mapName + " registrado como usado para " + matchType +
-                               " (Recientes: " + recentMapsForType.size() + "/" + MAX_RECENT_MAPS + ")");
+                " (Recientes: " + recentMapsForType.size() + "/" + MAX_RECENT_MAPS + ")");
     }
 
     /**
@@ -333,7 +333,7 @@ public class MapManager {
         if (allMaps.size() <= count) {
             return allMaps;
         }
-        
+
         Collections.shuffle(allMaps);
         return allMaps.subList(0, count);
     }
@@ -357,7 +357,7 @@ public class MapManager {
             Queue<String> recentMapsForType = recentMaps.getOrDefault(matchType, new ConcurrentLinkedQueue<>());
 
             stats.append(String.format("**%s:** %d mapas totales, %d recientes\n",
-                matchType, allMaps.size(), recentMapsForType.size()));
+                    matchType, allMaps.size(), recentMapsForType.size()));
 
             if (!recentMapsForType.isEmpty()) {
                 stats.append(String.format("   Recientes: %s\n", String.join(", ", recentMapsForType)));
@@ -366,7 +366,7 @@ public class MapManager {
 
         stats.append(String.format("🔄 Anti-repetición: %d mapas máximos en memoria\n", MAX_RECENT_MAPS));
         stats.append(String.format("🗳️ Votación de jugadores: %s",
-            playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
+                playerVotingEnabled ? "Habilitada" : "Deshabilitada"));
 
         return stats.toString();
     }

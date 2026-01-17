@@ -131,12 +131,11 @@ public class QueueManager {
         Member member = guild.getMemberById(discordId);
         if (member == null) return false;
 
-        if (member.getVoiceState() == null) return false; // ✅
-        AudioChannelUnion channel = member.getVoiceState().getChannel();
-        if (channel == null) return false;
+        AudioChannelUnion voiceState = member.getVoiceState().getChannel();
+        if (voiceState == null) return false;
 
         String expectedChannelId = getRequiredChannelId(queueType);
-        return channel.getId().equals(expectedChannelId);
+        return voiceState.getId().equals(expectedChannelId);
     }
 
     /**
@@ -645,38 +644,4 @@ public class QueueManager {
             }
         }
     }
-    public QueueResult requeue(PlayerData player, QueueType queueType) {
-        // mismas validaciones base
-        if (player.isInMatch()) return QueueResult.failure("El jugador ya está en una partida");
-        if (playersInQueue.contains(player.getMinecraftUuid())) return QueueResult.failure("El jugador ya está en cola");
-
-        Member member = guild.getMemberById(player.getDiscordId());
-        if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
-            return QueueResult.failure("Debes estar conectado a un canal de voz");
-        }
-
-        String currentChannelId = member.getVoiceState().getChannel().getId();
-        String waitingRoomId = VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID;
-        String queueChannelId = getRequiredChannelId(queueType);
-
-        // ✅ Si está en sala de espera, lo movemos al canal de cola automáticamente
-        if (currentChannelId.equals(waitingRoomId) && !currentChannelId.equals(queueChannelId)) {
-            VoiceChannel target = guild.getVoiceChannelById(queueChannelId);
-            if (target == null) return QueueResult.failure("Canal de cola no encontrado");
-
-            guild.moveVoiceMember(member, target).queue(
-                    ok -> {
-                        // cuando termina el move, recién lo metes a la cola
-                        Bukkit.getScheduler().runTask(plugin, () -> addPlayerToQueue(player, queueType));
-                    },
-                    err -> logger.warning("Requeue Move Failed", "No se pudo mover a canal de cola: " + err.getMessage())
-            );
-
-            return QueueResult.success("Moviéndote al canal de cola para requeue...");
-        }
-
-        // ✅ Si ya está en canal correcto, entra normal
-        return addPlayerToQueue(player, queueType);
-    }
-
 }

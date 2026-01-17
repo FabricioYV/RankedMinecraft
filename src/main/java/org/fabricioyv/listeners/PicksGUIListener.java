@@ -33,7 +33,7 @@ public class PicksGUIListener implements Listener {
 
         // Verificar que sea click derecho
         if (event.getAction() != Action.RIGHT_CLICK_AIR &&
-            event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+                event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return;
         }
 
@@ -79,7 +79,7 @@ public class PicksGUIListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         // Verificar que sea el GUI de picks
         if (event.getView().getTitle() == null ||
-            !event.getView().getTitle().equals("§6Seleccionar Jugador")) {
+                !event.getView().getTitle().equals("§6Seleccionar Jugador")) {
             return;
         }
 
@@ -139,9 +139,9 @@ public class PicksGUIListener implements Listener {
 
         // Llamar al sistema de picks con el jugador seleccionado
         CaptainPickSystem.handlePlayerPick(
-            activeMatch.getMatchId(),
-            captainData.getDiscordId(),
-            selectedPlayer.getMinecraftUuid()
+                activeMatch.getMatchId(),
+                captainData.getDiscordId(),
+                selectedPlayer.getMinecraftUuid()
         );
 
         // Feedback visual

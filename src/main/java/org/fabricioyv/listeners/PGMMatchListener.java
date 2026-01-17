@@ -181,7 +181,7 @@ public class PGMMatchListener implements Listener{
 
             // Buscar partidas en estados activos (no finalizadas)
             if (status != ActiveMatch.MatchStatus.FINISHED &&
-                status != ActiveMatch.MatchStatus.CANCELLED) {
+                    status != ActiveMatch.MatchStatus.CANCELLED) {
 
                 logger.info("Active Match Selected",
                         String.format("Seleccionada partida %s en estado %s",
@@ -370,7 +370,7 @@ public class PGMMatchListener implements Listener{
                 }
             } catch (Exception ignored) {}
 
-           //Metodo 3 : Buscar en clase padre
+            //Metodo 3 : Buscar en clase padre
             try {
                 Class<?> parentClass = team.getClass().getSuperclass();
                 if (parentClass != null) {
@@ -813,7 +813,7 @@ public class PGMMatchListener implements Listener{
                 // Double-check locking para thread safety
                 if (!initializedMatches.contains(matchId)) {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c[PGM-AUTO] Detectado primer evento de muerte en match " + matchId + " - inicializando estadísticas automáticamente"
+                            "§c[PGM-AUTO] Detectado primer evento de muerte en match " + matchId + " - inicializando estadísticas automáticamente"
                     );
 
                     // Inicializar estadísticas inmediatamente
@@ -842,7 +842,7 @@ public class PGMMatchListener implements Listener{
             } catch (Exception e) {
                 // Error handling silencioso para no afectar performance
                 logger.systemError("PGMMatchListener",
-                    "Error en procesamiento asíncrono de muerte", e.getMessage());
+                        "Error en procesamiento asíncrono de muerte", e.getMessage());
             }
         });
 
@@ -860,23 +860,23 @@ public class PGMMatchListener implements Listener{
             String mapName = activeMatch.getSelectedMap() != null ? activeMatch.getSelectedMap() : "Unknown";
 
             Bukkit.getConsoleSender().sendMessage(
-                "§e[PGM-AUTO] Ejecutando inicialización automática de estadísticas para " + matchId
+                    "§e[PGM-AUTO] Ejecutando inicialización automática de estadísticas para " + matchId
             );
 
             // Llamar directamente a startMatchTracking
             MatchLogsIntegration.startMatchTracking(
-                matchId,
-                activeMatch.getTeams(),
-                matchType,
-                mapName
+                    matchId,
+                    activeMatch.getTeams(),
+                    matchType,
+                    mapName
             );
 
             logger.success("Auto Stats Init",
-                "Estadísticas inicializadas automáticamente para partida " + matchId + " (detectada desde PGM)");
+                    "Estadísticas inicializadas automáticamente para partida " + matchId + " (detectada desde PGM)");
 
         } catch (Exception e) {
             logger.systemError("PGMMatchListener",
-                "Error en inicialización automática de estadísticas para " + activeMatch.getMatchId(), e.getMessage());
+                    "Error en inicialización automática de estadísticas para " + activeMatch.getMatchId(), e.getMessage());
             logger.logError("Error stack trace", e);
         }
     }
@@ -906,7 +906,7 @@ public class PGMMatchListener implements Listener{
         } catch (Exception e) {
             // Manejo silencioso de errores
             logger.warning("PlayerData Update Failed",
-                "Error actualizando PlayerData async: " + e.getMessage());
+                    "Error actualizando PlayerData async: " + e.getMessage());
         }
     }
 }

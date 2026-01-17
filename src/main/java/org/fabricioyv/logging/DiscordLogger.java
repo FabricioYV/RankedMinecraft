@@ -122,8 +122,8 @@ public class DiscordLogger {
         // NUEVO: Información de placement si hay jugadores en evaluación
         if (placementPlayersCount > 0) {
             embed.addField("🔍 En Evaluación",
-                placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
-                " en período de evaluación", false);
+                    placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
+                            " en período de evaluación", false);
         }
 
         embed.setTimestamp(java.time.Instant.now());
@@ -198,7 +198,7 @@ public class DiscordLogger {
                 // Marcar capitán con emoji especial
                 String captainIndicator = "";
                 if (isPicksMatch && ((team == Team.BLUE && player.equals(blueCaptain)) ||
-                                   (team == Team.RED && player.equals(redCaptain)))) {
+                        (team == Team.RED && player.equals(redCaptain)))) {
                     captainIndicator = " 👨‍✈️";
                 }
 
@@ -243,8 +243,8 @@ public class DiscordLogger {
         // NUEVO: Información de placement si hay jugadores en evaluación
         if (placementPlayersCount > 0) {
             embed.addField("🔍 En Evaluación",
-                placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
-                " en período de evaluación", false);
+                    placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
+                            " en período de evaluación", false);
         }
 
         embed.setTimestamp(java.time.Instant.now());

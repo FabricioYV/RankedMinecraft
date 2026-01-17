@@ -85,4 +85,3 @@ public class EloDecayCommand implements CommandExecutor, TabCompleter {
         return new ArrayList<>();
     }
 }
-

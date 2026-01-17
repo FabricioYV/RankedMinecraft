@@ -57,10 +57,10 @@ public class InitialMMRAssignment {
      */
     public static InitialMMRStats getInitialMMRStats() {
         return new InitialMMRStats(
-            BASE_MMR,
-            MIN_INITIAL_MMR,
-            MAX_INITIAL_MMR,
-            MMR_VARIANCE
+                BASE_MMR,
+                MIN_INITIAL_MMR,
+                MAX_INITIAL_MMR,
+                MMR_VARIANCE
         );
     }
 
@@ -83,7 +83,7 @@ public class InitialMMRAssignment {
         @Override
         public String toString() {
             return String.format("MMR Inicial: %.0f±%.0f (rango: %.0f-%.0f)",
-                               baseMmr, variance, minMmr, maxMmr);
+                    baseMmr, variance, minMmr, maxMmr);
         }
     }
 }

@@ -37,9 +37,9 @@ public class MatchDetailsCommand extends ListenerAdapter {
 
         // Usar Optional para manejo seguro de null
         String matchId = Optional.ofNullable(event.getOption("match_id"))
-            .map(option -> option.getAsString())
-            .filter(id -> !id.trim().isEmpty())
-            .orElse(null);
+                .map(option -> option.getAsString())
+                .filter(id -> !id.trim().isEmpty())
+                .orElse(null);
 
         if (matchId == null) {
             event.reply("❌ Debes proporcionar un ID de partida válido.").setEphemeral(true).queue();
@@ -67,9 +67,9 @@ public class MatchDetailsCommand extends ListenerAdapter {
 
                 // Enviar todos los embeds
                 event.getHook().editOriginalEmbeds(
-                    mainEmbed.build(),
-                    statsEmbed.build(),
-                    topEmbed.build()
+                        mainEmbed.build(),
+                        statsEmbed.build(),
+                        topEmbed.build()
                 ).queue();
 
             } catch (Exception e) {
@@ -105,15 +105,15 @@ public class MatchDetailsCommand extends ListenerAdapter {
 
         // Información básica
         embed.addField("📅 Fecha de Inicio",
-            matchSummary.getStartTime().format(DATE_FORMATTER), true);
+                matchSummary.getStartTime().format(DATE_FORMATTER), true);
 
         if (matchSummary.getEndTime() != null) {
             embed.addField("📅 Fecha de Fin",
-                matchSummary.getEndTime().format(DATE_FORMATTER), true);
+                    matchSummary.getEndTime().format(DATE_FORMATTER), true);
         }
 
         embed.addField("⏱️ Duración",
-            formatDuration(matchSummary.getDurationSeconds()), true);
+                formatDuration(matchSummary.getDurationSeconds()), true);
 
         embed.addField("🗺️ Mapa", matchSummary.getMapName(), true);
         embed.addField("🎮 Tipo", matchSummary.getMatchType(), true);
@@ -152,7 +152,7 @@ public class MatchDetailsCommand extends ListenerAdapter {
                     playerStats.getDeaths(),
                     playerStats.getDamageDealt(),
                     playerStats.getArrowAccuracy()
-                );
+            );
 
             if ("blue".equalsIgnoreCase(playerStats.getTeam()) || "azul".equalsIgnoreCase(playerStats.getTeam())) {
                 blueStats.append(playerLine);
@@ -184,41 +184,41 @@ public class MatchDetailsCommand extends ListenerAdapter {
 
         // Top Killer
         allPlayers.stream()
-            .max(Comparator.comparingInt(MatchLogsManager.PlayerMatchStats::getKills))
-            .ifPresent(player -> embed.addField("⚔️ Más Kills",
-                String.format("%s - %d kills", player.getPlayerName(), player.getKills()), true));
+                .max(Comparator.comparingInt(MatchLogsManager.PlayerMatchStats::getKills))
+                .ifPresent(player -> embed.addField("⚔️ Más Kills",
+                        String.format("%s - %d kills", player.getPlayerName(), player.getKills()), true));
 
         // Menos muertes
         allPlayers.stream()
-            .min(Comparator.comparingInt(MatchLogsManager.PlayerMatchStats::getDeaths))
-            .ifPresent(player -> embed.addField("🛡️ Menos Muertes",
-                String.format("%s - %d muertes", player.getPlayerName(), player.getDeaths()), true));
+                .min(Comparator.comparingInt(MatchLogsManager.PlayerMatchStats::getDeaths))
+                .ifPresent(player -> embed.addField("🛡️ Menos Muertes",
+                        String.format("%s - %d muertes", player.getPlayerName(), player.getDeaths()), true));
 
         // Más daño
         allPlayers.stream()
-            .max(Comparator.comparingDouble(MatchLogsManager.PlayerMatchStats::getDamageDealt))
-            .ifPresent(player -> embed.addField("💥 Más Daño",
-                String.format("%s - %.1f daño", player.getPlayerName(), player.getDamageDealt()), true));
+                .max(Comparator.comparingDouble(MatchLogsManager.PlayerMatchStats::getDamageDealt))
+                .ifPresent(player -> embed.addField("💥 Más Daño",
+                        String.format("%s - %.1f daño", player.getPlayerName(), player.getDamageDealt()), true));
 
         // Mejor precisión (solo si disparó flechas)
         allPlayers.stream()
-            .filter(p -> p.getArrowsShot() > 0)
-            .max(Comparator.comparingDouble(MatchLogsManager.PlayerMatchStats::getArrowAccuracy))
-            .ifPresent(player -> embed.addField("🎯 Mejor Precisión",
-                String.format("%s - %.1f%% (%d/%d)",
-                    player.getPlayerName(),
-                    player.getArrowAccuracy(),
-                    player.getArrowsHit(),
-                    player.getArrowsShot()), true));
+                .filter(p -> p.getArrowsShot() > 0)
+                .max(Comparator.comparingDouble(MatchLogsManager.PlayerMatchStats::getArrowAccuracy))
+                .ifPresent(player -> embed.addField("🎯 Mejor Precisión",
+                        String.format("%s - %.1f%% (%d/%d)",
+                                player.getPlayerName(),
+                                player.getArrowAccuracy(),
+                                player.getArrowsHit(),
+                                player.getArrowsShot()), true));
 
         // MVP (más kills + menos muertes)
         allPlayers.stream()
-            .max(Comparator.comparingDouble(p -> (double) p.getKills() - (double) p.getDeaths() * 0.5))
-            .ifPresent(player -> embed.addField("👑 MVP",
-                String.format("%s - K/D: %d/%d",
-                    player.getPlayerName(),
-                    player.getKills(),
-                    player.getDeaths()), true));
+                .max(Comparator.comparingDouble(p -> (double) p.getKills() - (double) p.getDeaths() * 0.5))
+                .ifPresent(player -> embed.addField("👑 MVP",
+                        String.format("%s - K/D: %d/%d",
+                                player.getPlayerName(),
+                                player.getKills(),
+                                player.getDeaths()), true));
 
         return embed;
     }

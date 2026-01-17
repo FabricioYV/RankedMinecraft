@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture;
  * Evita consultas repetidas a la base de datos durante partidas activas
  */
 public class PlayerDataCache {
-    
+
     // Cache de jugadores en memoria con TTL
     private static final Map<String, PlayerData> playerCacheByDiscordId = new ConcurrentHashMap<>();
     private static final Map<String, PlayerData> playerCacheByUuid = new ConcurrentHashMap<>();
@@ -25,10 +25,10 @@ public class PlayerDataCache {
     public static void initialize() {
         // Iniciar limpieza periódica de cache cada 1 minuto (más frecuente para TTL corto)
         Bukkit.getScheduler().runTaskTimerAsynchronously(
-            Bukkit.getPluginManager().getPlugin("RankedMinecraft"), 
-            PlayerDataCache::cleanupExpiredCache, 
-            1200L, // 1 minuto inicial
-            1200L  // cada 1 minuto
+                Bukkit.getPluginManager().getPlugin("RankedMinecraft"),
+                PlayerDataCache::cleanupExpiredCache,
+                1200L, // 1 minuto inicial
+                1200L  // cada 1 minuto
         );
 
         Bukkit.getConsoleSender().sendMessage("§a✅ PlayerDataCache inicializado con TTL de 1 minuto y limpieza cada minuto");
@@ -40,7 +40,7 @@ public class PlayerDataCache {
     private static void cleanupExpiredCache() {
         long currentTime = System.currentTimeMillis();
         int cleanedEntries = 0;
-        
+
         // Limpiar entradas expiradas
         cacheTimestamps.entrySet().removeIf(entry -> {
             if (currentTime - entry.getValue() > CACHE_TTL) {
@@ -55,7 +55,7 @@ public class PlayerDataCache {
             }
             return false;
         });
-        
+
         // ELIMINADO: Log innecesario de limpieza de cache que se ejecuta cada 5 minutos
         // Solo limpiar en silencio, no spam en consola
     }
@@ -65,14 +65,14 @@ public class PlayerDataCache {
      */
     public static void cachePlayer(PlayerData player) {
         if (player == null) return;
-        
+
         long currentTime = System.currentTimeMillis();
-        
+
         if (player.getDiscordId() != null) {
             playerCacheByDiscordId.put(player.getDiscordId(), player);
             cacheTimestamps.put("discord:" + player.getDiscordId(), currentTime);
         }
-        
+
         if (player.getMinecraftUuid() != null) {
             playerCacheByUuid.put(player.getMinecraftUuid(), player);
             cacheTimestamps.put("uuid:" + player.getMinecraftUuid(), currentTime);

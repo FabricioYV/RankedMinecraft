@@ -54,8 +54,8 @@ public class PlayerRejoinListener implements Listener {
 
                 if (playerTeam != null) {
                     logger.info("Rejoin Detectado",
-                        String.format("Jugador %s reconectándose a partida %s en equipo %s",
-                            player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
+                            String.format("Jugador %s reconectándose a partida %s en equipo %s",
+                                    player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
 
                     // Volver al main thread para operaciones de Bukkit
                     Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -114,12 +114,12 @@ public class PlayerRejoinListener implements Listener {
 
             // 4. Log del rejoin
             logger.success("Rejoin Completado",
-                String.format("Jugador %s reconectado exitosamente a %s (Equipo: %s)",
-                    player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
+                    String.format("Jugador %s reconectado exitosamente a %s (Equipo: %s)",
+                            player.getName(), activeMatch.getMatchId(), playerTeam.getDisplayName()));
 
         } catch (Exception e) {
             logger.systemError("PlayerRejoinListener",
-                "Error manejando rejoin de " + player.getName(), e.getMessage());
+                    "Error manejando rejoin de " + player.getName(), e.getMessage());
 
             player.sendMessage("§c❌ Error al reconectarte a la partida. Contacta a un administrador.");
         }
@@ -134,14 +134,14 @@ public class PlayerRejoinListener implements Listener {
 
             // Ejecutar comando de PGM para asignar al equipo (comando correcto: team force)
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                String.format("team force %s %s", player.getName(), teamName));
+                    String.format("team force %s %s", player.getName(), teamName));
 
             logger.debug("PGM Team Assignment",
-                String.format("Comando ejecutado: team force %s %s", player.getName(), teamName));
+                    String.format("Comando ejecutado: team force %s %s", player.getName(), teamName));
 
         } catch (Exception e) {
             logger.error("PGM Assignment Failed",
-                "Error asignando " + player.getName() + " al equipo " + playerTeam.getDisplayName() + ": " + e.getMessage());
+                    "Error asignando " + player.getName() + " al equipo " + playerTeam.getDisplayName() + ": " + e.getMessage());
         }
     }
 
