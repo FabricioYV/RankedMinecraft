@@ -332,6 +332,7 @@ public class ActiveMatch {
 
         logger.success("Partida Limpiada", "Partida " + matchId + " limpiada exitosamente - canales borrados");
     }
+
     private void setupChannelPermissions(VoiceChannel channel, Team team) {
         try {
             List<PlayerData> teamPlayers = teams.get(team);

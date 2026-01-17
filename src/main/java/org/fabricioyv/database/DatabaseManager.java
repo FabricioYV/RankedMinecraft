@@ -585,10 +585,7 @@ public class DatabaseManager {
                 if (rowsAffected > 0) {
                     // Invalidar cache para forzar reload con datos actualizados
                     // Necesitamos obtener el discordId primero
-                    PlayerData player = getPlayerByMinecraftUuidFromDB(minecraftUuid);
-                    if (player != null) {
-                        PlayerDataCache.invalidatePlayer(minecraftUuid, player.getDiscordId());
-                    }
+                    PlayerDataCache.invalidatePlayer(minecraftUuid, null);
                     return;
                 }
 
@@ -1241,4 +1238,45 @@ public class DatabaseManager {
 
         return false;
     }
+    public static class MatchProtectionSnapshot {
+        public final java.util.Set<String> abandonmentProcessed = new java.util.HashSet<>();
+        public final java.util.Set<String> lossProtected = new java.util.HashSet<>();
+    }
+
+    public static MatchProtectionSnapshot getMatchProtectionSnapshot(String matchId) {
+        MatchProtectionSnapshot snap = new MatchProtectionSnapshot();
+
+        String q = """
+        SELECT player_uuid, protection_reason
+        FROM match_loss_protections
+        WHERE match_id = ?
+    """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(q)) {
+
+            ps.setString(1, matchId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String playerUuid = rs.getString("player_uuid");
+                    String reason = rs.getString("protection_reason");
+
+                    if ("abandonment_processed".equalsIgnoreCase(reason)) {
+                        snap.abandonmentProcessed.add(playerUuid);
+                    } else {
+                        // Cualquier otro reason cuenta como “protegido de pérdida”
+                        snap.lossProtected.add(playerUuid);
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error cargando snapshot de protecciones: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return snap;
+    }
+
 }
