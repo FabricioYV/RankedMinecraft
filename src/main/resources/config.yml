@@ -1,0 +1,22 @@
+discord:
+  enabled: true
+  token: "PUT_TOKEN_HERE"
+  guild-id: "PUT_GUILD_ID_HERE"
+
+forfeit:
+  # primeros 3 minutos: /ff bloqueado
+  lock-seconds: 180
+
+  # si hay AFK/DC: deben pasar X segundos desde que se detectó para permitir /ff
+  issue-wait-seconds: 60
+
+  # a los X segundos sin moverse ya cuenta como AFK (y puede kickearse)
+  afk-detect-seconds: 20
+
+  afk-kick:
+    enabled: true
+    message: "&cHas sido expulsado por AFK en partida. &7Si fue un error, vuelve a entrar."
+
+abandonment:
+  # tiempo que permites para que alguien vuelva tras desconexión antes de marcar abandono
+  reconnect-grace-seconds: 120
