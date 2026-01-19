@@ -25,7 +25,7 @@ public class DiscordBot {
             jda = JDABuilder.createDefault(token)
                     .enableIntents(GatewayIntent.GUILD_VOICE_STATES, GatewayIntent.GUILD_MEMBERS)
                     .setStatus(OnlineStatus.ONLINE)
-                    .setActivity(Activity.playing("Administrando las Kekes"))
+                    .setActivity(Activity.playing("Administrando Keke Rankeds"))
                     .setAutoReconnect(true)
                     .setCompression(Compression.ZLIB)
                     .build();
