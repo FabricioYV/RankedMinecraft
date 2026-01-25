@@ -9,6 +9,7 @@ import org.bukkit.entity.Player;
 import org.fabricioyv.config.VoiceChannelConfig;
 import org.fabricioyv.match.Team;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.rating.Rank;
 
 import java.awt.*;
 import java.time.LocalDateTime;
@@ -19,15 +20,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-
-
 public class DiscordLogger {
-    // NUEVO: Zona horaria de Perú (GMT-5) para timestamps consistentes
+
+    // Zona horaria de Perú (GMT-5) para timestamps consistentes
     private static final ZoneId PERU_ZONE = ZoneId.of("America/Lima");
+
+    // Discord nickname max length
+    private static final int DISCORD_NICK_MAX = 32;
 
     private final JDA jda;
     private final TextChannel logsChannel;
     private final TextChannel resultsChannel;
+
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
@@ -74,24 +78,23 @@ public class DiscordLogger {
 
             teamsInfo.append(team == Team.BLUE ? "🔵" : "🔴")
                     .append(" **").append(team.getDisplayName()).append("**")
-                    .append(isWinner ? " 🏆" : " 💔").append("\n");
+                    .append(isWinner ? " 🏆" : " 💔")
+                    .append("\n");
 
             for (PlayerData player : players) {
                 String playerName = getPlayerDisplayName(player);
                 Integer eloChange = eloChanges.get(player.getMinecraftUuid());
-                String statusText = "";
+                String statusText;
 
-                // NUEVO: Verificar si el jugador está en placement
+                // Placement
                 if (player.isInPlacement()) {
                     placementPlayersCount++;
                     int matchesPlayed = player.getPlacementMatchesPlayed();
                     int totalRequired = PlayerData.getPlacementMatchesRequired();
                     statusText = String.format(" 🔍 [%d/%d Evaluación]", matchesPlayed, totalRequired);
                 } else if (eloChange != null) {
-                    // Jugador normal con cambio de ELO
                     statusText = " (" + (eloChange > 0 ? "+" : "") + eloChange + ")";
                 } else {
-                    // Fallback: no debería pasar pero por seguridad
                     statusText = " (Sin cambios)";
                 }
 
@@ -102,24 +105,29 @@ public class DiscordLogger {
 
         embed.addField("👥 Equipos", teamsInfo.toString(), false);
 
-        // Estadísticas de ELO (solo para jugadores no-placement)
+        // Estadísticas de ELO (solo NO-placement)
         Map<String, Integer> rankedEloChanges = new HashMap<>();
         for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
-            // Buscar el jugador para verificar si está en placement
             PlayerData player = findPlayerByUuid(teams, entry.getKey());
             if (player != null && !player.isInPlacement()) {
                 rankedEloChanges.put(entry.getKey(), entry.getValue());
             }
         }
 
-        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
-        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
+        int totalEloGained = rankedEloChanges.values().stream()
+                .filter(change -> change > 0)
+                .mapToInt(Integer::intValue)
+                .sum();
+
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream()
+                .filter(change -> change < 0)
+                .mapToInt(Integer::intValue)
+                .sum());
 
         embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
         embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
         embed.addField("⚖️ ELO Neto", "0", true);
 
-        // NUEVO: Información de placement si hay jugadores en evaluación
         if (placementPlayersCount > 0) {
             embed.addField("🔍 En Evaluación",
                     placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
@@ -133,8 +141,9 @@ public class DiscordLogger {
 
         updateDiscordNicknames(eloChanges, teams);
     }
+
     /**
-     * NUEVO: Log detallado de finalización de partida CON INFORMACIÓN DE CAPITANES
+     * Log detallado de finalización de partida CON INFORMACIÓN DE CAPITANES
      */
     public void matchComplete(String matchId, String matchType, String mapName,
                               Team winnerTeam, Map<Team, List<PlayerData>> teams,
@@ -153,21 +162,18 @@ public class DiscordLogger {
         embed.addField("⏱️ Duración", formatDuration(durationSeconds), true);
         embed.addField("📊 Jugadores", String.valueOf(teams.values().stream().mapToInt(List::size).sum()), true);
 
-        // NUEVO: Mostrar tipo de formación de equipos
         String teamFormation = isPicksMatch ? "🎯 Sistema de Picks" : "⚖️ Balanceo Automático";
         embed.addField("🔄 Formación", teamFormation, true);
 
-        // NUEVO: Mostrar capitanes si fue partida de picks
         if (isPicksMatch && blueCaptain != null && redCaptain != null) {
             String captainsInfo = String.format("🔵 **%s**\n🔴 **%s**",
                     getPlayerDisplayName(blueCaptain),
                     getPlayerDisplayName(redCaptain));
             embed.addField("👨‍✈️ Capitanes", captainsInfo, true);
         } else {
-            embed.addField("", "", true); // Campo vacío para mantener el layout
+            embed.addField("", "", true);
         }
 
-        // Equipos y estadísticas (MODIFICADO para mostrar capitanes)
         StringBuilder teamsInfo = new StringBuilder();
         int placementPlayersCount = 0;
 
@@ -176,9 +182,7 @@ public class DiscordLogger {
             List<PlayerData> players = entry.getValue();
             boolean isWinner = team == winnerTeam;
 
-            // Mostrar nombre del equipo con capitán si aplica
-            String teamHeader = team == Team.BLUE ? "🔵" : "🔴";
-            teamHeader += " **" + team.getDisplayName() + "**";
+            String teamHeader = (team == Team.BLUE ? "🔵" : "🔴") + " **" + team.getDisplayName() + "**";
 
             if (isPicksMatch) {
                 PlayerData captain = team == Team.BLUE ? blueCaptain : redCaptain;
@@ -193,26 +197,22 @@ public class DiscordLogger {
             for (PlayerData player : players) {
                 String playerName = getPlayerDisplayName(player);
                 Integer eloChange = eloChanges.get(player.getMinecraftUuid());
-                String statusText = "";
 
-                // Marcar capitán con emoji especial
                 String captainIndicator = "";
                 if (isPicksMatch && ((team == Team.BLUE && player.equals(blueCaptain)) ||
                         (team == Team.RED && player.equals(redCaptain)))) {
                     captainIndicator = " 👨‍✈️";
                 }
 
-                // NUEVO: Verificar si el jugador está en placement
+                String statusText;
                 if (player.isInPlacement()) {
                     placementPlayersCount++;
                     int matchesPlayed = player.getPlacementMatchesPlayed();
                     int totalRequired = PlayerData.getPlacementMatchesRequired();
                     statusText = String.format(" 🔍 [%d/%d Evaluación]", matchesPlayed, totalRequired);
                 } else if (eloChange != null) {
-                    // Jugador normal con cambio de ELO
                     statusText = " (" + (eloChange > 0 ? "+" : "") + eloChange + ")";
                 } else {
-                    // Fallback: no debería pasar pero por seguridad
                     statusText = " (Sin cambios)";
                 }
 
@@ -223,24 +223,29 @@ public class DiscordLogger {
 
         embed.addField("👥 Equipos", teamsInfo.toString(), false);
 
-        // Estadísticas de ELO (solo para jugadores no-placement)
+        // Estadísticas de ELO (solo NO-placement)
         Map<String, Integer> rankedEloChanges = new HashMap<>();
         for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
-            // Buscar el jugador para verificar si está en placement
             PlayerData player = findPlayerByUuid(teams, entry.getKey());
             if (player != null && !player.isInPlacement()) {
                 rankedEloChanges.put(entry.getKey(), entry.getValue());
             }
         }
 
-        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
-        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
+        int totalEloGained = rankedEloChanges.values().stream()
+                .filter(change -> change > 0)
+                .mapToInt(Integer::intValue)
+                .sum();
+
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream()
+                .filter(change -> change < 0)
+                .mapToInt(Integer::intValue)
+                .sum());
 
         embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
         embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
         embed.addField("⚖️ ELO Neto", "0", true);
 
-        // NUEVO: Información de placement si hay jugadores en evaluación
         if (placementPlayersCount > 0) {
             embed.addField("🔍 En Evaluación",
                     placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
@@ -254,6 +259,7 @@ public class DiscordLogger {
 
         updateDiscordNicknames(eloChanges, teams);
     }
+
     /**
      * Log específico para cambios de ELO
      */
@@ -278,125 +284,65 @@ public class DiscordLogger {
             }
         }
 
-        if (winners.length() > 0) {
-            embed.addField("📈 Ganadores", winners.toString(), true);
-        }
-        if (losers.length() > 0) {
-            embed.addField("📉 Perdedores", losers.toString(), true);
-        }
+        if (winners.length() > 0) embed.addField("📈 Ganadores", winners.toString(), true);
+        if (losers.length() > 0) embed.addField("📉 Perdedores", losers.toString(), true);
 
         embed.setTimestamp(java.time.Instant.now());
         sendEmbedToResults(embed);
     }
 
-    /**
-     */
     private void sendEmbedToResults(EmbedBuilder embed) {
         if (resultsChannel == null) {
             System.err.println("❌ No se puede enviar resultado: Canal de resultados no disponible");
             return;
         }
 
-        // Enviar de forma asíncrona para no bloquear el hilo principal
         CompletableFuture.runAsync(() -> {
             try {
                 resultsChannel.sendMessageEmbeds(embed.build()).queue(
-                        success -> {
-                            // Resultado enviado exitosamente
-                        },
-                        error -> {
-                            System.err.println("❌ Error enviando resultado a Discord: " + error.getMessage());
-                        }
+                        success -> {},
+                        error -> System.err.println("❌ Error enviando resultado a Discord: " + error.getMessage())
                 );
             } catch (Exception e) {
                 System.err.println("❌ Error inesperado enviando resultado: " + e.getMessage());
             }
         });
     }
-    /**
-     * Formatea la duración en formato legible
-     */
+
     private String formatDuration(long seconds) {
         long minutes = seconds / 60;
         long remainingSeconds = seconds % 60;
-
-        if (minutes > 0) {
-            return String.format("%dm %ds", minutes, remainingSeconds);
-        } else {
-            return String.format("%ds", seconds);
-        }
+        return (minutes > 0) ? String.format("%dm %ds", minutes, remainingSeconds) : String.format("%ds", seconds);
     }
-    /**
-     * Obtiene el nombre de display de un jugador
-     */
+
     private String getPlayerDisplayName(PlayerData player) {
         try {
-            org.bukkit.entity.Player mcPlayer = org.bukkit.Bukkit.getPlayer(
-                    java.util.UUID.fromString(player.getMinecraftUuid())
-            );
-            if (mcPlayer != null) {
-                return mcPlayer.getName();
-            }
+            Player mcPlayer = org.bukkit.Bukkit.getPlayer(java.util.UUID.fromString(player.getMinecraftUuid()));
+            if (mcPlayer != null) return mcPlayer.getName();
 
-            net.dv8tion.jda.api.entities.Member discordMember =
-                    jda.getGuilds().get(0).getMemberById(player.getDiscordId());
-            if (discordMember != null) {
-                return discordMember.getEffectiveName();
+            Guild guild = getPrimaryGuild();
+            if (guild != null) {
+                Member discordMember = guild.getMemberById(player.getDiscordId());
+                if (discordMember != null) return discordMember.getEffectiveName();
             }
-        } catch (Exception e) {
-            // Fallback
-        }
+        } catch (Exception ignored) {}
 
         return "UUID:" + player.getMinecraftUuid().substring(0, 8);
     }
 
-    /**
-     * Obtiene el nombre de un jugador por UUID
-     */
     private String getPlayerNameByUuid(String uuid) {
         try {
-            org.bukkit.entity.Player mcPlayer = org.bukkit.Bukkit.getPlayer(java.util.UUID.fromString(uuid));
-            if (mcPlayer != null) {
-                return mcPlayer.getName();
-            }
-        } catch (Exception e) {
-            // Fallback
-        }
+            Player mcPlayer = org.bukkit.Bukkit.getPlayer(java.util.UUID.fromString(uuid));
+            if (mcPlayer != null) return mcPlayer.getName();
+        } catch (Exception ignored) {}
         return "UUID:" + uuid.substring(0, 8);
     }
 
+    public void info(String title, String description) { sendLog(LogLevel.INFO, title, description, Color.BLUE); }
+    public void warning(String title, String description) { sendLog(LogLevel.WARNING, title, description, Color.ORANGE); }
+    public void error(String title, String description) { sendLog(LogLevel.ERROR, title, description, Color.RED); }
+    public void success(String title, String description) { sendLog(LogLevel.SUCCESS, title, description, Color.GREEN); }
 
-    /**
-     * Log de información general
-     */
-    public void info(String title, String description) {
-        sendLog(LogLevel.INFO, title, description, Color.BLUE);
-    }
-
-    /**
-     * Log de advertencias
-     */
-    public void warning(String title, String description) {
-        sendLog(LogLevel.WARNING, title, description, Color.ORANGE);
-    }
-
-    /**
-     * Log de errores
-     */
-    public void error(String title, String description) {
-        sendLog(LogLevel.ERROR, title, description, Color.RED);
-    }
-
-    /**
-     * Log de éxito
-     */
-    public void success(String title, String description) {
-        sendLog(LogLevel.SUCCESS, title, description, Color.GREEN);
-    }
-
-    /**
-     * Log específico para eventos de cola
-     */
     public void queueEvent(String playerName, String discordId, String action, String details) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("🎮 Evento de Cola");
@@ -406,13 +352,9 @@ public class DiscordLogger {
         embed.addField("⚡ Acción", action, true);
         embed.addField("📝 Detalles", details, false);
         embed.setTimestamp(java.time.Instant.now());
-
         sendEmbed(embed);
     }
 
-    /**
-     * Log específico para eventos de partidas
-     */
     public void matchEvent(String matchId, String event, String details, int playerCount) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("⚔️ Evento de Partida");
@@ -422,13 +364,9 @@ public class DiscordLogger {
         embed.addField("🎯 Evento", event, true);
         embed.addField("📝 Detalles", details, false);
         embed.setTimestamp(java.time.Instant.now());
-
         sendEmbed(embed);
     }
 
-    /**
-     * Log específico para errores de sistema
-     */
     public void systemError(String component, String error, String stackTrace) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("🚨 Error del Sistema");
@@ -436,9 +374,8 @@ public class DiscordLogger {
         embed.addField("🔧 Componente", component, true);
         embed.addField("❌ Error", error, false);
 
-        if (stackTrace != null && stackTrace.length() > 0) {
-            String truncatedStack = stackTrace.length() > 1000 ?
-                    stackTrace.substring(0, 1000) + "..." : stackTrace;
+        if (stackTrace != null && !stackTrace.isEmpty()) {
+            String truncatedStack = stackTrace.length() > 1000 ? stackTrace.substring(0, 1000) + "..." : stackTrace;
             embed.addField("📋 Stack Trace", "```\n" + truncatedStack + "\n```", false);
         }
 
@@ -446,70 +383,55 @@ public class DiscordLogger {
         sendEmbed(embed);
     }
 
-    /**
-     * Log de inicio del sistema
-     */
     public void systemStart() {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("🚀 Sistema Iniciado");
         embed.setDescription("RankedMinecraft ha sido iniciado exitosamente");
         embed.setColor(Color.GREEN);
-        embed.addField("⏰ Tiempo", DATE_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true); // CORREGIDO: Zona horaria de Perú
+        embed.addField("⏰ Tiempo", DATE_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true);
         embed.addField("🔧 Estado", "Operativo", true);
         embed.setTimestamp(java.time.Instant.now());
-
         sendEmbed(embed);
     }
 
-
-    /**
-     * Metodo generico para enviar logs.
-     */
     private void sendLog(LogLevel level, String title, String description, Color color) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle(level.getEmoji() + " " + title);
         embed.setDescription(description);
         embed.setColor(color);
-        embed.addField("⏰ Hora", TIME_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true); // CORREGIDO: Zona horaria de Perú
+        embed.addField("⏰ Hora", TIME_FORMAT.format(LocalDateTime.now(PERU_ZONE)), true);
         embed.addField("📊 Nivel", level.name(), true);
         embed.setTimestamp(java.time.Instant.now());
-
         sendEmbed(embed);
     }
 
-    /**
-     */
     private void sendEmbed(EmbedBuilder embed) {
         if (logsChannel == null) {
             System.err.println("❌ No se puede enviar log: Canal de logs no disponible");
             return;
         }
 
-        // Enviar de forma asíncrona para no bloquear el hilo principal
         CompletableFuture.runAsync(() -> {
             try {
                 logsChannel.sendMessageEmbeds(embed.build()).queue(
-                        success -> {
-                            // Log enviado exitosamente
-                        },
-                        error -> {
-                            System.err.println("❌ Error enviando log a Discord: " + error.getMessage());
-                        }
+                        success -> {},
+                        error -> System.err.println("❌ Error enviando log a Discord: " + error.getMessage())
                 );
             } catch (Exception e) {
                 System.err.println("❌ Error inesperado enviando log: " + e.getMessage());
             }
         });
     }
-    public void updateDiscordNicknames(Map<String, Integer> eloChanges, Map<Team, List<PlayerData>> teams) {
-        if (eloChanges == null || teams == null || jda == null) {
-            return;
-        }
 
-        Guild guild = jda.getGuilds().isEmpty() ? null : jda.getGuilds().get(0);
-        if (guild == null) {
-            return;
-        }
+    /**
+     * Actualiza apodos Discord:
+     * Formato: [Rango] Nickmc
+     */
+    public void updateDiscordNicknames(Map<String, Integer> eloChanges, Map<Team, List<PlayerData>> teams) {
+        if (eloChanges == null || teams == null || jda == null) return;
+
+        Guild guild = getPrimaryGuild();
+        if (guild == null) return;
 
         for (Map.Entry<Team, List<PlayerData>> teamEntry : teams.entrySet()) {
             List<PlayerData> players = teamEntry.getValue();
@@ -517,55 +439,69 @@ public class DiscordLogger {
 
             for (PlayerData player : players) {
                 try {
-                    Member member = guild.getMemberById(player.getDiscordId());
-                    if (member == null) continue;
+                    if (player == null) continue;
 
-                    // Verificar que hubo cambio de ELO (skip jugadores en placement)
+                    // No renombrar placements
+                    if (player.isInPlacement()) continue;
+
+                    String discordId = player.getDiscordId();
+                    if (discordId == null || discordId.isEmpty()) continue;
+
+                    // Solo si participó / tiene delta
                     Integer eloChange = eloChanges.get(player.getMinecraftUuid());
                     if (eloChange == null) continue;
 
-                    // CORREGIDO: Usar el ELO actualizado directamente de PlayerData
-                    // que ya fue actualizado por MatchFinisher con los valores de la BD
-                    int currentElo = player.getElo();
+                    Member member = guild.getMemberById(discordId);
+                    if (member == null) continue;
 
-                    // Obtener nombre de Minecraft del jugador
                     String minecraftName = getMinecraftPlayerName(player.getMinecraftUuid());
                     if (minecraftName == null || minecraftName.isEmpty()) continue;
 
-                    // Crear nuevo apodo con formato: minecraft_name [ELO]
-                    String newNickname = String.format("%s [%d]", minecraftName, currentElo);
+                    int currentElo = player.getElo();
 
-                    // Actualizar apodo si es diferente
-                    String currentNickname = member.getNickname();
-                    if (!newNickname.equals(currentNickname)) {
-                        member.modifyNickname(newNickname).queue(
-                                success -> info("Apodo Actualizado",
-                                        String.format("Apodo de %s actualizado a: %s", minecraftName, newNickname)),
-                                error -> warning("Error Actualizando Apodo",
-                                        String.format("No se pudo actualizar apodo de %s: %s", minecraftName, error.getMessage()))
-                        );
-                    }
+                    // Rango real desde tu enum
+                    Rank rank = Rank.getRankByElo(currentElo);
+                    String rankName = (rank != null) ? rank.getDisplayName() : "Cobre III";
+
+                    String desiredNick = truncateDiscordNick(String.format("[%s] %s", rankName, minecraftName));
+
+                    String currentNick = member.getNickname();
+                    if (currentNick == null) currentNick = member.getEffectiveName();
+
+                    if (desiredNick.equals(currentNick)) continue;
+
+                    member.modifyNickname(desiredNick).queue(
+                            ok -> {}, // sin spam de logs
+                            err -> warning("Error Actualizando Apodo",
+                                    String.format("No se pudo actualizar apodo de %s: %s", minecraftName, err.getMessage()))
+                    );
 
                 } catch (Exception e) {
-                    systemError("DiscordLogger",
-                            "Error actualizando apodo de jugador", e.getMessage());
+                    systemError("DiscordLogger", "Error actualizando apodo de jugador", e.getMessage());
                 }
             }
         }
     }
 
+    private String truncateDiscordNick(String nick) {
+        if (nick == null) return null;
+        return nick.length() > DISCORD_NICK_MAX ? nick.substring(0, DISCORD_NICK_MAX) : nick;
+    }
+
     private String getMinecraftPlayerName(String minecraftUuid) {
         try {
-            Player mcPlayer = org.bukkit.Bukkit.getPlayer(
-                    java.util.UUID.fromString(minecraftUuid)
-            );
-            if (mcPlayer != null) {
-                return mcPlayer.getName();
-            }
-        } catch (Exception e) {
-            // Fallback to UUID if player not found
-        }
+            Player mcPlayer = org.bukkit.Bukkit.getPlayer(java.util.UUID.fromString(minecraftUuid));
+            if (mcPlayer != null) return mcPlayer.getName();
+        } catch (Exception ignored) {}
         return null;
+    }
+
+    private Guild getPrimaryGuild() {
+        try {
+            return (jda != null && !jda.getGuilds().isEmpty()) ? jda.getGuilds().get(0) : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     public void debug(String balanceDetallado, String balanceReport) {
@@ -575,18 +511,13 @@ public class DiscordLogger {
         embed.addField("📝 Balance Detallado", "```\n" + balanceDetallado + "\n```", false);
         embed.addField("📊 Balance Report", "```\n" + balanceReport + "\n```", false);
         embed.setTimestamp(java.time.Instant.now());
-
         sendEmbed(embed);
     }
 
     public void matchDraw(String matchId, String matchType, String selectedMap, Map<Team, List<PlayerData>> teams, long durationSeconds) {
-
+        // pendiente si quieres implementar
     }
 
-
-    /**
-     * Enum para niveles de log
-     */
     public enum LogLevel {
         INFO("ℹ️"),
         WARNING("⚠️"),
@@ -604,13 +535,14 @@ public class DiscordLogger {
         }
     }
 
-    /**
-     * Busca un jugador por UUID en los equipos
-     */
     private PlayerData findPlayerByUuid(Map<Team, List<PlayerData>> teams, String uuid) {
+        if (teams == null || uuid == null) return null;
+
         for (List<PlayerData> teamPlayers : teams.values()) {
+            if (teamPlayers == null) continue;
+
             for (PlayerData player : teamPlayers) {
-                if (player.getMinecraftUuid().equals(uuid)) {
+                if (player != null && uuid.equals(player.getMinecraftUuid())) {
                     return player;
                 }
             }
@@ -618,21 +550,17 @@ public class DiscordLogger {
         return null;
     }
 
-    /**
-     * Log específico para errores con excepción
-     */
     public void logError(String message, Throwable throwable) {
-        String errorDetails = message;
+        String errorDetails = message != null ? message : "Error";
+
         if (throwable != null) {
             errorDetails += "\nError: " + throwable.getMessage();
 
-            // Obtener stack trace limitado
             java.io.StringWriter sw = new java.io.StringWriter();
             java.io.PrintWriter pw = new java.io.PrintWriter(sw);
             throwable.printStackTrace(pw);
             String stackTrace = sw.toString();
 
-            // Limitar el stack trace para Discord
             if (stackTrace.length() > 800) {
                 stackTrace = stackTrace.substring(0, 800) + "...";
             }

@@ -60,6 +60,99 @@ public class MatchStatsListener implements Listener {
     private static final Map<UUID, Long> lastValidation = new ConcurrentHashMap<>(48);
     private static final long VALIDATION_INTERVAL = 30000; // 30 segundos
 
+    // ========================================
+    // ✅ 2V2 UNRANKED: BLOQUEO TOTAL DE STATS/LOGS
+    // ========================================
+    private static final Map<String, Boolean> matchIs2v2Cache = new ConcurrentHashMap<>(16);
+
+    private static boolean is2v2MatchCached(String matchId) {
+        // Revalidar con ActiveMatch si existe para evitar falsos positivos que rompan 5v5/8v8
+        try {
+            ActiveMatch activeMatch = ActiveMatch.getActiveMatch(matchId);
+            if (activeMatch != null) {
+                return activeMatch.isUnrankedMatch();
+            }
+        } catch (Exception ignored) {}
+
+        Boolean cached = matchIs2v2Cache.get(matchId);
+        return cached != null && cached;
+    }
+
+
+    /**
+     * Detecta 2v2 por equipos: total 4 jugadores y 2 por team.
+     * Usa solo info disponible (playerTeams o ActiveMatch teams).
+     */
+    private static boolean is2v2FromPlayerTeams(Map<String, String> playerTeams) {
+        if (playerTeams == null) return false;
+        if (playerTeams.size() != 4) return false;
+
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        for (String team : playerTeams.values()) {
+            if (team == null) continue;
+            counts.put(team, counts.getOrDefault(team, 0) + 1);
+        }
+
+        if (counts.size() != 2) return false;
+        for (int c : counts.values()) {
+            if (c != 2) return false;
+        }
+        return true;
+    }
+
+    private static boolean is2v2FromActiveMatch(ActiveMatch m) {
+        if (m == null) return false;
+
+        try {
+            int total = 0;
+            int teamsWithPlayers = 0;
+            boolean anyOver2 = false;
+
+            for (Map.Entry<org.fabricioyv.match.Team, java.util.List<PlayerData>> e : m.getTeams().entrySet()) {
+                int s = (e.getValue() == null) ? 0 : e.getValue().size();
+                if (s > 0) teamsWithPlayers++;
+                if (s > 2) anyOver2 = true;
+                total += s;
+            }
+
+            return total == 4 && teamsWithPlayers == 2 && !anyOver2;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void cache2v2ByMatchId(String matchId) {
+        // Si ya está cacheado como TRUE, no lo tocamos
+        Boolean cached = matchIs2v2Cache.get(matchId);
+        if (cached != null && cached) return;
+
+        boolean is2v2 = false;
+
+        // ✅ Fuente de verdad: ActiveMatch (matchType "2v2")
+        try {
+            ActiveMatch activeMatch = ActiveMatch.getActiveMatch(matchId);
+            if (activeMatch != null) {
+                is2v2 = activeMatch.isUnrankedMatch();
+            } else {
+                // Fallback: buscar en matches activos (por si el mapa aún no registró el matchId)
+                for (ActiveMatch m : ActiveMatch.getAllActiveMatches()) {
+                    if (m != null && matchId.equals(m.getMatchId())) {
+                        is2v2 = m.isUnrankedMatch();
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Solo si no se pudo confirmar con ActiveMatch, usamos el heurístico (evita falsos positivos)
+        if (!is2v2 && cached == null) {
+            // (No hacemos nada aquí: preferimos NO marcar como 2v2 si no estamos seguros)
+        }
+
+        matchIs2v2Cache.put(matchId, is2v2);
+    }
+
+
     // Estructura optimizada para cache híbrido
     private static class CacheEntry {
         final String matchId;
@@ -121,6 +214,10 @@ public class MatchStatsListener implements Listener {
             }
         }
 
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
+
         // **VERIFICACIÓN Y AUTO-INICIALIZACIÓN**: Si el match no existe en stats, inicializarlo
         if (!activeMatchStats.containsKey(matchId)) {
             // Intentar auto-inicializar las estadísticas para este match
@@ -158,6 +255,10 @@ public class MatchStatsListener implements Listener {
 
         String matchId = playerMatchCache.get(player.getUniqueId());
         if (matchId == null) return;
+
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
 
         // Encolar actualización de stats directamente
         damageQueue.offer(new DamageEvent(player.getUniqueId(), null, 0, matchId, false, true));
@@ -208,6 +309,9 @@ public class MatchStatsListener implements Listener {
      */
     private static void processDamageEventAsync(DamageEvent event) {
         try {
+            // ✅ 2v2 UNRANKED: NO STATS
+            if (is2v2MatchCached(event.matchId)) return;
+
             Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(event.matchId);
             if (matchStats == null) return;
 
@@ -274,6 +378,24 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Inicializar estadísticas para nueva partida
      */
     public static void initializeMatchStats(String matchId, Map<String, String> playerTeams) {
+
+        // ✅ 2v2 UNRANKED: NO inicializar stats/logs/caches (pero confirmado por ActiveMatch para no romper 5v5/8v8)
+        boolean is2v2 = false;
+        try {
+            ActiveMatch am = ActiveMatch.getActiveMatch(matchId);
+            if (am != null) {
+                is2v2 = am.isUnrankedMatch();
+            } else if (playerTeams != null && playerTeams.size() == 4) {
+                // fallback SOLO si realmente parecen 4 jugadores (evita falsos positivos por picks incompletos)
+                is2v2 = is2v2FromPlayerTeams(playerTeams);
+            }
+        } catch (Exception ignored) {}
+
+        matchIs2v2Cache.put(matchId, is2v2);
+        if (is2v2) {
+            Bukkit.getConsoleSender().sendMessage("§7[MatchStats] 2v2 UNRANKED -> skip initializeMatchStats " + matchId);
+            return;
+        }
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = new ConcurrentHashMap<>();
 
         // **LOGGING CRÍTICO**: Verificar que se está llamando correctamente
@@ -365,6 +487,14 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Finalizar estadísticas (llamado desde MatchFinisher)
      */
     public static Map<UUID, MatchLogsManager.PlayerMatchStats> finalizeMatchStats(String matchId) {
+
+        // ✅ 2v2 UNRANKED: NO finalizar ni loggear
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) {
+            Bukkit.getConsoleSender().sendMessage("§7[MatchStats] 2v2 UNRANKED -> skip finalizeMatchStats " + matchId);
+            return null;
+        }
+
         // **LOGGING CRÍTICO**: Verificar el estado antes de finalizar
         Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
 
@@ -442,6 +572,10 @@ public class MatchStatsListener implements Listener {
      * Registrar muerte de jugador (llamado desde PGM listener)
      */
     public static void recordPlayerDeath(String matchId, UUID playerUuid, UUID killerUuid) {
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
+
         // ENCOLADO ASÍNCRONO (no bloquea)
         CompletableFuture.runAsync(() -> {
             Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
@@ -564,6 +698,9 @@ public class MatchStatsListener implements Listener {
                     "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
                     matchId, stats.size()));
         }
+
+        // ✅ 2v2 cache cleanup
+        matchIs2v2Cache.remove(matchId);
     }
 
     // ========================================
@@ -634,6 +771,9 @@ public class MatchStatsListener implements Listener {
         playerDataCache.clear();
         activeMatchStats.clear();
         hybridPlayerCache.clear();
+
+        // ✅ 2v2 cache cleanup
+        matchIs2v2Cache.clear();
     }
 
     // ========================================
@@ -771,6 +911,11 @@ public class MatchStatsListener implements Listener {
                     if (playerData.getMinecraftUuid().equals(playerUuid.toString())) {
                         String matchId = activeMatch.getMatchId();
 
+                        // ✅ 2v2 UNRANKED: NO cachear ni activar stats
+                        boolean is2v2 = is2v2FromActiveMatch(activeMatch);
+                        matchIs2v2Cache.put(matchId, is2v2);
+                        if (is2v2) return null;
+
                         // **ACTUALIZACIÓN AUTOMÁTICA**: Agregar al cache inmediatamente
                         playerMatchCache.put(playerUuid, matchId);
 
@@ -803,6 +948,11 @@ public class MatchStatsListener implements Listener {
 
             if (targetMatch == null) return false;
 
+            // ✅ 2v2 UNRANKED: NO auto-inicializar
+            boolean is2v2 = is2v2FromActiveMatch(targetMatch);
+            matchIs2v2Cache.put(matchId, is2v2);
+            if (is2v2) return false;
+
             // Crear mapa de jugador → equipo
             Map<String, String> playerTeams = new java.util.HashMap<>();
 
@@ -812,6 +962,11 @@ public class MatchStatsListener implements Listener {
                     playerTeams.put(playerData.getMinecraftUuid(), teamName);
                 }
             }
+
+            // ✅ (extra) si por playerTeams es 2v2, bloquear también
+            boolean is2v2ByTeams = is2v2FromPlayerTeams(playerTeams);
+            matchIs2v2Cache.put(matchId, is2v2ByTeams);
+            if (is2v2ByTeams) return false;
 
             // Inicializar usando el método existente
             initializeMatchStats(matchId, playerTeams);

@@ -27,8 +27,36 @@ import java.util.*;
 
 public class MatchFinisher {
 
+    /**
+     * Resolver defensivo del MatchType.
+     * Evita NPEs cuando ActiveMatch.getMatchTypeEnum() viene null y permite detectar 2v2 correctamente.
+     */
+    private static ProgressiveEloCalculator.MatchType resolveMatchType(ActiveMatch activeMatch) {
+        ProgressiveEloCalculator.MatchType mt = null;
+        try {
+            mt = activeMatch.getMatchTypeEnum();
+        } catch (Exception ignored) {}
+
+        if (mt != null) return mt;
+
+        String raw = null;
+        try {
+            raw = activeMatch.getMatchType(); // suele ser "ranked_5v5", "ranked_2v2", etc.
+        } catch (Exception ignored) {}
+
+        return ProgressiveEloCalculator.MatchType.fromKey(raw);
+    }
+
+
     public static void finishMatch(ActiveMatch activeMatch, Team winnerTeam, RankedMinecraft plugin, DiscordLogger logger){
         String matchId = activeMatch.getMatchId();
+        // 🔒 Registrar tipo de match para cortar logs/stats en 2v2 unranked (match_logs)
+        try {
+            String mtRaw = null;
+            try { mtRaw = activeMatch.getMatchType(); } catch (Exception ignored) {}
+            MatchLogsManager.markMatchType(matchId, mtRaw);
+        } catch (Exception ignored) {}
+
         long startTime = System.currentTimeMillis();
 
         // ESTABLECER EL GANADOR EN ACTIVEMATCH
@@ -131,13 +159,20 @@ public class MatchFinisher {
                 Duration matchDuration = Duration.between(activeMatch.getStartTime(), LocalDateTime.now());
                 long durationSeconds = matchDuration.getSeconds();
 
-                Map<String, Integer> eloChanges = updatePlayerStatistics(activeMatch, winnerTeam, logger, plugin);
+
+                boolean ratedQueue = !activeMatch.isUnrankedMatch();
+
+                Map<String, Integer> eloChanges = ratedQueue
+                        ? updatePlayerStatistics(activeMatch, winnerTeam, logger, plugin)
+                        : java.util.Collections.emptyMap();
 
                 sendDiscordResults(activeMatch, winnerTeam, eloChanges, durationSeconds, logger);
 
                 // ✅ NUEVO: snapshot en async (1 query)
-                DatabaseManager.MatchProtectionSnapshot protectionSnap =
-                        DatabaseManager.getMatchProtectionSnapshot(activeMatch.getMatchId());
+
+                DatabaseManager.MatchProtectionSnapshot protectionSnap = ratedQueue
+                        ? DatabaseManager.getMatchProtectionSnapshot(activeMatch.getMatchId())
+                        : null;
 
                 // ✅ Mensajes en main thread SIN DB
                 Bukkit.getScheduler().runTask(plugin, () -> {
@@ -173,16 +208,47 @@ public class MatchFinisher {
         Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
 
         // Obtener tipo de partida
-        ProgressiveEloCalculator.MatchType matchType = activeMatch.getMatchTypeEnum();
+        ProgressiveEloCalculator.MatchType matchType = resolveMatchType(activeMatch);
+
+
+        // ✅ 2v2 = UNRANKED: NO se actualiza ELO/MMR/Stats/Placement
+        if (activeMatch.isUnrankedMatch()) {
+            logger.info("2v2 Unranked",
+                    "Cola 2v2 detectada: se omite actualización de ELO/MMR/estadísticas/placement.");
+            return java.util.Collections.emptyMap();
+        }
+
+
+        // Snapshot de protecciones del match
+        // - abandonmentProcessed: jugadores ya penalizados por abandono (doble loss, etc.)
+        // - lossProtected: jugadores cuya derrota NO debe contar como match ("cola vacía")
+        DatabaseManager.MatchProtectionSnapshot protectionSnap = null;
+        try {
+            protectionSnap = DatabaseManager.getMatchProtectionSnapshot(activeMatch.getMatchId());
+        } catch (Exception ignored) {}
+
+        final Set<String> abandonmentProcessedSet =
+                protectionSnap != null && protectionSnap.abandonmentProcessed != null
+                        ? protectionSnap.abandonmentProcessed
+                        : java.util.Collections.emptySet();
+
+        final Set<String> lossProtectedSet =
+                protectionSnap != null && protectionSnap.lossProtected != null
+                        ? protectionSnap.lossProtected
+                        : java.util.Collections.emptySet();
 
         // Calcular MMR promedio de cada equipo para balanceo
         double blueTeamAvgMMR = MMRCalculator.calculateAverageMMR(teams.get(Team.BLUE));
         double redTeamAvgMMR = MMRCalculator.calculateAverageMMR(teams.get(Team.RED));
 
+        String mtName = (matchType != null ? matchType.getDisplayName() : "unknown");
+        double winMult = (matchType != null ? matchType.getWinMultiplier() : 1.0);
+        double lossMult = (matchType != null ? matchType.getLossMultiplier() : 1.0);
+
         logger.info("Match Type & Team Analysis",
                 String.format("Tipo: %s | Azul: %.1f MMR, Rojo: %.1f MMR | Modificadores: Win x%.2f, Loss x%.2f",
-                        matchType.getDisplayName(), blueTeamAvgMMR, redTeamAvgMMR,
-                        matchType.getWinMultiplier(), matchType.getLossMultiplier()));
+                        mtName, blueTeamAvgMMR, redTeamAvgMMR,
+                        winMult, lossMult));
 
         // **CRÍTICO FIX**: ESTABLECER RESULTADOS ANTES DE FINALIZAR ESTADÍSTICAS
         MatchLogsIntegration.setMatchResults(activeMatch.getMatchId(), teams, winnerTeam);
@@ -215,16 +281,6 @@ public class MatchFinisher {
 
         // Cache stats
         final Map<UUID, MatchLogsManager.PlayerMatchStats> statsCache = finalizedStats;
-
-        // ✅ NUEVO: Snapshot 1 sola vez (NO SQL por jugador)
-        DatabaseManager.MatchProtectionSnapshot protectionSnap =
-                DatabaseManager.getMatchProtectionSnapshot(activeMatch.getMatchId());
-
-        final Set<String> abandonmentProcessedSet =
-                protectionSnap != null ? protectionSnap.abandonmentProcessed : java.util.Collections.emptySet();
-
-        final Set<String> lossProtectedSet =
-                protectionSnap != null ? protectionSnap.lossProtected : java.util.Collections.emptySet();
 
         // Procesar cada equipo
         for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
@@ -265,12 +321,23 @@ public class MatchFinisher {
                         continue;
                     }
 
-                    // ✅ (2) PROTEGIDO DE PÉRDIDA: si perdió, no aplicar cambios negativos
+                    // ✅ (2) PROTEGIDO DE PÉRDIDA = "cola vacía" (sin ELO/MMR/placement/win-loss)
+                    // - NO cambia ELO
+                    // - NO cambia MMR
+                    // - NO cuenta placement
+                    // - NO cuenta win/loss (no cuenta como partida)
                     boolean isProtectedFromLoss = lossProtectedSet.contains(uuid);
 
                     if (isProtectedFromLoss && !won) {
-                        logger.info("Jugador Protegido De Pérdida",
-                                String.format("Jugador %s (%s) protegido de pérdida - sin penalización",
+                        Player mcPlayer = Bukkit.getPlayer(UUID.fromString(uuid));
+                        if (mcPlayer != null && mcPlayer.isOnline()) {
+                            mcPlayer.sendMessage("§a✅ Protegido por abandono de compañero");
+                            mcPlayer.sendMessage("§7Esta derrota no afectará tu §aELO§7 ni tu §bMMR§7.");
+                            mcPlayer.sendMessage("§7Tampoco contará como §eplacement§7 ni como partida.");
+                        }
+
+                        logger.info("Loss Protected",
+                                String.format("Jugador %s (%s) protegido: NO ELO/MMR/Placement/WL",
                                         player.getMinecraftName(),
                                         uuid.substring(0, 8)));
 
@@ -286,21 +353,6 @@ public class MatchFinisher {
                                         false
                                 );
                         detailedChanges.put(uuid, protectedChange);
-
-                        // Placement: solo contar partida, sin castigo
-                        if (player.isInPlacement()) {
-                            int newPlacementCount = player.getPlacementMatchesPlayed() + 1;
-                            boolean stillInPlacement = newPlacementCount < PlayerData.getPlacementMatchesRequired();
-
-                            player.setPlacementMatchesPlayed(newPlacementCount);
-                            player.setInPlacement(stillInPlacement);
-
-                            DatabaseManager.updatePlayerPlacementData(
-                                    uuid,
-                                    stillInPlacement,
-                                    newPlacementCount
-                            );
-                        }
 
                         PlayerDataCache.cachePlayer(player);
                         continue;
@@ -353,6 +405,7 @@ public class MatchFinisher {
 
                     int oldElo = player.getElo();
                     double oldMmr = player.getMmr();
+                    Rank oldRank = Rank.getRankByElo(oldElo);
 
                     ProgressiveEloCalculator.EloChange eloChange;
                     MMRCalculator.MMRChange mmrChange;
@@ -594,12 +647,17 @@ public class MatchFinisher {
 
         // También enviar log separado de cambios de ELO
         // Log específico con modificadores aplicados
-        ProgressiveEloCalculator.MatchType matchType = activeMatch.getMatchTypeEnum();
-        logger.info("ELO Modifiers Applied",
-                String.format("Modificadores %s aplicados - Victoria: +%.0f%%, Derrota: %.0f%%",
-                        matchType.getDisplayName(),
-                        (matchType.getWinMultiplier() - 1.0) * 100,
-                        (matchType.getLossMultiplier() - 1.0) * 100));
+        ProgressiveEloCalculator.MatchType matchType = resolveMatchType(activeMatch);
+
+        if (matchType != null && matchType.affectsElo()) {
+            logger.info("ELO Modifiers Applied",
+                    String.format("Modificadores %s aplicados - Victoria: +%.0f%%, Derrota: %.0f%%",
+                            matchType.getDisplayName(),
+                            (matchType.getWinMultiplier() - 1.0) * 100,
+                            (matchType.getLossMultiplier() - 1.0) * 100));
+        } else {
+            logger.info("ELO Modifiers Applied", "Sin modificadores (cola unranked / sin ELO)");
+        }
     }
     /**
      * Notifica a todos los jugadores en Minecraft sobre el resultado
@@ -610,6 +668,33 @@ public class MatchFinisher {
                                                  DatabaseManager.MatchProtectionSnapshot protectionSnap) {
 
         Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
+
+
+        ProgressiveEloCalculator.MatchType matchType = resolveMatchType(activeMatch);
+
+// ✅ 2v2 = UNRANKED: solo anunciar resultado, sin ELO/MMR/Stats/Placement ni penalizaciones.
+        if (activeMatch.isUnrankedMatch()) {
+            String generalMessage = "§6§l=== PARTIDA FINALIZADA (2v2 UNRANKED) ===";
+            String winnerMessage = "§a🏆 Ganador: " + winnerTeam.getFormattedName();
+            String mapMessage = "§e🗺 Mapa: §f" + activeMatch.getSelectedMap();
+            String unratedMessage = "§7⚪ Esta cola no registra stats ni modifica ELO/MMR/placements.";
+
+            for (List<PlayerData> teamPlayers : teams.values()) {
+                for (PlayerData playerData : teamPlayers) {
+                    try {
+                        Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                        if (mcPlayer != null && mcPlayer.isOnline()) {
+                            mcPlayer.sendMessage(generalMessage);
+                            mcPlayer.sendMessage(winnerMessage);
+                            mcPlayer.sendMessage(mapMessage);
+                            mcPlayer.sendMessage(unratedMessage);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+            return;
+        }
+
 
         String generalMessage = "§6§l=== PARTIDA FINALIZADA ===";
         String winnerMessage = "§a🏆 Ganador: " + winnerTeam.getFormattedName();
@@ -697,83 +782,174 @@ public class MatchFinisher {
     /**
      * Mueve todos los jugadores al canal de espera en Discord
      */
-    public static void movePlayersToWaitingRoom(ActiveMatch activeMatch,
-                                                RankedMinecraft plugin, DiscordLogger logger) {
+    private static Guild resolveGuildForDiscord(ActiveMatch activeMatch, RankedMinecraft plugin) {
+        try {
+            if (activeMatch != null && activeMatch.getGuild() != null) {
+                return activeMatch.getGuild();
+            }
+        } catch (Exception ignored) {}
 
-        Guild guild = plugin.getDiscordBot().getJda().getGuilds().get(0);
-        VoiceChannel waitingRoom = guild.getVoiceChannelById(VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID);
+        try {
+            if (plugin != null && plugin.getDiscordBot() != null && plugin.getDiscordBot().getJda() != null) {
+                List<Guild> guilds = plugin.getDiscordBot().getJda().getGuilds();
+                if (guilds != null && !guilds.isEmpty()) {
+                    return guilds.get(0);
+                }
+            }
+        } catch (Exception ignored) {}
 
+        return null;
+    }
+
+    private static VoiceChannel resolveWaitingRoomChannel(Guild guild) {
+        if (guild == null) return null;
+
+        VoiceChannel waitingRoom = null;
+        try {
+            waitingRoom = guild.getVoiceChannelById(VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID);
+        } catch (Exception ignored) {}
+
+        // Fallback (Isaac): ID real del canal de espera
         if (waitingRoom == null) {
-            logger.error("Canal de Espera No Encontrado",
-                    "No se pudo encontrar el canal de espera para mover jugadores");
+            try {
+                waitingRoom = guild.getVoiceChannelById("1405393642847338546");
+            } catch (Exception ignored) {}
+        }
+
+        return waitingRoom;
+    }
+
+    public static void movePlayersToWaitingRoom(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
+        if (activeMatch == null || plugin == null) return;
+
+        Guild guild = resolveGuildForDiscord(activeMatch, plugin);
+        if (guild == null) {
+            logger.error("Error", "No se pudo resolver el Guild para mover jugadores a sala de espera.");
             return;
         }
 
-        // Mover todos los jugadores
-        for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
-            for (PlayerData playerData : teamPlayers) {
-                try {
-                    Member member = guild.getMemberById(playerData.getDiscordId());
-                    if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
-                        guild.moveVoiceMember(member, waitingRoom).queue(
-                                success -> logger.info("Jugador Movido a Espera",
-                                        member.getEffectiveName() + " movido al canal de espera"),
-                                error -> logger.warning("Error Moviendo Jugador",
-                                        "No se pudo mover " + member.getEffectiveName() + ": " + error.getMessage())
-                        );
-                    }
-                } catch (Exception e) {
-                    logger.systemError("MatchFinisher",
-                            "Error moviendo jugador a canal de espera", e.getMessage());
+        VoiceChannel waitingRoom = resolveWaitingRoomChannel(guild);
+        if (waitingRoom == null) {
+            logger.error("Error", "No se encontró el canal de espera. Revisa VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID (o el fallback).");
+            return;
+        }
+
+        List<PlayerData> players = activeMatch.getAllPlayers();
+        if (players == null || players.isEmpty()) {
+            // fallback (por si en algún flujo raro 'allPlayers' viene vacío)
+            players = new ArrayList<>();
+            try {
+                for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
+                    players.addAll(teamPlayers);
                 }
+            } catch (Exception ignored) {}
+        }
+
+        for (PlayerData playerData : players) {
+            try {
+                if (playerData == null || playerData.getDiscordId() == null) continue;
+
+                Member member = guild.getMemberById(playerData.getDiscordId());
+                if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                    guild.moveVoiceMember(member, waitingRoom)
+                            .queue(
+                                    success -> logger.info("Move Discord", "✅ Movido " + member.getEffectiveName() + " a sala de espera"),
+                                    error -> logger.warning("Move Discord", "⚠️ Error moviendo a " + member.getEffectiveName() + ": " + error.getMessage())
+                            );
+                }
+            } catch (Exception e) {
+                logger.warning("Move Discord", "⚠️ Excepción moviendo jugador a sala de espera: " + e.getMessage());
             }
         }
     }
 
-    private static void cleanupAfterDiscordMove(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
-        final int maxTries = 10;        // 10 intentos
-        final long periodTicks = 10L;   // cada 0.5s
 
+    private static void cleanupAfterDiscordMove(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
         new BukkitRunnable() {
             int tries = 0;
+            final int maxTries = 80; // 80 * 0.5s = 40s (suficiente para que JDA mueva a todos antes de borrar canales)
 
             @Override
             public void run() {
                 tries++;
 
-                try {
-                    boolean blueHasMembers = activeMatch.getBlueTeamChannel() != null
-                            && activeMatch.getBlueTeamChannel().getMembers() != null
-                            && !activeMatch.getBlueTeamChannel().getMembers().isEmpty();
+                VoiceChannel blueChannel = activeMatch.getBlueTeamChannel();
+                VoiceChannel redChannel = activeMatch.getRedTeamChannel();
 
-                    boolean redHasMembers = activeMatch.getRedTeamChannel() != null
-                            && activeMatch.getRedTeamChannel().getMembers() != null
-                            && !activeMatch.getRedTeamChannel().getMembers().isEmpty();
+                boolean blueHasMembers = blueChannel != null && !blueChannel.getMembers().isEmpty();
+                boolean redHasMembers = redChannel != null && !redChannel.getMembers().isEmpty();
 
-                    // ✅ Si ya están vacíos, ejecutar cleanup() EN MAIN THREAD
-                    if (!blueHasMembers && !redHasMembers) {
-                        logger.success("Discord Move Confirmed", "Canales vacíos, ejecutando cleanup()");
-                        Bukkit.getScheduler().runTask(plugin, activeMatch::cleanup);
-                        cancel();
-                        return;
-                    }
-
-                    // ✅ Timeout: igual forzar cleanup() EN MAIN THREAD
-                    if (tries >= maxTries) {
-                        logger.warning("Discord Move Timeout",
-                                "No se vaciaron canales tras " + tries + " intentos, forzando cleanup()");
-                        Bukkit.getScheduler().runTask(plugin, activeMatch::cleanup);
-                        cancel();
-                    }
-
-                } catch (Exception e) {
-                    logger.warning("cleanupAfterDiscordMove Error", "Forzando cleanup(): " + e.getMessage());
+                // ✅ Ya vacíos -> limpiar (borrar canales)
+                if (!blueHasMembers && !redHasMembers) {
                     Bukkit.getScheduler().runTask(plugin, activeMatch::cleanup);
+                    cancel();
+                    return;
+                }
+
+                // 🔁 Si aún hay gente, reintentar moverlos cada ~5s por si algún move falló/lag
+                if (tries % 10 == 0) {
+                    Guild guild = resolveGuildForDiscord(activeMatch, plugin);
+                    VoiceChannel waitingRoom = resolveWaitingRoomChannel(guild);
+
+                    if (guild != null && waitingRoom != null) {
+                        try {
+                            if (blueChannel != null) {
+                                for (Member m : blueChannel.getMembers()) {
+                                    guild.moveVoiceMember(m, waitingRoom).queue();
+                                }
+                            }
+                            if (redChannel != null) {
+                                for (Member m : redChannel.getMembers()) {
+                                    guild.moveVoiceMember(m, waitingRoom).queue();
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                // 🚨 Timeout: forzar move y esperar un toque antes de limpiar
+                if (tries >= maxTries) {
+                    logger.warning("Cleanup Discord", "⚠️ No se vaciaron canales a tiempo. Forzando move y re-check antes de borrar...");
+
+                    Guild guild = resolveGuildForDiscord(activeMatch, plugin);
+                    VoiceChannel waitingRoom = resolveWaitingRoomChannel(guild);
+
+                    if (guild != null && waitingRoom != null) {
+                        try {
+                            if (blueChannel != null) {
+                                for (Member m : blueChannel.getMembers()) {
+                                    guild.moveVoiceMember(m, waitingRoom).queue();
+                                }
+                            }
+                            if (redChannel != null) {
+                                for (Member m : redChannel.getMembers()) {
+                                    guild.moveVoiceMember(m, waitingRoom).queue();
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
+                    // Re-check tras 2s
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        VoiceChannel b = activeMatch.getBlueTeamChannel();
+                        VoiceChannel r = activeMatch.getRedTeamChannel();
+                        boolean bHas = b != null && !b.getMembers().isEmpty();
+                        boolean rHas = r != null && !r.getMembers().isEmpty();
+
+                        if (!bHas && !rHas) {
+                            activeMatch.cleanup();
+                        } else {
+                            logger.warning("Cleanup Discord", "⚠️ Aún quedan miembros en canales. No se borrarán para no desconectarlos.");
+                            // Nota: en la práctica esto no debería pasar si el bot tiene permisos.
+                        }
+                    }, 40L);
+
                     cancel();
                 }
             }
-        }.runTaskTimerAsynchronously(plugin, 0L, periodTicks); // el poll puede ser async, cleanup NO
+        }.runTaskTimer(plugin, 10L, 10L);
     }
+
     /**
      * Limpia todos los recursos de la partida (canales, memoria, etc.)
      */
@@ -832,7 +1008,7 @@ public class MatchFinisher {
 
         // TAMBIÉN LIMPIAR DE LA COLA EN EMERGENCIA
         try {
-            QueueManager.removePlayersFromQueueAfterMatch(allPlayers);
+            QueueManager.cleanupPlayerTrackingAfterMatch(allPlayers);
             logger.info("Emergency Queue Cleanup",
                     "Limpiados " + allPlayers.size() + " jugadores de cola en limpieza de emergencia");
         } catch (Exception e) {
@@ -947,6 +1123,11 @@ public class MatchFinisher {
      */
     public static void handleDrawMatch(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
         String matchId = activeMatch.getMatchId();
+        try {
+            String mtRaw = null;
+            try { mtRaw = activeMatch.getMatchType(); } catch (Exception ignored) {}
+            MatchLogsManager.markMatchType(matchId, mtRaw);
+        } catch (Exception ignored) {}
 
         logger.matchEvent(matchId, "Partida Empatada",
                 "Procesando empate sin cambios de ELO", activeMatch.getAllPlayers().size());

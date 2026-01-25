@@ -28,6 +28,12 @@ match_types:
   ranked_8v8:
     display_name: "Ranked 8v8"
     multiplier: 1.0
+  ranked_2v2:
+    display_name: "Ranked 2v2"
+    multiplier: 0.0
+    win_multiplier: 0.0
+    loss_multiplier: 0.0
+    affects_elo: false
 
 # Configuración del sistema
 system:

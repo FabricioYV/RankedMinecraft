@@ -14,7 +14,9 @@ public class VoiceChannelConfig {
     // ID del rol @Queue
     public static final String QUEUE_ROLE_ID = "1404726708359401534"; // Reemplaza con el ID real del rol @Queue
 
-    public static final String ID_VOICE_CHANNEL_5vs5 = "1405393573855105075";
+    public static final String ID_VOICE_CHANNEL_2vs2 = "1463806925300039777";
+
+    public static final String ID_VOICE_CHANNEL_5vs5 = "1462894088054636819";
 
     public static final String ID_VOICE_CHANNEL_8vs8 = "1405393438148657324";
 
@@ -22,6 +24,7 @@ public class VoiceChannelConfig {
 
     public static final String LOGS_CHANNEL_ID = "1405609965053280408";
     public static final Set<String> ALLOWED_VOICE_CHANNELS = Set.of(
+            ID_VOICE_CHANNEL_2vs2,
             ID_VOICE_CHANNEL_5vs5,
             ID_VOICE_CHANNEL_8vs8,
             WAITING_ROOM_CHANNEL_ID
