@@ -86,6 +86,9 @@ public final class RankedMinecraft extends JavaPlugin {
             // Registrar listener del GUI de picks
             getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.PicksGUIListener(), this);
 
+            // Registrar listener RR
+            getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.CaptainRerollListener(), this);
+
             // Iniciar tarea de limpieza de entidades para optimización
             startEntityCleanupTask();
 

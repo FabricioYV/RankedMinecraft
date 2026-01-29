@@ -5,20 +5,20 @@ starting_elo: 0
 # Ganancia/Pérdida fija por rango (valores ajustados para ELO inicial 0)
 fixed_elo_changes:
   cobre:
-    win: 15
-    loss: -10
-  hierro:
-    win: 12
-    loss: -15
-  oro:
-    win: 10
-    loss: -18
-  diamante:
-    win: 8
+    win: 35
     loss: -20
-  esmeralda:
-    win: 5
+  hierro:
+    win: 25
+    loss: -20
+  oro:
+    win: 25
     loss: -25
+  diamante:
+    win: 15
+    loss: -25
+  esmeralda:
+    win: 10
+    loss: -20
 
 # Tipos de partida (opcional para futuros ajustes)
 match_types:

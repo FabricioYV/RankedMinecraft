@@ -97,32 +97,64 @@ public class CaptainPickSystem {
         String matchId = activeMatch.getMatchId();
         List<PlayerData> allPlayers = activeMatch.getAllPlayers();
 
+        // 1. Validaciones (IGUAL QUE ANTES)
         if (allPlayers == null || allPlayers.isEmpty()) {
             logger.warning("Sistema de picks", "No hay jugadores en la partida para iniciar picks.");
             fallbackToAutomaticBalancing(activeMatch, logger);
             return;
         }
 
+        // 2. Seleccionar capitanes iniciales usando TU LÓGICA DEFINIDA
+        // (Esto respeta tu deseo de que los PRIMEROS sean los definidos por el método)
         List<PlayerData> selectedCaptains = selectCaptainsForMatch(allPlayers, activeMatch.getGuild());
 
         if (selectedCaptains.size() < 2) {
-            logger.info("Sistema de picks",
-                    String.format("No se pudieron seleccionar 2 capitanes (%d/2). Usando balanceo automático.",
-                            selectedCaptains.size()));
+            logger.info("Sistema de picks", String.format("No se pudieron seleccionar 2 capitanes (%d/2).", selectedCaptains.size()));
             fallbackToAutomaticBalancing(activeMatch, logger);
             return;
         }
 
-        PickSession session = new PickSession(matchId, allPlayers, selectedCaptains, activeMatch, logger);
+        // 3. ¡CAMBIO IMPORTANTE! Guardamos los capitanes en el Match
+        activeMatch.setBlueCaptain(selectedCaptains.get(0));
+        activeMatch.setRedCaptain(selectedCaptains.get(1));
+        activeMatch.setPicksMatch(true);
+
+        // 4. En lugar de crear la PickSession, iniciamos la FASE DE REROLL
+        // El Manager se encargará de hacer cambios al azar si la gente vota.
+        // Cuando el tiempo termine, ejecutará el código dentro de () -> { ... }
+        runSync(() -> CaptainRerollManager.startRerollPhase(activeMatch, () -> {
+            iniciarSesionDePicksReal(activeMatch, logger);
+        }));
+    }
+
+    private static void iniciarSesionDePicksReal(ActiveMatch activeMatch, DiscordLogger logger) {
+        String matchId = activeMatch.getMatchId();
+        List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+        // Obtener los capitanes finales desde el match (pueden haber cambiado por el reroll)
+        PlayerData cap1 = activeMatch.getBlueCaptain();
+        PlayerData cap2 = activeMatch.getRedCaptain();
+
+        // Validación de seguridad
+        if (cap1 == null || cap2 == null) {
+            fallbackToAutomaticBalancing(activeMatch, logger);
+            return;
+        }
+
+        List<PlayerData> finalCaptains = new ArrayList<>();
+        finalCaptains.add(cap1);
+        finalCaptains.add(cap2);
+
+        // --- AQUÍ CONTINÚA TU CÓDIGO ORIGINAL ---
+        PickSession session = new PickSession(matchId, allPlayers, finalCaptains, activeMatch, logger);
         activeSessions.put(matchId, session);
 
         logger.info("Sistema de picks",
-                String.format("Iniciando fase de picks para partida %s con capitanes: %s vs %s",
+                String.format("Iniciando fase de picks REAL para partida %s con capitanes: %s vs %s",
                         matchId,
-                        getPlayerDisplayName(selectedCaptains.get(0)),
-                        getPlayerDisplayName(selectedCaptains.get(1))));
+                        getPlayerDisplayName(cap1),
+                        getPlayerDisplayName(cap2)));
 
-        // Aseguramos que todo lo que toca Bukkit corra en el main thread.
         runSync(session::startPickProcess);
     }
 
@@ -156,13 +188,13 @@ public class CaptainPickSystem {
         return null;
     }
 
-    private static String normalizeUuidString(String raw) {
+    static String normalizeUuidString(String raw) {
         if (raw == null) return null;
         UUID u = parseUuid(raw);
-        return (u != null) ? u.toString() : raw.trim();
+        return (u != null) ? u.toString() : null;
     }
 
-    private static String normalize(PlayerData p) {
+    static String normalize(PlayerData p) {
         if (p == null) return null;
         try {
             return normalizeUuidString(p.getMinecraftUuid());
@@ -171,7 +203,7 @@ public class CaptainPickSystem {
         }
     }
 
-    private static String pairKey(String a, String b) {
+    static String pairKey(String a, String b) {
         if (a == null || b == null) return String.valueOf(a) + "|" + String.valueOf(b);
         return (a.compareTo(b) <= 0) ? (a + "|" + b) : (b + "|" + a);
     }
@@ -180,7 +212,7 @@ public class CaptainPickSystem {
      * Score base: prioriza ELO (si existe), luego VIP, luego wins.
      * (Esto NO toca tu sistema de ELO real; solo decide capitanes)
      */
-    private static long captainBaseScore(PlayerData p, Guild guild) {
+    static long captainBaseScore(PlayerData p, Guild guild) {
         if (p == null) return Long.MIN_VALUE;
 
         long score = 0;
@@ -198,20 +230,20 @@ public class CaptainPickSystem {
         return score;
     }
 
-    private static Set<String> snapshotRecentPairs() {
+    static Set<String> snapshotRecentPairs() {
         synchronized (captainHistoryLock) {
             return new HashSet<>(recentCaptainPairs);
         }
     }
 
-    private static Set<String> snapshotLastCaptainSet() {
+    static Set<String> snapshotLastCaptainSet() {
         synchronized (captainHistoryLock) {
             if (recentCaptainSets.isEmpty()) return Collections.emptySet();
             return new HashSet<>(recentCaptainSets.peekFirst());
         }
     }
 
-    private static Map<String, Integer> snapshotRecentCaptainCounts() {
+    static Map<String, Integer> snapshotRecentCaptainCounts() {
         synchronized (captainHistoryLock) {
             Map<String, Integer> count = new HashMap<>();
             for (Set<String> s : recentCaptainSets) {
@@ -448,7 +480,7 @@ public class CaptainPickSystem {
         return best != null ? best : pool.get(0);
     }
 
-    private static boolean hasElo(PlayerData p) {
+    static boolean hasElo(PlayerData p) {
         try {
             return p != null && p.getElo() > 0;
         } catch (Exception e) {
@@ -456,7 +488,7 @@ public class CaptainPickSystem {
         }
     }
 
-    private static boolean hasVipRole(PlayerData player, Guild guild) {
+    static boolean hasVipRole(PlayerData player, Guild guild) {
         if (player == null || guild == null) return false;
         try {
             Member member = guild.getMemberById(player.getDiscordId());
@@ -487,7 +519,7 @@ public class CaptainPickSystem {
         }
     }
 
-    private static boolean hasSponsorRole(Member member) {
+    static boolean hasSponsorRole(Member member) {
         for (Role role : member.getRoles()) {
             if (role.getId().equals(VIP_PLUS_ROLE_ID)
                     || role.getId().equals(VIP_ROLE_ID)
