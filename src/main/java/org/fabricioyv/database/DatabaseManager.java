@@ -8,26 +8,25 @@ import org.fabricioyv.cache.PlayerDataCache;
 import org.fabricioyv.model.PlayerData;
 
 import java.sql.*;
-import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.ArrayList;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 public class DatabaseManager {
+
     // Mapa para almacenar múltiples datasources
     private static final Map<String, HikariDataSource> dataSources = new HashMap<>();
 
     // Configuración de pools y timeouts OPTIMIZADAS para PvP y Discord
-    private static final int MAX_POOL_SIZE = 15; // Incrementado para Discord + PvP
-    private static final int MIN_IDLE = 6; // Más conexiones idle para evitar timeouts
-    private static final long CONNECTION_TIMEOUT = 8000; // Incrementado para conexiones lentas
-    private static final long IDLE_TIMEOUT = 300000; // 5 minutos
-    private static final long MAX_LIFETIME = 1800000; // 30 minutos
-    private static final long VALIDATION_TIMEOUT = 3000; // Timeout para validación de conexión
+    private static final int MAX_POOL_SIZE = 15;
+    private static final int MIN_IDLE = 6;
+    private static final long CONNECTION_TIMEOUT = 8000;
+    private static final long IDLE_TIMEOUT = 300000;
+    private static final long MAX_LIFETIME = 1800000;
+    private static final long VALIDATION_TIMEOUT = 3000;
 
-    // Configuraciones de bases de datos
+    // =====================================================
+    // Configuración de DB
+    // =====================================================
     public static class DatabaseConfig {
         public final String name;
         public final String host;
@@ -46,41 +45,62 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * ✅ Inicializa pools leyendo config.yml (para no hardcodear credenciales)
+     *
+     * Estructura esperada en config.yml:
+     *
+     * databases:
+     *   ranked:
+     *     host: "..."
+     *     port: "3306"
+     *     database: "..."
+     *     username: "..."
+     *     password: "..."
+     *   match_logs:
+     *     host: "..."
+     *     port: "3306"
+     *     database: "..."
+     *     username: "..."
+     *     password: "..."
+     */
     public static boolean initialize() {
-        // Configuración de la base de datos principal (ranked)
+        RankedMinecraft plugin = RankedMinecraft.getInstance();
+
         DatabaseConfig rankedConfig = new DatabaseConfig(
                 "ranked",
-                "db-dtx-03.sparkedhost.us",
-                "3306",
-                "s181642_ranked",
-                "u181642_EmzxRextoT",
-                "X4^pijD5zUWpY5UCrYM=W2e!"
+                plugin.getConfig().getString("databases.ranked.host", "127.0.0.1"),
+                plugin.getConfig().getString("databases.ranked.port", "3306"),
+                plugin.getConfig().getString("databases.ranked.database", "ranked_db"),
+                plugin.getConfig().getString("databases.ranked.username", "user"),
+                plugin.getConfig().getString("databases.ranked.password", "pass")
         );
 
-        // Configuración de la base de datos de logs de matches
         DatabaseConfig matchLogsConfig = new DatabaseConfig(
                 "match_logs",
-                "db-mfl-01.sparkedhost.us",
-                "3306",
-                "s181642_matches",
-                "u181642_kO2S4fweyJ",
-                "@JQbP+M@A1!ingF9cola4OT1"
+                plugin.getConfig().getString("databases.match_logs.host", "127.0.0.1"),
+                plugin.getConfig().getString("databases.match_logs.port", "3306"),
+                plugin.getConfig().getString("databases.match_logs.database", "match_logs_db"),
+                plugin.getConfig().getString("databases.match_logs.username", "user"),
+                plugin.getConfig().getString("databases.match_logs.password", "pass")
         );
 
-        // Inicializar ambas bases de datos
         boolean success = initializeDatabase(rankedConfig);
         success &= initializeDatabase(matchLogsConfig);
 
-        // OPTIMIZACIÓN: Inicializar cache de PlayerData
         PlayerDataCache.initialize();
 
-        // Ejecutar migración de placement matches si es necesario
-        if (!PlacementMigration.isMigrationApplied()) {
-            Bukkit.getConsoleSender().sendMessage("§e⚡ Ejecutando migración de placement matches...");
-            PlacementMigration.executePlacementMigration();
-            Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches inicializado");
-        } else {
-            Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches ya está configurado");
+        // Si tienes migraciones externas, mantenlas aquí
+        try {
+            if (!PlacementMigration.isMigrationApplied()) {
+                Bukkit.getConsoleSender().sendMessage("§e⚡ Ejecutando migración de placement matches...");
+                PlacementMigration.executePlacementMigration();
+                Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches inicializado");
+            } else {
+                Bukkit.getConsoleSender().sendMessage("§a✅ Sistema de placement matches ya está configurado");
+            }
+        } catch (Throwable t) {
+            Bukkit.getConsoleSender().sendMessage("§c⚠️ Error en migración placement: " + t.getMessage());
         }
 
         return success;
@@ -90,13 +110,12 @@ public class DatabaseManager {
         try {
             HikariConfig hikariConfig = new HikariConfig();
 
-            // URL de conexión con configuración optimizada
             String url = "jdbc:mysql://" + config.host + ":" + config.port + "/" + config.database +
                     "?useSSL=false" +
                     "&autoReconnect=true" +
                     "&characterEncoding=utf8" +
                     "&allowPublicKeyRetrieval=true" +
-                    "&serverTimezone=America/Lima" + // CORREGIDO: Zona horaria de Perú (GMT-5)
+                    "&serverTimezone=America/Lima" +
                     "&useTimezone=true" +
                     "&useLegacyDatetimeCode=false" +
                     "&connectTimeout=10000" +
@@ -115,18 +134,15 @@ public class DatabaseManager {
             hikariConfig.setPassword(config.password);
             hikariConfig.setDriverClassName("com.mysql.cj.jdbc.Driver");
 
-            // Configuración del pool
             hikariConfig.setMaximumPoolSize(MAX_POOL_SIZE);
             hikariConfig.setMinimumIdle(MIN_IDLE);
             hikariConfig.setConnectionTimeout(CONNECTION_TIMEOUT);
             hikariConfig.setIdleTimeout(IDLE_TIMEOUT);
             hikariConfig.setMaxLifetime(MAX_LIFETIME);
-            hikariConfig.setLeakDetectionThreshold(60000); // 1 minuto
+            hikariConfig.setLeakDetectionThreshold(60000);
 
-            // Nombre único del pool
             hikariConfig.setPoolName("RankedMC-" + config.name);
 
-            // Configuración de conexión
             hikariConfig.addDataSourceProperty("cachePrepStmts", "true");
             hikariConfig.addDataSourceProperty("prepStmtCacheSize", "250");
             hikariConfig.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
@@ -138,13 +154,11 @@ public class DatabaseManager {
             hikariConfig.addDataSourceProperty("elideSetAutoCommits", "true");
             hikariConfig.addDataSourceProperty("maintainTimeStats", "false");
 
-            // Test de conexión
             hikariConfig.setConnectionTestQuery("SELECT 1");
             hikariConfig.setValidationTimeout(VALIDATION_TIMEOUT);
 
             HikariDataSource dataSource = new HikariDataSource(hikariConfig);
 
-            // Verificar conexión inicial y crear tablas si es necesario
             try (Connection testConn = dataSource.getConnection()) {
                 if (config.name.equals("ranked")) {
                     createRankedTables(testConn);
@@ -154,33 +168,46 @@ public class DatabaseManager {
 
                 dataSources.put(config.name, dataSource);
 
-                Bukkit.getConsoleSender().sendMessage("§a✅ Pool de conexiones '" + config.name + "' inicializado correctamente!");
-                Bukkit.getConsoleSender().sendMessage("§7📊 Pool '" + config.name + "' configurado: " + MAX_POOL_SIZE + " conexiones máximas");
+                Bukkit.getConsoleSender().sendMessage("§a✅ Pool '" + config.name + "' inicializado!");
+                Bukkit.getConsoleSender().sendMessage("§7📊 Pool '" + config.name + "': max=" + MAX_POOL_SIZE + ", idle=" + MIN_IDLE);
                 return true;
             }
 
         } catch (SQLException e) {
-            Bukkit.getConsoleSender().sendMessage("§c❌ Error al inicializar pool de conexiones '" + config.name + "'!");
+            Bukkit.getConsoleSender().sendMessage("§c❌ Error inicializando pool '" + config.name + "': " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
 
-    // Método para obtener conexi��n de una base de datos específica
+    // =====================================================
+    // Conexiones
+    // =====================================================
     public static Connection getConnection(String databaseName) throws SQLException {
         HikariDataSource dataSource = dataSources.get(databaseName);
         if (dataSource == null || dataSource.isClosed()) {
-            throw new SQLException("Pool de conexiones '" + databaseName + "' no inicializado o cerrado");
+            throw new SQLException("Pool '" + databaseName + "' no inicializado o cerrado");
         }
         return dataSource.getConnection();
     }
 
-    // Método para obtener conexión de la base de datos principal (retrocompatibilidad)
+    public static Connection getConnectionTo(String databaseName) throws SQLException {
+        return getConnection(databaseName);
+    }
+
     private static Connection getConnection() throws SQLException {
         return getConnection("ranked");
     }
 
+    // =====================================================
+    // Creación de tablas (para DB nueva)
+    // NOTA: IF NOT EXISTS no altera tablas viejas.
+    // =====================================================
     private static void createRankedTables(Connection conn) throws SQLException {
+
+        // ✅ Ajusté la tabla para incluir columnas que tu código usa.
+        // Si tu DB actual no las tiene, no se agregan (IF NOT EXISTS no hace ALTER).
+        // Para DB nueva, quedará completa.
         String createPlayersTable = """
         CREATE TABLE IF NOT EXISTS ranked_players (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -201,19 +228,32 @@ public class DatabaseManager {
             verification_expiry BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+            -- Placement
             is_in_placement TINYINT(1) DEFAULT 1,
             placement_matches_played INT DEFAULT 0,
+
+            -- Cooldown / bans (tu código los usa)
+            cooldown_end_time BIGINT DEFAULT 0,
+            is_permanently_banned TINYINT(1) DEFAULT 0,
+
+            -- (Opcional) Para estadísticas
+            last_match_date TIMESTAMP NULL DEFAULT NULL,
+
             INDEX idx_discord_id (discord_id),
             INDEX idx_elo (elo),
             INDEX idx_mmr (mmr),
             INDEX idx_in_match (is_in_match),
             INDEX idx_minecraft_uuid (minecraft_uuid),
             INDEX idx_in_placement (is_in_placement),
-            INDEX idx_placement_matches (placement_matches_played)
+            INDEX idx_placement_matches (placement_matches_played),
+            INDEX idx_cooldown (cooldown_end_time)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
 
         // TABLA: Registro de abandonos
+        // ✅ SIN UNIQUE por ahora (tu pedido).
+        // ⚠️ Con UNIQUE sería lo ideal, te lo dejo comentado abajo.
         String createAbandonmentsTable = """
         CREATE TABLE IF NOT EXISTS player_abandonments (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -228,7 +268,12 @@ public class DatabaseManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
 
+        // ✅ Para cuando recuperes control y quieras hacerlo perfecto:
+        // ALTER TABLE player_abandonments ADD UNIQUE KEY uq_abandonment_player_match (player_uuid, match_id);
+
         // TABLA: Protecciones contra pérdida de ELO
+        // ✅ SIN depender de UNIQUE por ahora.
+        // (En tu snippet anterior ya tenías UNIQUE, pero pediste no depender de ello.)
         String createLossProtectionsTable = """
         CREATE TABLE IF NOT EXISTS match_loss_protections (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -236,11 +281,13 @@ public class DatabaseManager {
             match_id VARCHAR(50) NOT NULL,
             protection_reason VARCHAR(100) NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_protection (player_uuid, match_id),
             INDEX idx_player_uuid (player_uuid),
             INDEX idx_match_id (match_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         """;
+
+        // ✅ Para cuando quieras hacerlo perfecto:
+        // ALTER TABLE match_loss_protections ADD UNIQUE KEY uq_protection_player_match (player_uuid, match_id);
 
         try (Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(createPlayersTable);
@@ -321,44 +368,21 @@ public class DatabaseManager {
         }
     }
 
-    // Métodos públicos para trabajar con bases de datos específicas
-    public static Connection getConnectionTo(String databaseName) throws SQLException {
-        return getConnection(databaseName);
-    }
-
-
-
-    /**
-     * OPTIMIZACIÓN: Obtener jugador por Discord ID con cache
-     */
+    // =====================================================
+    // PlayerData getters con cache
+    // =====================================================
     public static PlayerData getPlayerByDiscordId(String discordId) {
-        // Verificar cache primero
         PlayerData cached = PlayerDataCache.getPlayerByDiscordId(discordId);
-        if (cached != null) {
-            return cached;
-        }
-
-        // Si no está en cache, consultar DB
+        if (cached != null) return cached;
         return getPlayerByDiscordIdFromDB(discordId);
     }
 
-    /**
-     * OPTIMIZACIÓN: Versión asíncrona para obtener jugador por Discord ID
-     */
     public static CompletableFuture<PlayerData> getPlayerByDiscordIdAsync(String discordId) {
-        // Verificar cache primero
         PlayerData cached = PlayerDataCache.getPlayerByDiscordId(discordId);
-        if (cached != null) {
-            return CompletableFuture.completedFuture(cached);
-        }
-
-        // Consultar DB de forma asíncrona
+        if (cached != null) return CompletableFuture.completedFuture(cached);
         return CompletableFuture.supplyAsync(() -> getPlayerByDiscordIdFromDB(discordId));
     }
 
-    /**
-     * Consulta síncrona a la base de datos (solo cuando cache falla)
-     */
     private static PlayerData getPlayerByDiscordIdFromDB(String discordId) {
         String query = "SELECT * FROM ranked_players WHERE discord_id = ?";
 
@@ -384,61 +408,34 @@ public class DatabaseManager {
                                 rs.getInt("total_deaths")
                         );
 
-                        // ✅ Cargar placement DIRECTO desde la BD
-                        boolean isInPlacement = rs.getBoolean("is_in_placement");
-                        int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                        boolean isInPlacement = safeGetBoolean(rs, "is_in_placement", true);
+                        int placementMatchesPlayed = safeGetInt(rs, "placement_matches_played", 0);
                         player.setPlacementData(isInPlacement, placementMatchesPlayed);
 
-                        // Cachear resultado
                         PlayerDataCache.cachePlayer(player);
                         return player;
                     }
                 }
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error obteniendo jugador por Discord ID después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Intento " + attempt + " fallido, reintentando...");
-                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "getPlayerByDiscordId", e);
             }
         }
         return null;
     }
 
-    /**
-     * OPTIMIZACIÓN: Obtener jugador por UUID con cache
-     */
     public static PlayerData getPlayerByMinecraftUuid(String minecraftUuid) {
-        // Verificar cache primero
         PlayerData cached = PlayerDataCache.getPlayerByUuid(minecraftUuid);
-        if (cached != null) {
-            return cached;
-        }
-
-        // Si no está en cache, consultar DB
+        if (cached != null) return cached;
         return getPlayerByMinecraftUuidFromDB(minecraftUuid);
     }
 
-    /**
-     * OPTIMIZACIÓN: Versión asíncrona para obtener jugador por UUID
-     */
     public static CompletableFuture<PlayerData> getPlayerByMinecraftUuidAsync(String minecraftUuid) {
-        // Verificar cache primero
         PlayerData cached = PlayerDataCache.getPlayerByUuid(minecraftUuid);
-        if (cached != null) {
-            return CompletableFuture.completedFuture(cached);
-        }
-
-        // Consultar DB de forma asíncrona
+        if (cached != null) return CompletableFuture.completedFuture(cached);
         return CompletableFuture.supplyAsync(() -> getPlayerByMinecraftUuidFromDB(minecraftUuid));
     }
 
-    /**
-     * Consulta síncrona a la base de datos por UUID (solo cuando cache falla)
-     */
     private static PlayerData getPlayerByMinecraftUuidFromDB(String minecraftUuid) {
         String query = "SELECT * FROM ranked_players WHERE minecraft_uuid = ?";
 
@@ -464,32 +461,33 @@ public class DatabaseManager {
                                 rs.getInt("total_deaths")
                         );
 
-                        // ✅ Cargar placement DIRECTO desde la BD
-                        boolean isInPlacement = rs.getBoolean("is_in_placement");
-                        int placementMatchesPlayed = rs.getInt("placement_matches_played");
+                        boolean isInPlacement = safeGetBoolean(rs, "is_in_placement", true);
+                        int placementMatchesPlayed = safeGetInt(rs, "placement_matches_played", 0);
                         player.setPlacementData(isInPlacement, placementMatchesPlayed);
 
-                        // Cachear también por UUID
                         PlayerDataCache.cachePlayer(player);
                         return player;
                     }
                 }
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error obteniendo jugador por UUID después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Intento " + attempt + " fallido, reintentando...");
-                    try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "getPlayerByMinecraftUuid", e);
             }
         }
         return null;
     }
 
+    public static PlayerData getPlayerData(String playerUuid) {
+        return getPlayerByMinecraftUuid(playerUuid);
+    }
+
+    // =====================================================
+    // Updates de stats (con fallback por columnas faltantes)
+    // =====================================================
     public static void updatePlayerStats(List<PlayerStatUpdate> updates) {
-        String query = "UPDATE ranked_players SET " +
+
+        // Intento 1: con last_match_date (si existe)
+        String queryWithLastDate = "UPDATE ranked_players SET " +
                 "elo = ?, " +
                 "mmr = ?, " +
                 "wins = wins + ?, " +
@@ -499,44 +497,183 @@ public class DatabaseManager {
                 "total_deaths = total_deaths + ?, " +
                 "is_in_match = ?, " +
                 "current_match_id = ?, " +
-                "last_match_date = NOW() " + // NUEVO: Registrar fecha de última partida
+                "last_match_date = NOW() " +
+                "WHERE minecraft_uuid = ?";
+
+        // Fallback: sin last_match_date (si tu tabla no tiene esa columna)
+        String queryNoLastDate = "UPDATE ranked_players SET " +
+                "elo = ?, " +
+                "mmr = ?, " +
+                "wins = wins + ?, " +
+                "losses = losses + ?, " +
+                "games_played = games_played + 1, " +
+                "total_kills = total_kills + ?, " +
+                "total_deaths = total_deaths + ?, " +
+                "is_in_match = ?, " +
+                "current_match_id = ? " +
                 "WHERE minecraft_uuid = ?";
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try (Connection conn = getConnection("ranked")) {
                 conn.setAutoCommit(false);
 
-                try (PreparedStatement stmt = conn.prepareStatement(query)) {
-                    for (PlayerStatUpdate update : updates) {
-                        stmt.setInt(1, update.newElo);
-                        stmt.setDouble(2, update.newMMR);
-                        stmt.setInt(3, update.won ? 1 : 0);
-                        stmt.setInt(4, update.won ? 0 : 1);
-                        stmt.setInt(5, update.matchKills);
-                        stmt.setInt(6, update.matchDeaths);
-                        stmt.setBoolean(7, false);
-                        stmt.setString(8, null);
-                        stmt.setString(9, update.minecraftUuid);
-                        stmt.addBatch();
-                    }
-
-                    stmt.executeBatch();
+                try {
+                    batchUpdateStats(conn, queryWithLastDate, updates, true);
                     conn.commit();
-                    System.out.println("✅ Batch update exitoso: " + updates.size() + " jugadores actualizados");
-                    return; // Éxito, salir del loop
-
+                    System.out.println("✅ Batch update exitoso (con last_match_date): " + updates.size());
+                    return;
                 } catch (SQLException e) {
-                    conn.rollback();
-                    throw e;
+                    // Si es unknown column last_match_date, fallback
+                    if (isUnknownColumn(e)) {
+                        conn.rollback();
+                        try {
+                            batchUpdateStats(conn, queryNoLastDate, updates, false);
+                            conn.commit();
+                            System.out.println("✅ Batch update exitoso (sin last_match_date): " + updates.size());
+                            return;
+                        } catch (SQLException ex2) {
+                            conn.rollback();
+                            throw ex2;
+                        }
+                    } else {
+                        conn.rollback();
+                        throw e;
+                    }
                 }
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error en batch update después de 3 intentos: " + e.getMessage());
-                } else {
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "updatePlayerStats", e);
             }
+        }
+    }
+
+    private static void batchUpdateStats(Connection conn, String query, List<PlayerStatUpdate> updates, boolean hasLastMatchDate)
+            throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (PlayerStatUpdate update : updates) {
+                stmt.setInt(1, update.newElo);
+                stmt.setDouble(2, update.newMMR);
+                stmt.setInt(3, update.won ? 1 : 0);
+                stmt.setInt(4, update.won ? 0 : 1);
+                stmt.setInt(5, update.matchKills);
+                stmt.setInt(6, update.matchDeaths);
+                stmt.setBoolean(7, false);
+                stmt.setString(8, null);
+
+                if (hasLastMatchDate) {
+                    // last_match_date está hardcodeado en la query, así que uuid va en param 9
+                    stmt.setString(9, update.minecraftUuid);
+                } else {
+                    // sin last_match_date, uuid va en param 9 igualmente (porque solo cambiamos 1 parte de la query)
+                    stmt.setString(9, update.minecraftUuid);
+                }
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        }
+
+        // Invalidar cache
+        for (PlayerStatUpdate update : updates) {
+            PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
+        }
+    }
+
+    public static void updatePlayerStatsWithPlacement(List<PlayerStatUpdateWithPlacement> updates) {
+
+        // Intento 1: con last_match_date (si existe)
+        String queryWithLastDate = "UPDATE ranked_players SET " +
+                "elo = ?, " +
+                "mmr = ?, " +
+                "wins = wins + ?, " +
+                "losses = losses + ?, " +
+                "games_played = games_played + 1, " +
+                "total_kills = total_kills + ?, " +
+                "total_deaths = total_deaths + ?, " +
+                "is_in_match = ?, " +
+                "current_match_id = ?, " +
+                "is_in_placement = ?, " +
+                "placement_matches_played = ?, " +
+                "last_match_date = NOW() " +
+                "WHERE minecraft_uuid = ?";
+
+        // Fallback: sin last_match_date
+        String queryNoLastDate = "UPDATE ranked_players SET " +
+                "elo = ?, " +
+                "mmr = ?, " +
+                "wins = wins + ?, " +
+                "losses = losses + ?, " +
+                "games_played = games_played + 1, " +
+                "total_kills = total_kills + ?, " +
+                "total_deaths = total_deaths + ?, " +
+                "is_in_match = ?, " +
+                "current_match_id = ?, " +
+                "is_in_placement = ?, " +
+                "placement_matches_played = ? " +
+                "WHERE minecraft_uuid = ?";
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try (Connection conn = getConnection("ranked")) {
+                conn.setAutoCommit(false);
+
+                try {
+                    batchUpdateStatsWithPlacement(conn, queryWithLastDate, updates, true);
+                    conn.commit();
+                    System.out.println("✅ Batch placement update (con last_match_date): " + updates.size());
+                    return;
+                } catch (SQLException e) {
+                    if (isUnknownColumn(e)) {
+                        conn.rollback();
+                        try {
+                            batchUpdateStatsWithPlacement(conn, queryNoLastDate, updates, false);
+                            conn.commit();
+                            System.out.println("✅ Batch placement update (sin last_match_date): " + updates.size());
+                            return;
+                        } catch (SQLException ex2) {
+                            conn.rollback();
+                            throw ex2;
+                        }
+                    } else {
+                        conn.rollback();
+                        throw e;
+                    }
+                }
+
+            } catch (SQLException e) {
+                retryLog(attempt, 3, "updatePlayerStatsWithPlacement", e);
+            }
+        }
+    }
+
+    private static void batchUpdateStatsWithPlacement(Connection conn, String query,
+                                                      List<PlayerStatUpdateWithPlacement> updates,
+                                                      boolean hasLastMatchDate) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (PlayerStatUpdateWithPlacement update : updates) {
+                stmt.setInt(1, update.newElo);
+                stmt.setDouble(2, update.newMMR);
+                stmt.setInt(3, update.won ? 1 : 0);
+                stmt.setInt(4, update.won ? 0 : 1);
+                stmt.setInt(5, update.matchKills);
+                stmt.setInt(6, update.matchDeaths);
+                stmt.setBoolean(7, false);
+                stmt.setString(8, null);
+                stmt.setBoolean(9, update.isInPlacement);
+                stmt.setInt(10, update.placementMatchesPlayed);
+
+                // last_match_date está en la query (NOW()), uuid es el último param
+                if (hasLastMatchDate) {
+                    stmt.setString(11, update.minecraftUuid);
+                } else {
+                    stmt.setString(11, update.minecraftUuid);
+                }
+
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        }
+
+        for (PlayerStatUpdateWithPlacement update : updates) {
+            PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
         }
     }
 
@@ -552,23 +689,15 @@ public class DatabaseManager {
                 stmt.setString(3, minecraftUuid);
 
                 stmt.executeUpdate();
+                PlayerDataCache.invalidatePlayer(minecraftUuid, null);
                 return;
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error actualizando estado de partida después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Intento " + attempt + " fallido actualizando estado, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "updatePlayerMatchStatus", e);
             }
         }
     }
 
-    /**
-     * Actualiza los datos de placement matches de un jugador
-     */
     public static void updatePlayerPlacementData(String minecraftUuid, boolean isInPlacement, int placementMatchesPlayed) {
         String query = "UPDATE ranked_players SET is_in_placement = ?, placement_matches_played = ? WHERE minecraft_uuid = ?";
 
@@ -580,104 +709,426 @@ public class DatabaseManager {
                 stmt.setInt(2, placementMatchesPlayed);
                 stmt.setString(3, minecraftUuid);
 
-                int rowsAffected = stmt.executeUpdate();
-
-                if (rowsAffected > 0) {
-                    // Invalidar cache para forzar reload con datos actualizados
-                    // Necesitamos obtener el discordId primero
+                int rows = stmt.executeUpdate();
+                if (rows > 0) {
                     PlayerDataCache.invalidatePlayer(minecraftUuid, null);
-                    return;
                 }
+                return;
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error actualizando datos de placement después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Intento " + attempt + " fallido actualizando placement, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "updatePlayerPlacementData", e);
             }
         }
     }
 
+    // =====================================================
+    // Sistema de abandono / protecciones
+    // =====================================================
+
+    public static int getPlayerAbandonmentCount(String playerUuid) {
+        String query = """
+            SELECT COUNT(*) as abandonment_count
+            FROM player_abandonments
+            WHERE player_uuid = ?
+            AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) return rs.getInt("abandonment_count");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error getPlayerAbandonmentCount: " + e.getMessage());
+        }
+        return 0;
+    }
+
     /**
-     * Actualiza las estadísticas del jugador incluyendo datos de placement
+     * ✅ SIN UNIQUE: idempotente “best effort”
+     * - Si ya existe (player_uuid, match_id): UPDATE
+     * - Si no existe: INSERT
+     *
+     * (Con UNIQUE sería perfecto; lo dejo comentado más abajo.)
      */
-    public static void updatePlayerStatsWithPlacement(List<PlayerStatUpdateWithPlacement> updates) {
-        String query = "UPDATE ranked_players SET " +
-                "elo = ?, " +
-                "mmr = ?, " +
-                "wins = wins + ?, " +
-                "losses = losses + ?, " +
-                "games_played = games_played + 1, " +
-                "total_kills = total_kills + ?, " +
-                "total_deaths = total_deaths + ?, " +
-                "is_in_match = ?, " +
-                "current_match_id = ?, " +
-                "is_in_placement = ?, " +
-                "placement_matches_played = ? " +
-                "WHERE minecraft_uuid = ?";
+    public static void recordAbandonment(String playerUuid, String matchId, int eloPenalty, int cooldownMinutes) {
+        String select = "SELECT id FROM player_abandonments WHERE player_uuid=? AND match_id=? LIMIT 1";
+        String update = "UPDATE player_abandonments SET elo_penalty=?, cooldown_minutes=? WHERE id=?";
+        String insert = """
+            INSERT INTO player_abandonments (player_uuid, match_id, elo_penalty, cooldown_minutes, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        """;
+
+        // ✅ Solución ideal cuando tengas UNIQUE:
+        // INSERT ... ON DUPLICATE KEY UPDATE ...
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+
+            Integer existingId = null;
+            try (PreparedStatement ps = conn.prepareStatement(select)) {
+                ps.setString(1, playerUuid);
+                ps.setString(2, matchId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) existingId = rs.getInt("id");
+                }
+            }
+
+            if (existingId != null) {
+                try (PreparedStatement ps = conn.prepareStatement(update)) {
+                    ps.setInt(1, eloPenalty);
+                    ps.setInt(2, cooldownMinutes);
+                    ps.setInt(3, existingId);
+                    ps.executeUpdate();
+                }
+            } else {
+                try (PreparedStatement ps = conn.prepareStatement(insert)) {
+                    ps.setString(1, playerUuid);
+                    ps.setString(2, matchId);
+                    ps.setInt(3, eloPenalty);
+                    ps.setInt(4, cooldownMinutes);
+                    ps.executeUpdate();
+                }
+            }
+
+            conn.commit();
+            System.out.println("✅ recordAbandonment ok: " + playerUuid + " match " + matchId);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error recordAbandonment: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public static void markPlayerProtectedFromLoss(String playerUuid, String matchId, String reason) {
+        // SIN UNIQUE: UPDATE -> si 0 rows, INSERT
+        String update = """
+            UPDATE match_loss_protections
+            SET protection_reason = ?, created_at = NOW()
+            WHERE player_uuid = ? AND match_id = ?
+        """;
+
+        String insert = """
+            INSERT INTO match_loss_protections (player_uuid, match_id, protection_reason, created_at)
+            VALUES (?, ?, ?, NOW())
+        """;
+
+        // ✅ Solución ideal cuando tengas UNIQUE:
+        // INSERT ... ON DUPLICATE KEY UPDATE ...
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+
+            int updated;
+            try (PreparedStatement ps = conn.prepareStatement(update)) {
+                ps.setString(1, reason);
+                ps.setString(2, playerUuid);
+                ps.setString(3, matchId);
+                updated = ps.executeUpdate();
+            }
+
+            if (updated == 0) {
+                try (PreparedStatement ps = conn.prepareStatement(insert)) {
+                    ps.setString(1, playerUuid);
+                    ps.setString(2, matchId);
+                    ps.setString(3, reason);
+                    ps.executeUpdate();
+                }
+            }
+
+            conn.commit();
+            System.out.println("✅ markPlayerProtectedFromLoss ok: " + playerUuid + " match " + matchId + " reason=" + reason);
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error markPlayerProtectedFromLoss: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public static boolean isPlayerProtectedFromLoss(String playerUuid, String matchId) {
+        String query = "SELECT 1 FROM match_loss_protections WHERE player_uuid=? AND match_id=? LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, playerUuid);
+            stmt.setString(2, matchId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error isPlayerProtectedFromLoss: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * ✅ Importante: “abandonment processed” NO debería depender de match_loss_protections.
+     * Como NO tenemos UNIQUE, lo más robusto es:
+     * - Si existe en player_abandonments => ya fue procesado.
+     * - Si no existe, fallback a match_loss_protections(reason=abandonment_processed) por compatibilidad.
+     */
+    public static boolean isPlayerAbandonmentProcessed(String playerUuid, String matchId) {
+        // 1) Fuente de verdad: player_abandonments
+        String q1 = "SELECT 1 FROM player_abandonments WHERE player_uuid=? AND match_id=? LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(q1)) {
+            ps.setString(1, playerUuid);
+            ps.setString(2, matchId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return true;
+            }
+        } catch (SQLException ignored) {}
+
+        // 2) Fallback compat (por si tu código antiguo marcaba en protections)
+        String q2 = "SELECT 1 FROM match_loss_protections WHERE player_uuid=? AND match_id=? AND protection_reason='abandonment_processed' LIMIT 1";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(q2)) {
+            ps.setString(1, playerUuid);
+            ps.setString(2, matchId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error isPlayerAbandonmentProcessed: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * ✅ Mantengo este método por compatibilidad, pero SIN UNIQUE.
+     * (Realmente ya no es necesario si usas recordAbandonment como verdad.)
+     */
+    public static void markPlayerAsAbandonmentProcessed(String playerUuid, String matchId) {
+        markPlayerProtectedFromLoss(playerUuid, matchId, "abandonment_processed");
+    }
+
+    public static class MatchProtectionSnapshot {
+        public final Set<String> abandonmentProcessed = new HashSet<>();
+        public final Set<String> lossProtected = new HashSet<>();
+    }
+
+    /**
+     * ✅ Snapshot robusto (sin UNIQUE):
+     * - abandonmentProcessed: viene de player_abandonments (verdad)
+     * - lossProtected: viene de match_loss_protections (excluye abandonment_processed)
+     */
+    public static MatchProtectionSnapshot getMatchProtectionSnapshot(String matchId) {
+        MatchProtectionSnapshot snap = new MatchProtectionSnapshot();
+
+        String qAb = "SELECT DISTINCT player_uuid FROM player_abandonments WHERE match_id = ?";
+        String qProt = """
+            SELECT player_uuid, protection_reason
+            FROM match_loss_protections
+            WHERE match_id = ?
+        """;
+
+        try (Connection conn = getConnection()) {
+
+            try (PreparedStatement ps = conn.prepareStatement(qAb)) {
+                ps.setString(1, matchId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        snap.abandonmentProcessed.add(rs.getString(1));
+                    }
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(qProt)) {
+                ps.setString(1, matchId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String uuid = rs.getString("player_uuid");
+                        String reason = rs.getString("protection_reason");
+                        if ("abandonment_processed".equalsIgnoreCase(reason)) {
+                            // lo dejo también aquí por compatibilidad
+                            snap.abandonmentProcessed.add(uuid);
+                        } else {
+                            snap.lossProtected.add(uuid);
+                        }
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("❌ Error getMatchProtectionSnapshot: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return snap;
+    }
+
+    /**
+     * ✅ Limpieza (recomendado)
+     */
+    public static void clearMatchProtections(String matchId) {
+        String q = "DELETE FROM match_loss_protections WHERE match_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(q)) {
+            ps.setString(1, matchId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("❌ Error clearMatchProtections: " + e.getMessage());
+        }
+    }
+
+    // =====================================================
+    // Elo/cooldown/bans
+    // =====================================================
+    public static void updatePlayerElo(String playerUuid, int newElo) {
+        String query = "UPDATE ranked_players SET elo = ? WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, newElo);
+            stmt.setString(2, playerUuid);
+            stmt.executeUpdate();
+            PlayerDataCache.invalidatePlayer(playerUuid, null);
+        } catch (SQLException e) {
+            System.err.println("❌ Error updatePlayerElo: " + e.getMessage());
+        }
+    }
+
+    public static void setPlayerCooldown(String playerUuid, long cooldownEndTime) {
+        String query = "UPDATE ranked_players SET cooldown_end_time = ? WHERE minecraft_uuid = ?";
+        String fallback = "UPDATE ranked_players SET minecraft_uuid = minecraft_uuid WHERE minecraft_uuid = ?"; // no-op
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setLong(1, cooldownEndTime);
+            stmt.setString(2, playerUuid);
+            stmt.executeUpdate();
+
+        } catch (SQLException e) {
+            if (isUnknownColumn(e)) {
+                // Si tu tabla actual no tiene cooldown_end_time, no rompemos todo.
+                try (Connection conn = getConnection();
+                     PreparedStatement stmt2 = conn.prepareStatement(fallback)) {
+                    stmt2.setString(1, playerUuid);
+                    stmt2.executeUpdate();
+                } catch (SQLException ignored) {}
+            } else {
+                System.err.println("❌ Error setPlayerCooldown: " + e.getMessage());
+            }
+        }
+    }
+
+    public static boolean isPlayerInCooldown(String playerUuid) {
+        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long t = safeGetLong(rs, "cooldown_end_time", 0L);
+                    return t > System.currentTimeMillis();
+                }
+            }
+        } catch (SQLException e) {
+            // si no existe columna, asumimos no cooldown
+            if (!isUnknownColumn(e)) {
+                System.err.println("❌ Error isPlayerInCooldown: " + e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public static long getCooldownRemainingMinutes(String playerUuid) {
+        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long end = safeGetLong(rs, "cooldown_end_time", 0L);
+                    long now = System.currentTimeMillis();
+                    if (end > now) return (end - now) / (60 * 1000);
+                }
+            }
+        } catch (SQLException e) {
+            if (!isUnknownColumn(e)) {
+                System.err.println("❌ Error getCooldownRemainingMinutes: " + e.getMessage());
+            }
+        }
+        return 0;
+    }
+
+    public static void setPermanentBan(String playerUuid, boolean banned) {
+        String query = "UPDATE ranked_players SET is_permanently_banned = ? WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setBoolean(1, banned);
+            stmt.setString(2, playerUuid);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            if (!isUnknownColumn(e)) {
+                System.err.println("❌ Error setPermanentBan: " + e.getMessage());
+            }
+        }
+    }
+
+    public static boolean isPlayerPermanentlyBanned(String playerUuid) {
+        String query = "SELECT is_permanently_banned FROM ranked_players WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, playerUuid);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) return safeGetBoolean(rs, "is_permanently_banned", false);
+            }
+        } catch (SQLException e) {
+            if (!isUnknownColumn(e)) {
+                System.err.println("❌ Error isPlayerPermanentlyBanned: " + e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public static void addDoubleLossesToPlayer(String playerUuid) {
+        String query = "UPDATE ranked_players SET losses = losses + 2, games_played = games_played + 2 WHERE minecraft_uuid = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, playerUuid);
+            int rows = stmt.executeUpdate();
+            if (rows > 0) PlayerDataCache.invalidatePlayer(playerUuid, null);
+        } catch (SQLException e) {
+            System.err.println("❌ Error addDoubleLossesToPlayer: " + e.getMessage());
+        }
+    }
+
+    public static void setPlayerEloAndMmr(String minecraftUuid, int elo, double mmr) {
+        String query = "UPDATE ranked_players SET elo = ?, mmr = ? WHERE minecraft_uuid = ?";
 
         for (int attempt = 1; attempt <= 3; attempt++) {
-            try (Connection conn = getConnection()) {
-                conn.setAutoCommit(false);
+            try (Connection conn = getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(query)) {
 
-                try (PreparedStatement stmt = conn.prepareStatement(query)) {
-                    for (PlayerStatUpdateWithPlacement update : updates) {
-                        stmt.setInt(1, update.newElo);
-                        stmt.setDouble(2, update.newMMR);
-                        stmt.setInt(3, update.won ? 1 : 0);
-                        stmt.setInt(4, update.won ? 0 : 1);
-                        stmt.setInt(5, update.matchKills);
-                        stmt.setInt(6, update.matchDeaths);
-                        stmt.setBoolean(7, false);
-                        stmt.setString(8, null);
-                        stmt.setBoolean(9, update.isInPlacement);
-                        stmt.setInt(10, update.placementMatchesPlayed);
-                        stmt.setString(11, update.minecraftUuid);
-                        stmt.addBatch();
-                    }
+                stmt.setInt(1, elo);
+                stmt.setDouble(2, mmr);
+                stmt.setString(3, minecraftUuid);
 
-                    stmt.executeBatch();
-                    conn.commit();
-
-                    // Invalidar cache para todos los jugadores actualizados
-                    for (PlayerStatUpdateWithPlacement update : updates) {
-                        PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
-                    }
-
-                    System.out.println("✅ Batch update con placement exitoso: " + updates.size() + " jugadores actualizados");
-                    return;
-
-                } catch (SQLException e) {
-                    conn.rollback();
-                    throw e;
-                }
+                stmt.executeUpdate();
+                PlayerDataCache.invalidatePlayer(minecraftUuid, null);
+                return;
 
             } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error en batch update con placement después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    System.err.println("⚠️ Batch update placement intento " + attempt + " fallido, reintentando...");
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
+                retryLog(attempt, 3, "setPlayerEloAndMmr", e);
             }
         }
     }
 
-    /**
-     * Obtiene estadísticas de placement matches del servidor
-     */
+    // =====================================================
+    // Placement stats (lo dejo igual, pero con try/catch)
+    // =====================================================
     public static PlacementStats getPlacementStats() {
         String query = """
-            SELECT 
+            SELECT
                 COUNT(*) as total_players,
                 COUNT(CASE WHEN is_in_placement = 1 THEN 1 END) as placement_players,
                 AVG(CASE WHEN is_in_placement = 1 THEN placement_matches_played END) as avg_placement_progress,
                 AVG(CASE WHEN is_in_placement = 0 THEN mmr END) as avg_established_mmr
-            FROM ranked_players 
+            FROM ranked_players
             WHERE games_played > 0
         """;
 
@@ -693,247 +1144,86 @@ public class DatabaseManager {
                         rs.getDouble("avg_established_mmr")
                 );
             }
+
         } catch (SQLException e) {
-            System.err.println("❌ Error obteniendo estadísticas de placement: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("❌ Error getPlacementStats: " + e.getMessage());
         }
 
         return new PlacementStats(0, 0, 0.0, 1000.0);
     }
 
+    // =====================================================
+    // Async wrappers (mantengo tu estructura)
+    // =====================================================
+    public static void updatePlayerStatsAsync(PlayerStatUpdate update) {
+        boolean enqueued = BatchProcessor.enqueuePlayerStatsUpdate(update);
+        if (!enqueued) {
+            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+                updatePlayerStats(List.of(update));
+            });
+        }
+    }
+
+    public static void updatePlayerMatchStatusAsync(String minecraftUuid, boolean isInMatch, String currentMatchId) {
+        boolean enqueued = BatchProcessor.enqueueMatchStatusUpdate(minecraftUuid, isInMatch, currentMatchId);
+        if (!enqueued) {
+            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
+                updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
+            });
+        }
+    }
+
+    // =====================================================
+    // Placement history (igual)
+    // =====================================================
+    public static List<PlacementMatchData> getPlayerPlacementMatches(String playerUuid) {
+        List<PlacementMatchData> placementHistory = new ArrayList<>();
+
+        String query = """
+            SELECT won, kills, deaths, damage, created_at
+            FROM placement_match_history
+            WHERE player_uuid = ?
+            ORDER BY created_at ASC
+            LIMIT 8
+        """;
+
+        try (Connection conn = getConnection("ranked");
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            stmt.setString(1, playerUuid);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    boolean won = rs.getBoolean("won");
+                    int kills = rs.getInt("kills");
+                    int deaths = rs.getInt("deaths");
+                    double damage = rs.getDouble("damage");
+                    placementHistory.add(new PlacementMatchData(won, kills, deaths, damage));
+                }
+            }
+
+        } catch (SQLException e) {
+            Bukkit.getConsoleSender().sendMessage("§c❌ Error getPlayerPlacementMatches: " + e.getMessage());
+        }
+
+        return placementHistory;
+    }
+
+    // =====================================================
+    // Close
+    // =====================================================
     public static void close() {
         for (HikariDataSource dataSource : dataSources.values()) {
             if (dataSource != null && !dataSource.isClosed()) {
                 dataSource.close();
-                System.out.println("🔌 Pool de conexiones '" + dataSource.getPoolName() + "' cerrado correctamente");
+                System.out.println("🔌 Pool cerrado: " + dataSource.getPoolName());
             }
         }
     }
 
-    /**
-     * ========================================
-     * MÉTODOS PARA SISTEMA DE ABANDONO
-     * ========================================
-     */
-
-    /**
-     * Obtiene el número de abandonos de un jugador en los últimos 30 días
-     */
-    public static int getPlayerAbandonmentCount(String playerUuid) {
-        String query = """
-            SELECT COUNT(*) as abandonment_count 
-            FROM player_abandonments 
-            WHERE player_uuid = ? 
-            AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("abandonment_count");
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error obteniendo conteo de abandonos: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return 0;
-    }
-
-    /**
-     * Registra un abandono en la base de datos
-     */
-    public static void recordAbandonment(String playerUuid, String matchId, int eloPenalty, int cooldownMinutes) {
-        String query = """
-            INSERT INTO player_abandonments 
-            (player_uuid, match_id, elo_penalty, cooldown_minutes, created_at) 
-            VALUES (?, ?, ?, ?, NOW())
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-            stmt.setString(2, matchId);
-            stmt.setInt(3, eloPenalty);
-            stmt.setInt(4, cooldownMinutes);
-
-            stmt.executeUpdate();
-
-            System.out.println("✅ Abandono registrado: " + playerUuid + " en partida " + matchId);
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error registrando abandono: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Actualiza el ELO de un jugador
-     */
-    public static void updatePlayerElo(String playerUuid, int newElo) {
-        String query = "UPDATE ranked_players SET elo = ? WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setInt(1, newElo);
-            stmt.setString(2, playerUuid);
-
-            stmt.executeUpdate();
-
-            // Invalidar cache
-            PlayerDataCache.invalidatePlayer(playerUuid, null);
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error actualizando ELO: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Establece un cooldown para un jugador
-     */
-    public static void setPlayerCooldown(String playerUuid, long cooldownEndTime) {
-        String query = "UPDATE ranked_players SET cooldown_end_time = ? WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setLong(1, cooldownEndTime);
-            stmt.setString(2, playerUuid);
-
-            stmt.executeUpdate();
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error estableciendo cooldown: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Verifica si un jugador está en cooldown
-     */
-    public static boolean isPlayerInCooldown(String playerUuid) {
-        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    long cooldownEndTime = rs.getLong("cooldown_end_time");
-                    return cooldownEndTime > System.currentTimeMillis();
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error verificando cooldown: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return false;
-    }
-
-    /**
-     * Obtiene el tiempo restante de cooldown en minutos
-     */
-    public static long getCooldownRemainingMinutes(String playerUuid) {
-        String query = "SELECT cooldown_end_time FROM ranked_players WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    long cooldownEndTime = rs.getLong("cooldown_end_time");
-                    long currentTime = System.currentTimeMillis();
-
-                    if (cooldownEndTime > currentTime) {
-                        return (cooldownEndTime - currentTime) / (60 * 1000); // Convertir a minutos
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error obteniendo tiempo de cooldown: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return 0;
-    }
-
-    /**
-     * Marca a un jugador como protegido de pérdida de ELO debido a abandono de compañero
-     */
-    public static void markPlayerProtectedFromLoss(String playerUuid, String matchId, String reason) {
-        String query = """
-            INSERT INTO match_loss_protections 
-            (player_uuid, match_id, protection_reason, created_at) 
-            VALUES (?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE protection_reason = VALUES(protection_reason)
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-            stmt.setString(2, matchId);
-            stmt.setString(3, reason);
-
-            stmt.executeUpdate();
-
-            System.out.println("✅ Jugador protegido de pérdida: " + playerUuid + " en partida " + matchId);
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error marcando protección: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Verifica si un jugador está protegido de pérdida de ELO en una partida específica
-     */
-    public static boolean isPlayerProtectedFromLoss(String playerUuid, String matchId) {
-        String query = """
-            SELECT COUNT(*) as protection_count 
-            FROM match_loss_protections 
-            WHERE player_uuid = ? AND match_id = ?
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-            stmt.setString(2, matchId);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("protection_count") > 0;
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error verificando protección: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return false;
-    }
-
-    /**
-     * Obtiene el alias para PlayerData por compatibilidad
-     */
-    public static PlayerData getPlayerData(String playerUuid) {
-        return getPlayerByMinecraftUuid(playerUuid);
-    }
-
+    // =====================================================
+    // Data classes
+    // =====================================================
     public static class PlayerStatUpdate {
         public final String minecraftUuid;
         public final boolean won;
@@ -991,79 +1281,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * OPTIMIZACIÓN: Actualizar estadísticas de jugador usando batch processing
-     * No bloquea el main thread
-     */
-    public static void updatePlayerStatsAsync(PlayerStatUpdate update) {
-        // Usar BatchProcessor para agrupar operaciones
-        boolean enqueued = BatchProcessor.enqueuePlayerStatsUpdate(update);
-
-        if (!enqueued) {
-            // Fallback: ejecutar síncronamente si la cola está llena
-            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
-                List<PlayerStatUpdate> singleUpdate = List.of(update);
-                updatePlayerStats(singleUpdate);
-            });
-        }
-    }
-
-    /**
-     * OPTIMIZACIÓN: Actualizar estado de partida usando batch processing
-     */
-    public static void updatePlayerMatchStatusAsync(String minecraftUuid, boolean isInMatch, String currentMatchId) {
-        // Usar BatchProcessor para no bloquear main thread
-        boolean enqueued = BatchProcessor.enqueueMatchStatusUpdate(minecraftUuid, isInMatch, currentMatchId);
-
-        if (!enqueued) {
-            // Fallback: ejecutar síncronamente
-            Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
-                updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
-            });
-        }
-    }
-
-    /**
-     * NUEVO: Obtiene el historial de placement matches de un jugador para evaluación final
-     * Usado cuando un jugador completa sus 8 partidas de placement
-     */
-    public static List<PlacementMatchData> getPlayerPlacementMatches(String playerUuid) {
-        List<PlacementMatchData> placementHistory = new ArrayList<>();
-
-        String query = """
-            SELECT won, kills, deaths, damage, created_at
-            FROM placement_match_history
-            WHERE player_uuid = ?
-            ORDER BY created_at ASC
-            LIMIT 8
-            """;
-
-        try (Connection conn = getConnection("ranked");
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    boolean won = rs.getBoolean("won");
-                    int kills = rs.getInt("kills");
-                    int deaths = rs.getInt("deaths");
-                    double damage = rs.getDouble("damage");
-
-                    placementHistory.add(new PlacementMatchData(won, kills, deaths, damage));
-                }
-            }
-
-        } catch (SQLException e) {
-            Bukkit.getConsoleSender().sendMessage("§c❌ Error obteniendo historial de placement para " + playerUuid + ": " + e.getMessage());
-        }
-
-        return placementHistory;
-    }
-
-    /**
-     * Clase para datos de placement matches
-     */
     public static class PlacementMatchData {
         public final boolean won;
         public final int kills;
@@ -1078,205 +1295,49 @@ public class DatabaseManager {
         }
     }
 
-    public static void setPlayerEloAndMmr(String minecraftUuid, int elo, double mmr) {
-        String query = "UPDATE ranked_players SET elo = ?, mmr = ? WHERE minecraft_uuid = ?";
-
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try (Connection conn = getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(query)) {
-
-                stmt.setInt(1, elo);
-                stmt.setDouble(2, mmr);
-                stmt.setString(3, minecraftUuid);
-
-                int rows = stmt.executeUpdate();
-                if (rows > 0) {
-                    // Invalidate cache so next reads reflect updated elo/mmr
-                    PlayerData player = getPlayerByMinecraftUuidFromDB(minecraftUuid);
-                    if (player != null) {
-                        PlayerDataCache.invalidatePlayer(minecraftUuid, player.getDiscordId());
-                    }
-                }
-
-                return;
-            } catch (SQLException e) {
-                if (attempt == 3) {
-                    System.err.println("❌ Error actualizando elo/mmr después de 3 intentos: " + e.getMessage());
-                    e.printStackTrace();
-                } else {
-                    try { Thread.sleep(1000 * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                }
-            }
-        }
-    }
-
-    /**
-     * NUEVO: Establece baneo permanente para un jugador
-     */
-    public static void setPermanentBan(String playerUuid, boolean banned) {
-        String query = "UPDATE ranked_players SET is_permanently_banned = ? WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setBoolean(1, banned);
-            stmt.setString(2, playerUuid);
-
-            stmt.executeUpdate();
-
-            System.out.println("✅ Estado de baneo permanente actualizado: " + playerUuid + " = " + banned);
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error estableciendo baneo permanente: " + e.getMessage());
+    // =====================================================
+    // Utils
+    // =====================================================
+    private static void retryLog(int attempt, int max, String op, SQLException e) {
+        if (attempt == max) {
+            System.err.println("❌ " + op + " falló tras " + max + " intentos: " + e.getMessage());
             e.printStackTrace();
+        } else {
+            System.err.println("⚠️ " + op + " intento " + attempt + " falló: " + e.getMessage());
+            try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
     }
 
-    /**
-     * NUEVO: Verifica si un jugador está baneado permanentemente
-     */
-    public static boolean isPlayerPermanentlyBanned(String playerUuid) {
-        String query = "SELECT is_permanently_banned FROM ranked_players WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getBoolean("is_permanently_banned");
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error verificando baneo permanente: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return false;
+    private static boolean isUnknownColumn(SQLException e) {
+        String msg = (e.getMessage() == null) ? "" : e.getMessage().toLowerCase();
+        return msg.contains("unknown column");
     }
 
-    /**
-     * NUEVO: Aplica pérdidas dobles a un jugador (cuenta como 2 derrotas adicionales)
-     */
-    public static void addDoubleLossesToPlayer(String playerUuid) {
-        String query = "UPDATE ranked_players SET losses = losses + 2, games_played = games_played + 2 WHERE minecraft_uuid = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-
-            int rowsAffected = stmt.executeUpdate();
-
-            if (rowsAffected > 0) {
-                System.out.println("✅ Pérdidas dobles aplicadas a: " + playerUuid + " (+2 derrotas)");
-
-                // Invalidar cache para reflejar los cambios
-                PlayerDataCache.invalidatePlayer(playerUuid, null);
-            }
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error aplicando pérdidas dobles: " + e.getMessage());
-            e.printStackTrace();
+    private static int safeGetInt(ResultSet rs, String col, int def) {
+        try {
+            int v = rs.getInt(col);
+            return rs.wasNull() ? def : v;
+        } catch (SQLException ignored) {
+            return def;
         }
     }
 
-    /**
-     * NUEVO: Marca a un jugador como ya procesado por abandono para evitar doble penalización
-     */
-    public static void markPlayerAsAbandonmentProcessed(String playerUuid, String matchId) {
-        String query = """
-            INSERT INTO match_loss_protections 
-            (player_uuid, match_id, protection_reason, created_at) 
-            VALUES (?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE protection_reason = VALUES(protection_reason)
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-            stmt.setString(2, matchId);
-            stmt.setString(3, "abandonment_processed");
-
-            stmt.executeUpdate();
-
-            System.out.println("✅ Jugador marcado como procesado por abandono: " + playerUuid + " en partida " + matchId);
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error marcando jugador como procesado por abandono: " + e.getMessage());
-            e.printStackTrace();
+    private static long safeGetLong(ResultSet rs, String col, long def) {
+        try {
+            long v = rs.getLong(col);
+            return rs.wasNull() ? def : v;
+        } catch (SQLException ignored) {
+            return def;
         }
     }
 
-    /**
-     * NUEVO: Verifica si un jugador ya fue procesado por abandono
-     */
-    public static boolean isPlayerAbandonmentProcessed(String playerUuid, String matchId) {
-        String query = """
-            SELECT COUNT(*) as processed_count 
-            FROM match_loss_protections 
-            WHERE player_uuid = ? AND match_id = ? AND protection_reason = 'abandonment_processed'
-        """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-
-            stmt.setString(1, playerUuid);
-            stmt.setString(2, matchId);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("processed_count") > 0;
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("❌ Error verificando si jugador fue procesado por abandono: " + e.getMessage());
-            e.printStackTrace();
+    private static boolean safeGetBoolean(ResultSet rs, String col, boolean def) {
+        try {
+            boolean v = rs.getBoolean(col);
+            // si columna no existe, lanzará exception arriba
+            return v;
+        } catch (SQLException ignored) {
+            return def;
         }
-
-        return false;
     }
-    public static class MatchProtectionSnapshot {
-        public final java.util.Set<String> abandonmentProcessed = new java.util.HashSet<>();
-        public final java.util.Set<String> lossProtected = new java.util.HashSet<>();
-    }
-
-    public static MatchProtectionSnapshot getMatchProtectionSnapshot(String matchId) {
-        MatchProtectionSnapshot snap = new MatchProtectionSnapshot();
-
-        String q = """
-        SELECT player_uuid, protection_reason
-        FROM match_loss_protections
-        WHERE match_id = ?
-    """;
-
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(q)) {
-
-            ps.setString(1, matchId);
-
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String playerUuid = rs.getString("player_uuid");
-                    String reason = rs.getString("protection_reason");
-
-                    if ("abandonment_processed".equalsIgnoreCase(reason)) {
-                        snap.abandonmentProcessed.add(playerUuid);
-                    } else {
-                        // Cualquier otro reason cuenta como “protegido de pérdida”
-                        snap.lossProtected.add(playerUuid);
-                    }
-                }
-            }
-
-        } catch (SQLException e) {
-            System.err.println("❌ Error cargando snapshot de protecciones: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return snap;
-    }
-
 }
