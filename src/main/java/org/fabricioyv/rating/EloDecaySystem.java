@@ -25,6 +25,9 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Sistema de ELO Decay - Penaliza la inactividad de jugadores
  * Los jugadores pierden ELO automáticamente si no juegan durante varios días
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class EloDecaySystem {
 

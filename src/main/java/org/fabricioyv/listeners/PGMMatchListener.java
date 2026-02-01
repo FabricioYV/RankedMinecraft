@@ -28,6 +28,12 @@ import tc.oc.pgm.teams.TeamMatchModule;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Listener principal para eventos de PGM (integración y finalización de partidas)
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
+ */
 public class PGMMatchListener implements Listener{
     private final RankedMinecraft plugin;
     private final DiscordLogger logger;
@@ -850,7 +856,6 @@ public class PGMMatchListener implements Listener{
     }
 
     /**
-     * **MÉTODO CRÍTICO**: Inicializa automáticamente las estadísticas para una partida activa
      * Se llama desde el primer evento de muerte para asegurar que las estadísticas estén listas
      */
     private void initializeStatsForActiveMatch(ActiveMatch activeMatch) {

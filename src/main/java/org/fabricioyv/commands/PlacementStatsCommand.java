@@ -9,17 +9,18 @@ import org.fabricioyv.model.PlayerData;
 
 /**
  * Comando para mostrar estadísticas del sistema de placement matches
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PlacementStatsCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player player)) {
             sender.sendMessage("§cEste comando solo puede ser usado por jugadores.");
             return true;
         }
-
-        Player player = (Player) sender;
 
         try {
             // Si no se especifica jugador, mostrar stats del propio jugador

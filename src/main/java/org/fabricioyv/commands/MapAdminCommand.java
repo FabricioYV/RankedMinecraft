@@ -3,11 +3,13 @@ package org.fabricioyv.commands;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
 import org.fabricioyv.match.MapManager;
 
 /**
  * Comando administrativo para gestionar el sistema de mapas
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class MapAdminCommand implements CommandExecutor {
 

@@ -8,22 +8,21 @@ import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.CaptainPickSystem;
 import org.fabricioyv.model.PlayerData;
 
-import java.util.UUID;
-
 /**
  * Comando para manejar picks de capitanes
  * Uso: /pick <jugador>
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PickCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player player)) {
             sender.sendMessage("§cEste comando solo puede ser usado por jugadores.");
             return true;
         }
-
-        Player player = (Player) sender;
 
         if (args.length != 1) {
             player.sendMessage("§cUso: /pick <jugador>");

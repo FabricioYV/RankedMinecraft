@@ -5,6 +5,9 @@ import org.fabricioyv.model.PlayerData;
 /**
  * Sistema de evaluación final para placement matches
  * CORREGIDO: Asigna rangos basados en la clase Rank existente del sistema
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class PlacementRankAssignment {
 

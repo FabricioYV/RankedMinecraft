@@ -18,14 +18,14 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Comando para obtener detalles completos de una partida específica
+ *
+ * Created by FabricioYV
+ * @author FabricioYV
  */
 public class MatchDetailsCommand extends ListenerAdapter {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
-    /**
-     * Método estático para obtener la definición del comando slash
-     */
     public static CommandData getSlashCommand() {
         return Commands.slash("matchdetails", "Muestra detalles completos de una partida específica")
                 .addOption(OptionType.STRING, "match_id", "ID de la partida a consultar", true);
@@ -97,6 +97,7 @@ public class MatchDetailsCommand extends ListenerAdapter {
 
     /**
      * Crea el embed principal con información de la partida
+     * Con EMOJIS (AutoText)
      */
     private EmbedBuilder createMainMatchEmbed(MatchLogsManager.MatchSummary matchSummary) {
         EmbedBuilder embed = new EmbedBuilder();

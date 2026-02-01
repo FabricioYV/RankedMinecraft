@@ -472,6 +472,14 @@ public class CaptainPickSystem {
                     bestScore = score;
                     best = p;
                 }
+            } catch (Exception e) {
+                // Registrar el error en lugar de dejar el catch vacío
+                try {
+                    RankedMinecraft.getInstance().getLogger().warning("CaptainPickSystem: error comprobando roles sponsor para desempate - " + e.getMessage());
+                } catch (Exception logEx) {
+                    System.err.println("CaptainPickSystem: fallo al loggear: " + logEx.getMessage());
+                }
+                return 0;
             }
 
             if (best != null) break;
@@ -521,9 +529,7 @@ public class CaptainPickSystem {
 
     static boolean hasSponsorRole(Member member) {
         for (Role role : member.getRoles()) {
-            if (role.getId().equals(VIP_PLUS_ROLE_ID)
-                    || role.getId().equals(VIP_ROLE_ID)
-                    || role.getId().equals(SERVER_BOOSTER_ROLE_ID)) {
+            if (role.getId().equals(MAIN_SPONSOR_ROLE_ID) || role.getId().equals(SPONSOR_ROLE_ID) || role.getId().equals(SERVER_BOOSTER_ROLE_ID)) {
                 return true;
             }
         }
@@ -789,13 +795,11 @@ public class CaptainPickSystem {
         private final List<PlayerData> eligibleCaptains;
         private final ActiveMatch activeMatch;
         private final DiscordLogger logger;
-
-        private PlayerData captain1;
-        private PlayerData captain2;
         private final List<PlayerData> team1 = new ArrayList<>();
         private final List<PlayerData> team2 = new ArrayList<>();
         private final List<PlayerData> availablePlayers = new ArrayList<>();
-
+        private PlayerData captain1;
+        private PlayerData captain2;
         private PlayerData currentCaptain;
         private int pickNumber = 1;
         private boolean finished = false;
@@ -862,7 +866,16 @@ public class CaptainPickSystem {
                 if (p2 != null) CaptainPickSystem.givePickBook(p2);
 
             } catch (Exception e) {
-                logger.warning("Error dando libros de picks", "Error: " + e.getMessage());
+                // Registrar y continuar, no es crítico si falló dar los libros
+                try {
+                    logger.warning("Error dando libros de picks", "Error: " + e.getMessage());
+                } catch (Exception ex) {
+                    // como fallback usar logger de Bukkit
+                    try {
+                        RankedMinecraft.getInstance().getLogger().warning("CaptainPickSystem.givePickBooksToCapitans: " + e.getMessage());
+                    } catch (Exception ignore) {
+                    }
+                }
             }
         }
 
@@ -998,6 +1011,7 @@ public class CaptainPickSystem {
                 sendToAllActionBar("&eÚltimo jugador: &a" + getPlayerName(lastPlayer) + " &7(auto)");
                 sendToAllChat("&eAutoPick &8» &b" + getPlayerName(lastPlayer) + " &7va para &a" + getPlayerName(currentCaptain));
 
+                // Asignar directamente sin esperar pick
                 performPick(lastPlayer);
                 return;
             }
@@ -1047,11 +1061,13 @@ public class CaptainPickSystem {
         private void handlePickTimeout() {
             if (finished) return;
 
+            // CRÍTICO: Verificar primero si el capitán sigue conectado
             if (!isCaptainConnected(currentCaptain)) {
                 handleCaptainDisconnection();
                 return;
             }
 
+            // Pick automático aleatorio solo si el capitán sigue conectado
             if (!availablePlayers.isEmpty()) {
                 PlayerData randomPick = availablePlayers.get(
                         ThreadLocalRandom.current().nextInt(availablePlayers.size())
@@ -1067,6 +1083,7 @@ public class CaptainPickSystem {
         public void handlePlayerPick(String captainDiscordId, String pickedPlayerUuid) {
             if (finished) return;
 
+            // Verificar que sea el turno del capitán correcto
             if (!currentCaptain.getDiscordId().equals(captainDiscordId)) {
                 PlayerData requester = findPlayerByDiscordId(captainDiscordId);
                 Player p = requester != null ? safeGet(requester) : null;
@@ -1090,10 +1107,12 @@ public class CaptainPickSystem {
                 return;
             }
 
+            // Realizar el pick
             performPick(pickedPlayer);
         }
 
         private void performPick(PlayerData pickedPlayer) {
+            // Cancelar timeout
             if (timeoutTask != null) {
                 try {
                     timeoutTask.cancel();
@@ -1104,6 +1123,7 @@ public class CaptainPickSystem {
             if (currentCaptain == captain1) team1.add(pickedPlayer);
             else team2.add(pickedPlayer);
 
+            // Remover de disponibles
             availablePlayers.remove(pickedPlayer);
 
             int left = availablePlayers.size();
@@ -1133,9 +1153,11 @@ public class CaptainPickSystem {
             }
             // ================================================================
 
+            // Continuar o finalizar
             if (availablePlayers.isEmpty()) {
                 finishPicks();
             } else {
+                // Breve pausa antes del siguiente pick
                 new BukkitRunnable() {
                     @Override
                     public void run() {
@@ -1148,6 +1170,7 @@ public class CaptainPickSystem {
         private void finishPicks() {
             finished = true;
 
+            // Cancelar timeout
             if (timeoutTask != null) {
                 try {
                     timeoutTask.cancel();
@@ -1163,7 +1186,7 @@ public class CaptainPickSystem {
             rememberCaptains(captain1, captain2);
 
             Map<Team, List<PlayerData>> teams = activeMatch.getTeams();
-            teams.clear();
+            teams.clear(); // Limpiar equipos previos
             teams.put(Team.BLUE, new ArrayList<>(team1));
             teams.put(Team.RED, new ArrayList<>(team2));
 
@@ -1194,33 +1217,44 @@ public class CaptainPickSystem {
             try {
                 logger.info("Proceso final", "Creando canales finales y moviendo jugadores");
 
+                // 1. Crear canales de equipo finales
                 activeMatch.createTeamChannels();
 
+                // 2. Esperar un momento para que Discord procese la creación de canales
                 new BukkitRunnable() {
                     @Override
                     public void run() {
                         try {
+                            // 3. Asignar equipos en Minecraft (esto incluye mover a canales Discord)
                             activeMatch.assignPlayersInMinecraft();
 
+                            // 4. Esperar otro momento para que los movimientos se procesen
                             new BukkitRunnable() {
                                 @Override
                                 public void run() {
+                                    // 5. AHORA sí limpiar los canales temporales
                                     cleanupTemporaryChannels();
+
+                                    // 6. Continuar con cuenta regresiva final
                                     startFinalCountdown(activeMatch, logger);
+
+                                    // 7. Limpiar sesión
                                     cleanupSession(matchId);
                                 }
-                            }.runTaskLater(RankedMinecraft.getInstance(), 40L);
+                            }.runTaskLater(RankedMinecraft.getInstance(), 40L); // 2 segundos adicionales
 
                         } catch (Exception e) {
                             logger.logError("Error en asignación de equipos", e);
+                            // En caso de error, limpiar y cancelar
                             cleanupTemporaryChannels();
                             activeMatch.cleanup();
                         }
                     }
-                }.runTaskLater(RankedMinecraft.getInstance(), 60L);
+                }.runTaskLater(RankedMinecraft.getInstance(), 60L); // 3 segundos para crear canales
 
             } catch (Exception e) {
                 logger.logError("Error en proceso final de picks", e);
+                // Fallback: limpiar todo
                 cleanupTemporaryChannels();
                 activeMatch.cleanup();
             }
