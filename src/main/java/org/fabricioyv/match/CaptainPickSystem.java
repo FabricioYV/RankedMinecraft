@@ -1114,17 +1114,24 @@ public class CaptainPickSystem {
 
             sendToAllActionBar("&ePick &8» &a" + getPlayerName(currentCaptain) + " &7→ &b" + getPlayerName(pickedPlayer));
 
-            consecutivePicksRemaining--;
-
-            if (consecutivePicksRemaining <= 0) {
-                currentCaptain = (currentCaptain == captain1) ? captain2 : captain1;
-
-                int totalPicksMade = 8 - availablePlayers.size();
-                if (totalPicksMade == 0) consecutivePicksRemaining = 2;
-                else consecutivePicksRemaining = 1;
-            }
-
+            // ===================== ORDEN NUEVO: ABABBABA =====================
+            // pickNumber representa el pick actual. Luego incrementamos para preparar el "siguiente pick".
             pickNumber++;
+
+            if (!availablePlayers.isEmpty()) {
+                // Secuencia para picks 1..8 (10 jugadores total => 8 picks tras elegir capitanes)
+                final String order = "ABABBABA";
+
+                int nextIndex = pickNumber - 1; // pickNumber ya apunta al siguiente pick
+                if (nextIndex >= 0 && nextIndex < order.length()) {
+                    char next = order.charAt(nextIndex);
+                    currentCaptain = (next == 'A') ? captain1 : captain2;
+                } else {
+                    // Fallback por si el tamaño de match no calza con 8 picks (no debería en tu caso)
+                    currentCaptain = (currentCaptain == captain1) ? captain2 : captain1;
+                }
+            }
+            // ================================================================
 
             if (availablePlayers.isEmpty()) {
                 finishPicks();
