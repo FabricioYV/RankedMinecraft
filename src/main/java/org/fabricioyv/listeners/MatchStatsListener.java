@@ -63,6 +63,99 @@ public class MatchStatsListener implements Listener {
     private static final Map<UUID, Long> lastValidation = new ConcurrentHashMap<>(48);
     private static final long VALIDATION_INTERVAL = 30000; // 30 segundos
 
+    // ========================================
+    // ✅ 2V2 UNRANKED: BLOQUEO TOTAL DE STATS/LOGS
+    // ========================================
+    private static final Map<String, Boolean> matchIs2v2Cache = new ConcurrentHashMap<>(16);
+
+    private static boolean is2v2MatchCached(String matchId) {
+        // Revalidar con ActiveMatch si existe para evitar falsos positivos que rompan 5v5/8v8
+        try {
+            ActiveMatch activeMatch = ActiveMatch.getActiveMatch(matchId);
+            if (activeMatch != null) {
+                return activeMatch.isUnrankedMatch();
+            }
+        } catch (Exception ignored) {}
+
+        Boolean cached = matchIs2v2Cache.get(matchId);
+        return cached != null && cached;
+    }
+
+
+    /**
+     * Detecta 2v2 por equipos: total 4 jugadores y 2 por team.
+     * Usa solo info disponible (playerTeams o ActiveMatch teams).
+     */
+    private static boolean is2v2FromPlayerTeams(Map<String, String> playerTeams) {
+        if (playerTeams == null) return false;
+        if (playerTeams.size() != 4) return false;
+
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        for (String team : playerTeams.values()) {
+            if (team == null) continue;
+            counts.put(team, counts.getOrDefault(team, 0) + 1);
+        }
+
+        if (counts.size() != 2) return false;
+        for (int c : counts.values()) {
+            if (c != 2) return false;
+        }
+        return true;
+    }
+
+    private static boolean is2v2FromActiveMatch(ActiveMatch m) {
+        if (m == null) return false;
+
+        try {
+            int total = 0;
+            int teamsWithPlayers = 0;
+            boolean anyOver2 = false;
+
+            for (Map.Entry<org.fabricioyv.match.Team, java.util.List<PlayerData>> e : m.getTeams().entrySet()) {
+                int s = (e.getValue() == null) ? 0 : e.getValue().size();
+                if (s > 0) teamsWithPlayers++;
+                if (s > 2) anyOver2 = true;
+                total += s;
+            }
+
+            return total == 4 && teamsWithPlayers == 2 && !anyOver2;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void cache2v2ByMatchId(String matchId) {
+        // Si ya está cacheado como TRUE, no lo tocamos
+        Boolean cached = matchIs2v2Cache.get(matchId);
+        if (cached != null && cached) return;
+
+        boolean is2v2 = false;
+
+        // ✅ Fuente de verdad: ActiveMatch (matchType "2v2")
+        try {
+            ActiveMatch activeMatch = ActiveMatch.getActiveMatch(matchId);
+            if (activeMatch != null) {
+                is2v2 = activeMatch.isUnrankedMatch();
+            } else {
+                // Fallback: buscar en matches activos (por si el mapa aún no registró el matchId)
+                for (ActiveMatch m : ActiveMatch.getAllActiveMatches()) {
+                    if (m != null && matchId.equals(m.getMatchId())) {
+                        is2v2 = m.isUnrankedMatch();
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Solo si no se pudo confirmar con ActiveMatch, usamos el heurístico (evita falsos positivos)
+        if (!is2v2 && cached == null) {
+            // (No hacemos nada aquí: preferimos NO marcar como 2v2 si no estamos seguros)
+        }
+
+        matchIs2v2Cache.put(matchId, is2v2);
+    }
+
+
     // Estructura optimizada para cache híbrido
     private static class CacheEntry {
         final String matchId;
@@ -124,13 +217,17 @@ public class MatchStatsListener implements Listener {
             }
         }
 
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
+
         // **VERIFICACIÓN Y AUTO-INICIALIZACIÓN**: Si el match no existe en stats, inicializarlo
         if (!activeMatchStats.containsKey(matchId)) {
             // Intentar auto-inicializar las estadísticas para este match
             if (autoInitializeMatchStats(matchId)) {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ⚡ Auto-inicialización exitosa para match %s",
-                    matchId));
+                        "§a[MatchStats] ⚡ Auto-inicialización exitosa para match %s",
+                        matchId));
             } else {
                 return; // No se pudo inicializar
             }
@@ -161,6 +258,10 @@ public class MatchStatsListener implements Listener {
 
         String matchId = playerMatchCache.get(player.getUniqueId());
         if (matchId == null) return;
+
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
 
         // Encolar actualización de stats directamente
         damageQueue.offer(new DamageEvent(player.getUniqueId(), null, 0, matchId, false, true));
@@ -211,6 +312,9 @@ public class MatchStatsListener implements Listener {
      */
     private static void processDamageEventAsync(DamageEvent event) {
         try {
+            // ✅ 2v2 UNRANKED: NO STATS
+            if (is2v2MatchCached(event.matchId)) return;
+
             Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(event.matchId);
             if (matchStats == null) return;
 
@@ -277,12 +381,30 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Inicializar estadísticas para nueva partida
      */
     public static void initializeMatchStats(String matchId, Map<String, String> playerTeams) {
+
+        // ✅ 2v2 UNRANKED: NO inicializar stats/logs/caches (pero confirmado por ActiveMatch para no romper 5v5/8v8)
+        boolean is2v2 = false;
+        try {
+            ActiveMatch am = ActiveMatch.getActiveMatch(matchId);
+            if (am != null) {
+                is2v2 = am.isUnrankedMatch();
+            } else if (playerTeams != null && playerTeams.size() == 4) {
+                // fallback SOLO si realmente parecen 4 jugadores (evita falsos positivos por picks incompletos)
+                is2v2 = is2v2FromPlayerTeams(playerTeams);
+            }
+        } catch (Exception ignored) {}
+
+        matchIs2v2Cache.put(matchId, is2v2);
+        if (is2v2) {
+            Bukkit.getConsoleSender().sendMessage("§7[MatchStats] 2v2 UNRANKED -> skip initializeMatchStats " + matchId);
+            return;
+        }
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = new ConcurrentHashMap<>();
 
         // **LOGGING CRÍTICO**: Verificar que se está llamando correctamente
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Inicializando estadísticas para match %s con %d jugadores",
-            matchId, playerTeams.size()));
+                "§e[MatchStats] Inicializando estadísticas para match %s con %d jugadores",
+                matchId, playerTeams.size()));
 
         int playersInitialized = 0;
         for (Map.Entry<String, String> entry : playerTeams.entrySet()) {
@@ -304,13 +426,13 @@ public class MatchStatsListener implements Listener {
 
                 // **LOGGING**: Confirmar cada jugador inicializado
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✓ Jugador %s (%s) inicializado para match %s",
-                    player.getName(), team, matchId));
+                        "§a[MatchStats] ✓ Jugador %s (%s) inicializado para match %s",
+                        player.getName(), team, matchId));
             } else {
                 // **LOGGING**: Jugador no encontrado
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ✗ Jugador UUID %s no está online - SKIP",
-                    playerUuid.toString().substring(0, 8)));
+                        "§c[MatchStats] ✗ Jugador UUID %s no está online - SKIP",
+                        playerUuid.toString().substring(0, 8)));
             }
         }
 
@@ -319,13 +441,13 @@ public class MatchStatsListener implements Listener {
 
         // **LOGGING CRÍTICO**: Confirmar almacenamiento inmediato
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] ✅ Match %s almacenado con %d/%d jugadores inicializados",
-            matchId, playersInitialized, playerTeams.size()));
+                "§a[MatchStats] ✅ Match %s almacenado con %d/%d jugadores inicializados",
+                matchId, playersInitialized, playerTeams.size()));
 
         // **DEBUG**: Verificar que está en el mapa
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] 🔍 Verificación: Match %s está en activeMatchStats: %s",
-            matchId, activeMatchStats.containsKey(matchId)));
+                "§a[MatchStats] 🔍 Verificación: Match %s está en activeMatchStats: %s",
+                matchId, activeMatchStats.containsKey(matchId)));
 
         // **OPTIMIZACIÓN CRÍTICA**: Poblar cache PlayerData O(1) al inicio de partida
         populatePlayerDataCache(matchId);
@@ -368,23 +490,31 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Finalizar estadísticas (llamado desde MatchFinisher)
      */
     public static Map<UUID, MatchLogsManager.PlayerMatchStats> finalizeMatchStats(String matchId) {
+
+        // ✅ 2v2 UNRANKED: NO finalizar ni loggear
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) {
+            Bukkit.getConsoleSender().sendMessage("§7[MatchStats] 2v2 UNRANKED -> skip finalizeMatchStats " + matchId);
+            return null;
+        }
+
         // **LOGGING CRÍTICO**: Verificar el estado antes de finalizar
         Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
 
         if (stats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontró match %s en activeMatchStats al finalizar",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontró match %s en activeMatchStats al finalizar",
+                    matchId));
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] Matches activos disponibles: %s",
-                String.join(", ", activeMatchStats.keySet())));
+                    "§c[MatchStats] Matches activos disponibles: %s",
+                    String.join(", ", activeMatchStats.keySet())));
             return null;
         }
 
         // **LOGGING CRÍTICO**: Mostrar estadísticas COMPLETAS de cada jugador antes de finalizar
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Finalizando match %s con %d jugadores:",
-            matchId, stats.size()));
+                "§e[MatchStats] Finalizando match %s con %d jugadores:",
+                matchId, stats.size()));
 
         int playersWithStats = 0;
         int playersWithoutStats = 0;
@@ -392,35 +522,35 @@ public class MatchStatsListener implements Listener {
         for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
             MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
             boolean hasStats = playerStats.getKills() > 0 ||
-                              playerStats.getDeaths() > 0 ||
-                              playerStats.getDamageDealt() > 0;
+                    playerStats.getDeaths() > 0 ||
+                    playerStats.getDamageDealt() > 0;
 
             if (hasStats) {
                 playersWithStats++;
                 // **ARREGLO CRÍTICO**: No mostrar ELO/MMR aún (se muestran como 0 porque no se han calculado)
                 // Los ratings se establecerán después en updatePlayerStatistics()
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✓ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getKills(),
-                    playerStats.getDeaths(),
-                    playerStats.getDamageDealt(),
-                    playerStats.getArrowsHit(),
-                    playerStats.getArrowsShot(),
-                    playerStats.getArrowAccuracy(),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§a[MatchStats] ✓ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getKills(),
+                        playerStats.getDeaths(),
+                        playerStats.getDamageDealt(),
+                        playerStats.getArrowsHit(),
+                        playerStats.getArrowsShot(),
+                        playerStats.getArrowAccuracy(),
+                        playerStats.isWon() ? "YES" : "NO"));
             } else {
                 playersWithoutStats++;
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ✗ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§c[MatchStats] ✗ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.isWon() ? "YES" : "NO"));
             }
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] Resumen: %d con stats, %d sin stats",
-            playersWithStats, playersWithoutStats));
+                "§e[MatchStats] Resumen: %d con stats, %d sin stats",
+                playersWithStats, playersWithoutStats));
 
         // **CRÍTICO**: NO eliminar del cache todavía
         // El cache debe persistir hasta que se establezcan todos los rating changes
@@ -445,6 +575,10 @@ public class MatchStatsListener implements Listener {
      * Registrar muerte de jugador (llamado desde PGM listener)
      */
     public static void recordPlayerDeath(String matchId, UUID playerUuid, UUID killerUuid) {
+        // ✅ 2v2 UNRANKED: NO STATS
+        cache2v2ByMatchId(matchId);
+        if (is2v2MatchCached(matchId)) return;
+
         // ENCOLADO ASÍNCRONO (no bloquea)
         CompletableFuture.runAsync(() -> {
             Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
@@ -505,8 +639,8 @@ public class MatchStatsListener implements Listener {
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
         if (matchStats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats para match %s al establecer rating changes",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats para match %s al establecer rating changes",
+                    matchId));
             return;
         }
 
@@ -523,15 +657,15 @@ public class MatchStatsListener implements Listener {
             String playerName = player != null ? player.getName() : "Unknown";
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§a[MatchStats] ✅ Rating changes establecidos para %s: ELO %d→%d (%+d), MMR %.1f→%.1f (%+.1f)",
-                playerName, oldElo, newElo, (newElo - oldElo), oldMmr, newMmr, (newMmr - oldMmr)));
+                    "§a[MatchStats] ✅ Rating changes establecidos para %s: ELO %d→%d (%+d), MMR %.1f→%.1f (%+.1f)",
+                    playerName, oldElo, newElo, (newElo - oldElo), oldMmr, newMmr, (newMmr - oldMmr)));
         } else {
             Player player = Bukkit.getPlayer(playerUuid);
             String playerName = player != null ? player.getName() : playerUuid.toString().substring(0, 8);
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats para jugador %s en match %s",
-                playerName, matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats para jugador %s en match %s",
+                    playerName, matchId));
         }
     }
 
@@ -564,9 +698,12 @@ public class MatchStatsListener implements Listener {
             }
 
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
-                matchId, stats.size()));
+                    "§a[MatchStats] ✅ Cache limpiado para match %s (%d jugadores)",
+                    matchId, stats.size()));
         }
+
+        // ✅ 2v2 cache cleanup
+        matchIs2v2Cache.remove(matchId);
     }
 
     // ========================================
@@ -637,6 +774,9 @@ public class MatchStatsListener implements Listener {
         playerDataCache.clear();
         activeMatchStats.clear();
         hybridPlayerCache.clear();
+
+        // ✅ 2v2 cache cleanup
+        matchIs2v2Cache.clear();
     }
 
     // ========================================
@@ -722,8 +862,8 @@ public class MatchStatsListener implements Listener {
 
             if (beforeTotal - afterTotal > 5) {
                 System.out.println("[MatchStats] Smart cleanup: " + (beforeTotal - afterTotal) +
-                    " entries removed, " + afterTotal + " remaining (protected " +
-                    playersInActiveMatches.size() + " active players)");
+                        " entries removed, " + afterTotal + " remaining (protected " +
+                        playersInActiveMatches.size() + " active players)");
             }
 
         } catch (Exception e) {
@@ -774,6 +914,11 @@ public class MatchStatsListener implements Listener {
                     if (playerData.getMinecraftUuid().equals(playerUuid.toString())) {
                         String matchId = activeMatch.getMatchId();
 
+                        // ✅ 2v2 UNRANKED: NO cachear ni activar stats
+                        boolean is2v2 = is2v2FromActiveMatch(activeMatch);
+                        matchIs2v2Cache.put(matchId, is2v2);
+                        if (is2v2) return null;
+
                         // **ACTUALIZACIÓN AUTOMÁTICA**: Agregar al cache inmediatamente
                         playerMatchCache.put(playerUuid, matchId);
 
@@ -806,6 +951,11 @@ public class MatchStatsListener implements Listener {
 
             if (targetMatch == null) return false;
 
+            // ✅ 2v2 UNRANKED: NO auto-inicializar
+            boolean is2v2 = is2v2FromActiveMatch(targetMatch);
+            matchIs2v2Cache.put(matchId, is2v2);
+            if (is2v2) return false;
+
             // Crear mapa de jugador → equipo
             Map<String, String> playerTeams = new java.util.HashMap<>();
 
@@ -816,6 +966,11 @@ public class MatchStatsListener implements Listener {
                 }
             }
 
+            // ✅ (extra) si por playerTeams es 2v2, bloquear también
+            boolean is2v2ByTeams = is2v2FromPlayerTeams(playerTeams);
+            matchIs2v2Cache.put(matchId, is2v2ByTeams);
+            if (is2v2ByTeams) return false;
+
             // Inicializar usando el método existente
             initializeMatchStats(matchId, playerTeams);
 
@@ -823,8 +978,8 @@ public class MatchStatsListener implements Listener {
 
         } catch (Exception e) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] Error en auto-inicialización para %s: %s",
-                matchId, e.getMessage()));
+                    "§c[MatchStats] Error en auto-inicialización para %s: %s",
+                    matchId, e.getMessage()));
             return false;
         }
     }
@@ -837,54 +992,54 @@ public class MatchStatsListener implements Listener {
         Map<UUID, MatchLogsManager.PlayerMatchStats> stats = activeMatchStats.get(matchId);
         if (stats == null) {
             Bukkit.getConsoleSender().sendMessage(String.format(
-                "§c[MatchStats] ❌ ERROR: No se encontraron stats finales para match %s",
-                matchId));
+                    "§c[MatchStats] ❌ ERROR: No se encontraron stats finales para match %s",
+                    matchId));
             return;
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§e[MatchStats] 🏁 ESTADÍSTICAS FINALES - Match %s con rating changes aplicados:",
-            matchId));
+                "§e[MatchStats] 🏁 ESTADÍSTICAS FINALES - Match %s con rating changes aplicados:",
+                matchId));
 
         for (Map.Entry<UUID, MatchLogsManager.PlayerMatchStats> entry : stats.entrySet()) {
             MatchLogsManager.PlayerMatchStats playerStats = entry.getValue();
             boolean hasStats = playerStats.getKills() > 0 ||
-                              playerStats.getDeaths() > 0 ||
-                              playerStats.getDamageDealt() > 0;
+                    playerStats.getDeaths() > 0 ||
+                    playerStats.getDamageDealt() > 0;
 
             if (hasStats) {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§a[MatchStats] ✅ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getKills(),
-                    playerStats.getDeaths(),
-                    playerStats.getDamageDealt(),
-                    playerStats.getArrowsHit(),
-                    playerStats.getArrowsShot(),
-                    playerStats.getArrowAccuracy(),
-                    playerStats.getOldElo(),
-                    playerStats.getNewElo(),
-                    (playerStats.getNewElo() - playerStats.getOldElo()),
-                    playerStats.getOldMmr(),
-                    playerStats.getNewMmr(),
-                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§a[MatchStats] ✅ %s: K:%d D:%d DMG:%.1f ARROWS:%d/%d(%.1f%%) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getKills(),
+                        playerStats.getDeaths(),
+                        playerStats.getDamageDealt(),
+                        playerStats.getArrowsHit(),
+                        playerStats.getArrowsShot(),
+                        playerStats.getArrowAccuracy(),
+                        playerStats.getOldElo(),
+                        playerStats.getNewElo(),
+                        (playerStats.getNewElo() - playerStats.getOldElo()),
+                        playerStats.getOldMmr(),
+                        playerStats.getNewMmr(),
+                        (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                        playerStats.isWon() ? "YES" : "NO"));
             } else {
                 Bukkit.getConsoleSender().sendMessage(String.format(
-                    "§c[MatchStats] ⚠️ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
-                    playerStats.getPlayerName(),
-                    playerStats.getOldElo(),
-                    playerStats.getNewElo(),
-                    (playerStats.getNewElo() - playerStats.getOldElo()),
-                    playerStats.getOldMmr(),
-                    playerStats.getNewMmr(),
-                    (playerStats.getNewMmr() - playerStats.getOldMmr()),
-                    playerStats.isWon() ? "YES" : "NO"));
+                        "§c[MatchStats] ⚠️ %s: SIN ESTADÍSTICAS (K:0 D:0 DMG:0) ELO:%d→%d (%+d) MMR:%.1f→%.1f (%+.1f) WON:%s",
+                        playerStats.getPlayerName(),
+                        playerStats.getOldElo(),
+                        playerStats.getNewElo(),
+                        (playerStats.getNewElo() - playerStats.getOldElo()),
+                        playerStats.getOldMmr(),
+                        playerStats.getNewMmr(),
+                        (playerStats.getNewMmr() - playerStats.getOldMmr()),
+                        playerStats.isWon() ? "YES" : "NO"));
             }
         }
 
         Bukkit.getConsoleSender().sendMessage(String.format(
-            "§a[MatchStats] 🎯 Rating changes procesados correctamente para match %s",
-            matchId));
+                "§a[MatchStats] 🎯 Rating changes procesados correctamente para match %s",
+                matchId));
     }
 }

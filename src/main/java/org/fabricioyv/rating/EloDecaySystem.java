@@ -103,7 +103,7 @@ public class EloDecaySystem {
         excludePlacementPlayers = config.getBoolean("elo_decay.exclude_placement_players", true);
         notifyOnLogin = config.getBoolean("elo_decay.notify_on_login", true);
         notificationMessage = config.getString("elo_decay.notification_message",
-            "§c⚠ Has perdido {elo_lost} ELO por {days} días de inactividad. ¡Juega para recuperarlo!");
+                "§c⚠ Has perdido {elo_lost} ELO por {days} días de inactividad. ¡Juega para recuperarlo!");
     }
 
     /**
@@ -142,7 +142,7 @@ public class EloDecaySystem {
             // CORREGIDO: Usar zona horaria de Perú
             LocalDateTime now = LocalDateTime.now(PERU_ZONE);
             LocalDateTime nextExecution = now.toLocalDate()
-                .atTime(LocalTime.of(targetHour, targetMinute));
+                    .atTime(LocalTime.of(targetHour, targetMinute));
 
             // Si la hora ya pasó hoy, programar para mañana
             if (nextExecution.isBefore(now)) {
@@ -209,8 +209,8 @@ public class EloDecaySystem {
                             }
 
                             plugin.getLogger().info(String.format(
-                                "§7  └─ %s: -%d ELO (%d días inactivo)",
-                                minecraftUuid.substring(0, 8), eloLost, daysInactive
+                                    "§7  └─ %s: -%d ELO (%d días inactivo)",
+                                    minecraftUuid.substring(0, 8), eloLost, daysInactive
                             ));
                         }
                     }
@@ -219,8 +219,8 @@ public class EloDecaySystem {
 
             long duration = System.currentTimeMillis() - startTime;
             plugin.getLogger().info(String.format(
-                "§a✓ ELO Decay completado en %dms | Procesados: %d | Afectados: %d | ELO perdido: %d",
-                duration, stats[0], stats[1], stats[2]
+                    "§a✓ ELO Decay completado en %dms | Procesados: %d | Afectados: %d | ELO perdido: %d",
+                    duration, stats[0], stats[1], stats[2]
             ));
 
         } catch (SQLException e) {
@@ -234,12 +234,12 @@ public class EloDecaySystem {
      */
     private String buildDecayQuery() {
         return "SELECT minecraft_uuid, elo, " +
-               "DATE(last_match_date) as last_match_date, " +
-               "games_played " +
-               "FROM ranked_players " +
-               "WHERE last_match_date IS NOT NULL " +
-               "AND DATEDIFF(NOW(), last_match_date) >= ? " +
-               "AND elo > ?";
+                "DATE(last_match_date) as last_match_date, " +
+                "games_played " +
+                "FROM ranked_players " +
+                "WHERE last_match_date IS NOT NULL " +
+                "AND DATEDIFF(NOW(), last_match_date) >= ? " +
+                "AND elo > ?";
     }
 
     /**
@@ -278,7 +278,7 @@ public class EloDecaySystem {
     private void applyDecay(String minecraftUuid, int newElo) {
         try (Connection conn = DatabaseManager.getConnection("ranked");
              PreparedStatement stmt = conn.prepareStatement(
-                 "UPDATE ranked_players SET elo = ?, mmr = ? WHERE minecraft_uuid = ?")) {
+                     "UPDATE ranked_players SET elo = ?, mmr = ? WHERE minecraft_uuid = ?")) {
 
             stmt.setInt(1, newElo);
             stmt.setDouble(2, newElo); // Sincronizar MMR con ELO
@@ -305,8 +305,8 @@ public class EloDecaySystem {
             org.bukkit.entity.Player player = Bukkit.getPlayer(playerUuid);
             if (player != null && player.isOnline()) {
                 String message = notificationMessage
-                    .replace("{elo_lost}", String.valueOf(notification.eloLost))
-                    .replace("{days}", String.valueOf(notification.daysInactive));
+                        .replace("{elo_lost}", String.valueOf(notification.eloLost))
+                        .replace("{days}", String.valueOf(notification.daysInactive));
 
                 player.sendMessage("§8§m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 player.sendMessage(message);

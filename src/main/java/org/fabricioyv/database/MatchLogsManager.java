@@ -16,6 +16,34 @@ public class MatchLogsManager {
     // Zona horaria de Lima, Perú
     private static final ZoneId LIMA_ZONE = ZoneId.of("America/Lima");
 
+    // Cache en memoria: matchId -> matchType (para cortar logMatchEvent/processBatchEvents)
+    private static final Map<String, String> matchTypeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // Set de matchIds que son 2v2 unranked (corte ultra rápido)
+    private static final java.util.Set<String> unranked2v2MatchIds =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    public static void markMatchType(String matchId, String matchType) {
+        if (matchId == null) return;
+        matchTypeCache.put(matchId, matchType);
+        if (isUnranked2v2(matchType)) unranked2v2MatchIds.add(matchId);
+    }
+
+    public static void unmarkMatch(String matchId) {
+        if (matchId == null) return;
+        matchTypeCache.remove(matchId);
+        unranked2v2MatchIds.remove(matchId);
+    }
+
+    // --- 2v2 UNRANKED: NO LOGS / NO STATS ---
+    private static boolean isUnranked2v2(String matchType) {
+        if (matchType == null) return false;
+        String t = matchType.trim().toLowerCase();
+        // aguanta "2v2", "ranked_2v2", "queue-2v2", etc.
+        return t.equals("2v2") || t.contains("2v2");
+    }
+
+
     /**
      * Clase para almacenar las estadísticas de un jugador en una partida
      */
@@ -319,6 +347,17 @@ public class MatchLogsManager {
      * Guarda los datos completos de una partida en la base de datos match_logs
      */
     public static CompletableFuture<Boolean> saveMatchData(MatchSummary matchSummary) {
+        if (matchSummary != null) {
+            markMatchType(matchSummary.getMatchId(), matchSummary.getMatchType());
+        }
+
+        // ✅ BLOQUEO TOTAL para 2v2 UNRANKED
+        if (matchSummary != null && isUnranked2v2(matchSummary.getMatchType())) {
+            // Opcional: log mínimo para debug
+            Bukkit.getConsoleSender().sendMessage("§7[match_logs] 2v2 UNRANKED -> skip saveMatchData");
+            return CompletableFuture.completedFuture(true);
+        }
+
         return CompletableFuture.supplyAsync(() -> {
             try (Connection conn = DatabaseManager.getConnectionTo("match_logs")) {
                 conn.setAutoCommit(false);
@@ -347,7 +386,6 @@ public class MatchLogsManager {
                 Bukkit.getConsoleSender().sendMessage(
                         "§c❌ Error al guardar datos de partida " + matchSummary.getMatchId() + ": " + e.getMessage()
                 );
-                // Log error instead of printStackTrace
                 Bukkit.getLogger().severe("Error guardando partida: " + e.getMessage());
                 return false;
             }
@@ -438,15 +476,25 @@ public class MatchLogsManager {
      * MODIFICADO: Más robusto para asegurar que el registro existe antes de continuar
      */
     public static CompletableFuture<Boolean> initializeMatch(String matchId, String matchType, String mapName) {
+
+        // Guardar tipo (incluso si es 2v2) para que logMatchEvent lo sepa
+        markMatchType(matchId, matchType);
+
+        // ✅ BLOQUEO TOTAL para 2v2 UNRANKED
+        if (isUnranked2v2(matchType)) {
+            Bukkit.getConsoleSender().sendMessage("§7[match_logs] 2v2 UNRANKED -> skip initializeMatch " + matchId);
+            return CompletableFuture.completedFuture(true);
+        }
+
         return CompletableFuture.supplyAsync(() -> {
             String insertMatchQuery = """
-                INSERT INTO matches (match_id, match_type, map_name, start_time, winner_team, duration_seconds, end_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                match_type = VALUES(match_type),
-                map_name = VALUES(map_name),
-                start_time = VALUES(start_time)
-            """;
+            INSERT INTO matches (match_id, match_type, map_name, start_time, winner_team, duration_seconds, end_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            match_type = VALUES(match_type),
+            map_name = VALUES(map_name),
+            start_time = VALUES(start_time)
+        """;
 
             Connection conn = null;
             PreparedStatement stmt = null;
@@ -454,7 +502,6 @@ public class MatchLogsManager {
             try {
                 conn = DatabaseManager.getConnectionTo("match_logs");
 
-                // Usar tiempo de Lima para inicializar la partida
                 LocalDateTime startTimeLima = getCurrentTimeInLima();
                 Timestamp startTime = limaTimeToTimestamp(startTimeLima);
 
@@ -463,20 +510,17 @@ public class MatchLogsManager {
                 stmt.setString(2, matchType);
                 stmt.setString(3, mapName);
                 stmt.setTimestamp(4, startTime);
-                stmt.setString(5, "TBD"); // Placeholder for winner_team since match hasn't finished
-                stmt.setLong(6, 0); // Duration 0 for ongoing match
-                stmt.setTimestamp(7, startTime); // Temporary end_time, will be updated when match finishes
+                stmt.setString(5, "TBD");
+                stmt.setLong(6, 0);
+                stmt.setTimestamp(7, startTime);
 
                 int rowsAffected = stmt.executeUpdate();
 
-                // CRÍTICO: Forzar commit explícito para asegurar que la transacción se complete
                 if (!conn.getAutoCommit()) {
                     conn.commit();
                 }
 
-                // NUEVO: Verificar que el registro realmente existe en la BD
                 if (rowsAffected > 0) {
-                    // Doble verificación: leer el registro recién creado
                     try (PreparedStatement verifyStmt = conn.prepareStatement(
                             "SELECT COUNT(*) FROM matches WHERE match_id = ?")) {
                         verifyStmt.setString(1, matchId);
@@ -484,31 +528,30 @@ public class MatchLogsManager {
 
                         if (rs.next() && rs.getInt(1) > 0) {
                             Bukkit.getConsoleSender().sendMessage(
-                                "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
-                                        startTimeLima + ")"
+                                    "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
+                                            startTimeLima.toString() + ")"
                             );
                             return true;
                         } else {
                             Bukkit.getConsoleSender().sendMessage(
-                                "§c⚠️ Partida " + matchId + " insertada pero NO ENCONTRADA en verificación"
+                                    "§c⚠️ Partida " + matchId + " insertada pero NO ENCONTRADA en verificación"
                             );
                             return false;
                         }
                     }
                 } else {
                     Bukkit.getConsoleSender().sendMessage(
-                        "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId + " (rowsAffected = 0)"
+                            "§c⚠️ No se pudo confirmar la inicialización de partida " + matchId + " (rowsAffected = 0)"
                     );
                     return false;
                 }
 
             } catch (SQLException e) {
                 Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
+                        "§c❌ Error al inicializar partida en base de datos: " + e.getMessage()
                 );
                 Bukkit.getLogger().severe("Error inicializando partida " + matchId + ": " + e.getMessage());
 
-                // Intentar rollback si hay error
                 if (conn != null) {
                     try {
                         if (!conn.getAutoCommit()) {
@@ -521,7 +564,6 @@ public class MatchLogsManager {
 
                 return false;
             } finally {
-                // Cerrar recursos manualmente para asegurar cleanup
                 try {
                     if (stmt != null) stmt.close();
                     if (conn != null) conn.close();
@@ -538,6 +580,10 @@ public class MatchLogsManager {
      */
     public static void logMatchEvent(String matchId, String eventType, String playerUuid, String eventData) {
         CompletableFuture.runAsync(() -> {
+            // ✅ BLOQUEO TOTAL para 2v2 UNRANKED (sin DB, sin retries)
+            if (unranked2v2MatchIds.contains(matchId) || isUnranked2v2(matchTypeCache.get(matchId))) {
+                return;
+            }
             // Reintentar hasta 3 veces si hay problemas de sincronización
             int maxRetries = 3;
             int retryDelay = 100; // milisegundos
@@ -622,6 +668,9 @@ public class MatchLogsManager {
      * NUEVO: Sistema optimizado que reduce lag significativamente
      */
     public static void processBatchEvents(List<PendingEvent> events) {
+        // ✅ Filtrar eventos 2v2 unranked
+        events.removeIf(e -> unranked2v2MatchIds.contains(e.matchId) || isUnranked2v2(matchTypeCache.get(e.matchId)));
+
         if (events.isEmpty()) return;
 
         CompletableFuture.runAsync(() -> {
@@ -729,6 +778,7 @@ public class MatchLogsManager {
                        m.start_time, m.end_time, m.duration_seconds
                 FROM matches m 
                 WHERE m.winner_team != 'TBD'
+                  AND LOWER(m.match_type) NOT LIKE '%2v2%'
                 ORDER BY m.start_time DESC 
                 LIMIT ?
             """;

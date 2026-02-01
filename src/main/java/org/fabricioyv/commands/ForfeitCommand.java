@@ -11,6 +11,7 @@ import org.fabricioyv.match.ForfeitManager;
 import org.fabricioyv.model.PlayerData;
 
 public class ForfeitCommand implements CommandExecutor {
+
     private final RankedMinecraft plugin;
 
     public ForfeitCommand(RankedMinecraft plugin) {
@@ -24,30 +25,42 @@ public class ForfeitCommand implements CommandExecutor {
             return true;
         }
 
-        PlayerData playerData = DatabaseManager.getPlayerByMinecraftUuid(player.getUniqueId().toString());
+        Player player = (Player) sender;
+        String uuidStr = player.getUniqueId().toString();
+
+        // 1) Fuente de verdad: ActiveMatch (no dependemos de BD para validar si está en match)
+        ActiveMatch activeMatch = ActiveMatch.getPlayerActiveMatch(uuidStr);
+        if (activeMatch == null) {
+            player.sendMessage("§c❌ No estás en una partida activa.");
+            return true;
+        }
+
+        // 2) Validar estado
+        if (activeMatch.getStatus() != ActiveMatch.MatchStatus.IN_PROGRESS) {
+            player.sendMessage("§c❌ Solo puedes rendirte cuando la partida está en progreso.");
+            return true;
+        }
+
+        // 3) PlayerData desde el match (mejor), con fallback a BD
+        PlayerData playerData = activeMatch.getPlayerByUUID(player.getUniqueId());
+        if (playerData == null) {
+            playerData = DatabaseManager.getPlayerByMinecraftUuid(uuidStr);
+        }
 
         if (playerData == null) {
             player.sendMessage("§c❌ No estás registrado en el sistema ranked.");
             return true;
         }
 
-        if (!playerData.isInMatch()) {
-            player.sendMessage("§c❌ No estás en una partida activa.");
+        // Si por alguna razón te trae playerData, pero no corresponde al match actual
+        // (esto es raro, pero evita bugs fantasma)
+        if (playerData.getCurrentMatchId() != null && !playerData.getCurrentMatchId().equals(activeMatch.getMatchId())) {
+            player.sendMessage("§c❌ Tu estado de jugador no coincide con la partida actual.");
             return true;
         }
 
-        ActiveMatch activeMatch = ActiveMatch.getPlayerActiveMatch(playerData.getMinecraftUuid());
-        if (activeMatch == null) {
-            player.sendMessage("§c❌ No se encontró tu partida activa.");
-            return true;
-        }
-
-        if (activeMatch.getStatus() != ActiveMatch.MatchStatus.IN_PROGRESS) {
-            player.sendMessage("§c❌ Solo puedes rendirte cuando la partida está en progreso.");
-            return true;
-        }
-
-        // Procesar la rendición
+        // Procesar rendición
+        // OJO: si tu método se llama processForfeit, cambia el nombre aquí.
         ForfeitManager.proccesForfeit(activeMatch, playerData, plugin);
         return true;
     }

@@ -4,6 +4,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.rating.EloDecaySystem;
 
 import java.util.ArrayList;
@@ -13,9 +14,6 @@ import java.util.List;
 /**
  * Comando administrativo para gestionar el sistema de ELO Decay
  * Uso: /elodecay <reload|force|info>
- *
- * Created by FabricioYV
- * @author FabricioYV
  */
 public class EloDecayCommand implements CommandExecutor, TabCompleter {
 

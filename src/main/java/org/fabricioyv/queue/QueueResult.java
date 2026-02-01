@@ -17,6 +17,10 @@ public class QueueResult {
         return new QueueResult(false, message);
     }
 
+    // Helpers opcionales (si quieres usarlos luego)
+    public static QueueResult ok(String message) { return success(message); }
+    public static QueueResult fail(String message) { return failure(message); }
+
     public boolean isSuccess() { return success; }
     public String getMessage() { return message; }
 }

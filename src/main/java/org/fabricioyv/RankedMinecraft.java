@@ -2,35 +2,35 @@ package org.fabricioyv;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.fabricioyv.commands.*;
-import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.database.BatchProcessor;
+import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
-import org.fabricioyv.listeners.PlayerRejoinListener;
 import org.fabricioyv.match.AbandonmentDetectionSystem;
 import org.fabricioyv.match.MapManager;
+import org.fabricioyv.match.ForfeitManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
-
-/**
- * Plugin principal para la gestión de partidas clasificatorias en Minecraft.
- * Integra sistemas de ELO, votación de mapas, y un bot de Discord para administración y estadísticas.
- *
- * Created by FabricioYV
- * @author FabricioYV
- */
 public final class RankedMinecraft extends JavaPlugin {
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
     private AbandonmentDetectionSystem abandonmentSystem;
-    private org.fabricioyv.rating.EloDecaySystem eloDecaySystem; // NUEVO: Sistema de ELO Decay
+    private org.fabricioyv.rating.EloDecaySystem eloDecaySystem;
 
     @Override
     public void onEnable() {
         instance = this;
+
+        // 1) Generar/cargar config.yml principal (desde src/main/resources/config.yml)
+        saveDefaultConfig();
+
+        // 2) Cargar settings del sistema de forfeit/afk desde config.yml
+        ForfeitManager.loadSettings(this);
+
         try {
             // Inicializar sistema de mapas
             MapManager.initialize(this);
@@ -38,53 +38,58 @@ public final class RankedMinecraft extends JavaPlugin {
             // Inicializar sistema ELO
             ProgressiveEloCalculator.initialize(this);
 
-            // Registrar comandos
-            getCommand("votemap").setExecutor(new VoteCommand());
-            getCommand("ff").setExecutor(new ForfeitCommand(this));
-            getCommand("ready").setExecutor(new ReadyCommand());
-            getCommand("r").setExecutor(new ReadyCommand()); // Alias corto
-            getCommand("mapadmin").setExecutor(new MapAdminCommand()); // Comando para administrar mapas
-            getCommand("placement").setExecutor(new PlacementStatsCommand()); // Comando para estadísticas de placement
-            getCommand("testplacement").setExecutor(new TestPlacementAnalysisCommand()); // Comando de testing para análisis avanzado
-            getCommand("pick").setExecutor(new PickCommand()); // Comando para elegir jugador (pick)
+            // Registrar comandos (con protección anti-null)
+            registerCommand("votemap", new VoteCommand());
+            registerCommand("ff", new ForfeitCommand(this));
+            registerCommand("ready", new ReadyCommand());
+            // NO uses getCommand("r") -> "r" es alias de "ready" en plugin.yml
+            registerCommand("mapadmin", new MapAdminCommand());
+            registerCommand("placement", new PlacementStatsCommand());
+            registerCommand("testplacement", new TestPlacementAnalysisCommand());
+            registerCommand("pick", new PickCommand());
 
             // Inicializar base de datos
-            if(!DatabaseManager.initialize()) {
+            if (!DatabaseManager.initialize()) {
                 Bukkit.getConsoleSender().sendMessage(ChatColor.RED + "Error al inicializar la base de datos!");
                 getServer().getPluginManager().disablePlugin(this);
                 return;
             }
 
-            // NUEVO: Ejecutar migración de ELO Decay
+            // Ejecutar migración de ELO Decay
             org.fabricioyv.database.EloDecayMigration.executeMigration();
 
-            // Inicializar Discord bot ANTES de registrar listeners que lo necesiten
+            // Inicializar Discord bot ANTES de listeners que lo necesiten
             initializeDiscordBot();
 
-            // NUEVO: Inicializar sistema de detección de abandono
+            // Inicializar sistema de detección de abandono (si hay Discord logger)
             if (discordBot != null && discordBot.getLogger() != null) {
                 abandonmentSystem = new AbandonmentDetectionSystem(this, discordBot.getLogger());
                 getLogger().info("Sistema de detección de abandono inicializado");
+            } else {
+                getLogger().warning("Discord bot no inicializado o logger no disponible. Abandonment system no se activó.");
             }
 
-            // NUEVO: Inicializar sistema de ELO Decay
+            // Inicializar sistema de ELO Decay
             eloDecaySystem = new org.fabricioyv.rating.EloDecaySystem(this);
-            getCommand("elodecay").setExecutor(new org.fabricioyv.commands.EloDecayCommand(eloDecaySystem));
+            registerCommand("elodecay", new org.fabricioyv.commands.EloDecayCommand(eloDecaySystem));
 
-            // NUEVO: Registrar listener de ELO Decay
+            // Registrar listener de ELO Decay
             getServer().getPluginManager().registerEvents(
-                new org.fabricioyv.listeners.EloDecayListener(eloDecaySystem), this);
+                    new org.fabricioyv.listeners.EloDecayListener(eloDecaySystem), this);
 
-            // Registrar listeners de PGM (ya verifica internamente si discordBot está listo)
+            // Registrar listeners de PGM y Rejoin
             registerPGMListeners();
 
             // Registrar MatchStatsListener para capturar estadísticas durante las partidas
             getServer().getPluginManager().registerEvents(new MatchStatsListener(), this);
 
-            // NUEVO: Registrar listener del GUI de picks
+            // Registrar listener del GUI de picks
             getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.PicksGUIListener(), this);
 
-            // NUEVO: Iniciar tarea de limpieza de entidades para optimización
+            // Registrar listener RR
+            getServer().getPluginManager().registerEvents(new org.fabricioyv.listeners.CaptainRerollListener(), this);
+
+            // Iniciar tarea de limpieza de entidades para optimización
             startEntityCleanupTask();
 
             getLogger().info("RankedMinecraft habilitado exitosamente!");
@@ -92,16 +97,20 @@ public final class RankedMinecraft extends JavaPlugin {
         } catch (Exception e) {
             getLogger().severe("Error crítico durante la inicialización: " + e.getMessage());
             e.printStackTrace();
-
-            // Deshabilitar plugin si falla la inicialización
             getServer().getPluginManager().disablePlugin(this);
         }
+    }
 
+    private void registerCommand(String name, CommandExecutor executor) {
+        if (getCommand(name) == null) {
+            getLogger().severe("❌ Comando '" + name + "' no está definido en plugin.yml");
+            return;
+        }
+        getCommand(name).setExecutor(executor);
     }
 
     /**
-     * NUEVO: Tarea de limpieza automática de entidades para prevenir lag
-     * Limpia items en el suelo, arrows, y mobs innecesarios cada 5 minutos
+     * Limpieza automática de entidades para prevenir lag
      */
     private void startEntityCleanupTask() {
         Bukkit.getScheduler().runTaskTimer(this, () -> {
@@ -109,15 +118,16 @@ public final class RankedMinecraft extends JavaPlugin {
             int removedArrows = 0;
 
             for (org.bukkit.World world : Bukkit.getWorlds()) {
-                // Limpiar items en el suelo (excepto en los primeros 30 segundos)
                 for (org.bukkit.entity.Entity entity : world.getEntities()) {
-                    if (entity instanceof org.bukkit.entity.Item item) {
-                        if (item.getTicksLived() > 600) { // Más de 30 segundos
+                    if (entity instanceof org.bukkit.entity.Item) {
+                        org.bukkit.entity.Item item = (org.bukkit.entity.Item) entity;
+                        if (item.getTicksLived() > 600) { // 30s
                             item.remove();
                             removedItems++;
                         }
-                    } else if (entity instanceof org.bukkit.entity.Arrow arrow) {
-                        if (arrow.isOnGround() && arrow.getTicksLived() > 200) { // Más de 10 segundos
+                    } else if (entity instanceof org.bukkit.entity.Arrow) {
+                        org.bukkit.entity.Arrow arrow = (org.bukkit.entity.Arrow) entity;
+                        if (arrow.isOnGround() && arrow.getTicksLived() > 200) { // 10s
                             arrow.remove();
                             removedArrows++;
                         }
@@ -127,50 +137,47 @@ public final class RankedMinecraft extends JavaPlugin {
 
             if (removedItems > 0 || removedArrows > 0) {
                 getLogger().info(String.format("§a✓ Limpieza automática: %d items, %d flechas removidas",
-                    removedItems, removedArrows));
+                        removedItems, removedArrows));
             }
-        }, 6000L, 6000L); // Cada 5 minutos (6000 ticks)
+        }, 6000L, 6000L);
     }
 
     @Override
     public void onDisable() {
         try {
-            // Cerrar Discord bot
             if (discordBot != null) {
                 discordBot.shutdown();
             }
 
-            // OPTIMIZACIÓN: Cerrar MatchStatsListener correctamente
             MatchStatsListener.shutdown();
-
-            // OPTIMIZACIÓN: Cerrar BatchProcessor y procesar operaciones pendientes
             BatchProcessor.shutdown();
-
-            // Cerrar base de datos
             DatabaseManager.close();
 
             getLogger().info("RankedMinecraft deshabilitado correctamente!");
-
-            // Cancel all Bukkit tasks
             Bukkit.getScheduler().cancelTasks(this);
         } catch (Exception e) {
             getLogger().severe("Error durante el cierre: " + e.getMessage());
             e.printStackTrace();
         }
-
     }
 
     private void initializeDiscordBot() {
-        String token = "NzcyNTI4MTg5Njc1Mjc0Mjcw.G1laQA.UZv7v6qSvrjfcSoq6z6_9jfvva9ZyECCHy9Z8g";
-        String guildId = "1404292846340542554";
-
-        if (token == null || token.isEmpty()) {
-            getLogger().severe("Token de Discord no configurado!");
+        boolean enabled = getConfig().getBoolean("discord.enabled", true);
+        if (!enabled) {
+            getLogger().warning("Discord bot desactivado por config.yml (discord.enabled=false)");
             return;
         }
 
-        if (guildId == null || guildId.isEmpty()) {
-            getLogger().severe("Guild ID de Discord no configurado!");
+        String token = getConfig().getString("discord.token", "");
+        String guildId = getConfig().getString("discord.guild-id", "");
+
+        if (token == null || token.trim().isEmpty() || token.equalsIgnoreCase("PUT_TOKEN_HERE")) {
+            getLogger().severe("Token de Discord no configurado! (config.yml -> discord.token)");
+            return;
+        }
+
+        if (guildId == null || guildId.trim().isEmpty() || guildId.equalsIgnoreCase("PUT_GUILD_ID_HERE")) {
+            getLogger().severe("Guild ID de Discord no configurado! (config.yml -> discord.guild-id)");
             return;
         }
 
@@ -179,41 +186,33 @@ public final class RankedMinecraft extends JavaPlugin {
     }
 
     private void registerPGMListeners() {
-        // Esperar a que Discord bot esté listo antes de registrar listeners
         if (discordBot != null && discordBot.getLogger() != null) {
-            // Registrar listener de PGM
             getServer().getPluginManager().registerEvents(
-                new PGMMatchListener(this, discordBot.getLogger()), this);
+                    new PGMMatchListener(this, discordBot.getLogger()), this);
 
-            // Registrar listener de rejoin para jugadores
             getServer().getPluginManager().registerEvents(
-                new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
+                    new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
 
             getLogger().info("✅ Listeners de PGM y Rejoin registrados exitosamente");
         } else {
             getLogger().warning("⚠️ Discord bot no está listo, intentando registrar listeners en 5 segundos...");
-
-            // Reintentar en 5 segundos
             Bukkit.getScheduler().runTaskLater(this, this::registerPGMListeners, 100L);
         }
     }
-    /**
-     * NUEVO: Getter para el sistema de abandono
-     */
+
     public AbandonmentDetectionSystem getAbandonmentDetectionSystem() {
         return abandonmentSystem;
     }
-    /**
-     * NUEVO: Getter para el sistema de ELO Decay
-     */
+
     public org.fabricioyv.rating.EloDecaySystem getEloDecaySystem() {
         return eloDecaySystem;
     }
+
     public DiscordBot getDiscordBot() {
         return discordBot;
     }
+
     public static RankedMinecraft getInstance() {
         return instance;
     }
-
 }

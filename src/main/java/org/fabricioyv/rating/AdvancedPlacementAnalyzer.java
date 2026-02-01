@@ -9,9 +9,6 @@ import java.util.List;
  * NUEVO: Analizador avanzado de placement matches
  * Evalúa patrones profundos en el historial para asignar rangos más precisos
  * Soluciona el problema de desequilibrio cuando hay 8 jugadores experimentados vs 2 nuevos
- *
- * Created by FabricioYV
- * @author FabricioYV
  */
 public class AdvancedPlacementAnalyzer {
 
@@ -21,7 +18,7 @@ public class AdvancedPlacementAnalyzer {
     public static PlacementAnalysisResult analyzeCompleteHistory(String playerUuid) {
         // Obtener historial completo de la base de datos
         List<DatabaseManager.PlacementMatchData> history = DatabaseManager.getPlayerPlacementMatches(playerUuid);
-        
+
         if (history.size() < 8) {
             throw new IllegalStateException("Jugador no ha completado placement matches");
         }
@@ -59,30 +56,30 @@ public class AdvancedPlacementAnalyzer {
 
         for (int i = 0; i < history.size(); i++) {
             DatabaseManager.PlacementMatchData match = history.get(i);
-            
+
             // Calcular score de rendimiento por partida (0-100)
             double kd = match.deaths > 0 ? (double) match.kills / match.deaths : match.kills;
             double damageScore = Math.min(100, match.damage / 30.0); // Normalizar damage
             double kdScore = Math.min(100, kd * 25); // Normalizar K/D
             double winBonus = match.won ? 30 : 0;
-            
+
             performanceScores[i] = (damageScore * 0.4) + (kdScore * 0.4) + (winBonus * 0.2);
-            
+
             if (match.won) wins++;
         }
 
         // Detectar tendencias
         double firstHalfAvg = (performanceScores[0] + performanceScores[1] + performanceScores[2] + performanceScores[3]) / 4;
         double secondHalfAvg = (performanceScores[4] + performanceScores[5] + performanceScores[6] + performanceScores[7]) / 4;
-        
+
         showedImprovement = secondHalfAvg > firstHalfAvg + 5; // Mejora significativa
-        
+
         // Calcular consistencia (menos variación = más consistente)
         double variance = calculateVariance(performanceScores);
         consistentPerformance = variance < 400; // Threshold de consistencia
 
         double winRate = (double) wins / 8 * 100;
-        
+
         return new MatchProgressionAnalysis(performanceScores, winRate, showedImprovement, consistentPerformance, firstHalfAvg, secondHalfAvg);
     }
 
@@ -128,7 +125,7 @@ public class AdvancedPlacementAnalyzer {
 
         double overallKD = totalDeaths > 0 ? totalKills / totalDeaths : totalKills;
         double avgDamage = totalDamage / 8;
-        
+
         // Contar partidas destacadas (MVP-level performance)
         long mvpMatches = history.stream()
                 .mapToLong(m -> (m.kills >= 6 && m.damage >= 2500) ? 1 : 0)
@@ -187,10 +184,10 @@ public class AdvancedPlacementAnalyzer {
     /**
      * Calcula una puntuación comprehensiva final (0-1000)
      */
-    private static double calculateComprehensiveScore(MatchProgressionAnalysis progression, 
-                                                    PerformanceConsistency consistency,
-                                                    SkillIndicators skillLevel,
-                                                    PressureResponse pressure) {
+    private static double calculateComprehensiveScore(MatchProgressionAnalysis progression,
+                                                      PerformanceConsistency consistency,
+                                                      SkillIndicators skillLevel,
+                                                      PressureResponse pressure) {
         double score = 0;
 
         // Peso por win rate (40% del score)
@@ -255,32 +252,37 @@ public class AdvancedPlacementAnalyzer {
      * Genera un reporte detallado del análisis
      */
     private static String generateDetailedReport(MatchProgressionAnalysis progression,
-                                               PerformanceConsistency consistency,
-                                               SkillIndicators skillLevel,
-                                               PressureResponse pressure,
-                                               double finalScore,
-                                               Rank assignedRank) {
+                                                 PerformanceConsistency consistency,
+                                                 SkillIndicators skillLevel,
+                                                 PressureResponse pressure,
+                                                 double finalScore,
+                                                 Rank assignedRank) {
+        StringBuilder report = new StringBuilder();
 
-        String report = "**🔍 ANÁLISIS AVANZADO DE PLACEMENT**\n" +
-                String.format("**Rango Final:** %s (Puntuación: %.0f/1000)\n\n",
-                        assignedRank.getFormattedName(), finalScore) +
-                "**📈 Progresión:**\n" +
-                String.format("• Win Rate: %.1f%% (%d/8 victorias)\n", progression.winRate, (int) (progression.winRate * 8 / 100)) +
-                String.format("• Mejora detectada: %s\n", progression.showedImprovement ? "✅ Sí" : "❌ No") +
-                String.format("• Rendimiento consistente: %s\n", progression.consistentPerformance ? "✅ Sí" : "❌ No") +
-                "\n**🎯 Nivel de Habilidad:**\n" +
-                String.format("• Tier: %s\n", skillLevel.skillTier.getDisplayName()) +
-                String.format("• K/D General: %.2f\n", skillLevel.overallKD) +
-                String.format("• Damage Promedio: %.0f\n", skillLevel.avgDamage) +
-                String.format("• Partidas MVP: %d/8\n", skillLevel.mvpMatches) +
-                "\n**⚡ Consistencia:**\n" +
-                String.format("• Consistencia K/D: %.0f%%\n", consistency.kdConsistency) +
-                String.format("• Consistencia Damage: %.0f%%\n", consistency.damageConsistency) +
-                String.format("• Clutch Wins: %d\n", consistency.clutchWins) +
-                "\n**🔥 Bajo Presión:**\n" +
-                String.format("• Mantiene rendimiento: %s\n", pressure.performsUnderPressure ? "✅ Sí" : "❌ No");
+        report.append("**🔍 ANÁLISIS AVANZADO DE PLACEMENT**\n");
+        report.append(String.format("**Rango Final:** %s (Puntuación: %.0f/1000)\n\n",
+                assignedRank.getFormattedName(), finalScore));
 
-        return report;
+        report.append("**📈 Progresión:**\n");
+        report.append(String.format("• Win Rate: %.1f%% (%d/8 victorias)\n", progression.winRate, (int)(progression.winRate * 8 / 100)));
+        report.append(String.format("• Mejora detectada: %s\n", progression.showedImprovement ? "✅ Sí" : "❌ No"));
+        report.append(String.format("• Rendimiento consistente: %s\n", progression.consistentPerformance ? "✅ Sí" : "❌ No"));
+
+        report.append("\n**🎯 Nivel de Habilidad:**\n");
+        report.append(String.format("• Tier: %s\n", skillLevel.skillTier.getDisplayName()));
+        report.append(String.format("• K/D General: %.2f\n", skillLevel.overallKD));
+        report.append(String.format("• Damage Promedio: %.0f\n", skillLevel.avgDamage));
+        report.append(String.format("• Partidas MVP: %d/8\n", skillLevel.mvpMatches));
+
+        report.append("\n**⚡ Consistencia:**\n");
+        report.append(String.format("• Consistencia K/D: %.0f%%\n", consistency.kdConsistency));
+        report.append(String.format("• Consistencia Damage: %.0f%%\n", consistency.damageConsistency));
+        report.append(String.format("• Clutch Wins: %d\n", consistency.clutchWins));
+
+        report.append("\n**🔥 Bajo Presión:**\n");
+        report.append(String.format("• Mantiene rendimiento: %s\n", pressure.performsUnderPressure ? "✅ Sí" : "❌ No"));
+
+        return report.toString();
     }
 
     private static double calculateVariance(double[] values) {
@@ -315,8 +317,8 @@ public class AdvancedPlacementAnalyzer {
         public final double firstHalfAvg;
         public final double secondHalfAvg;
 
-        public MatchProgressionAnalysis(double[] performanceScores, double winRate, boolean showedImprovement, 
-                                      boolean consistentPerformance, double firstHalfAvg, double secondHalfAvg) {
+        public MatchProgressionAnalysis(double[] performanceScores, double winRate, boolean showedImprovement,
+                                        boolean consistentPerformance, double firstHalfAvg, double secondHalfAvg) {
             this.performanceScores = performanceScores;
             this.winRate = winRate;
             this.showedImprovement = showedImprovement;

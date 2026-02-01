@@ -1,5 +1,12 @@
 # Configuración de pools de mapas para RankedMinecraft
 pools:
+  2v2:
+    - "Boneyard"
+    - "Bridge┈castle"
+    - "Chernot"
+    - "Climate"
+    - "Coral"
+
   5v5:
     - "Siege"
     - "Smoke┈KotH┈5v5"
@@ -17,13 +24,12 @@ pools:
     - "Gobi"
     - "Oriental"
 
-# Configuración adicional
 voting:
-  duration: 20 # segundos para votar
-  enable_player_voting: true # true = jugadores votan, false = selección aleatoria automática
+  duration: 20
+  enable_player_voting: true
 
 map_cycle:
-  delay: 6 # segundos de espera después del ciclo
+  delay: 6
 
 final_countdown:
-  duration: 10 # segundos de cuenta regresiva final
+  duration: 10

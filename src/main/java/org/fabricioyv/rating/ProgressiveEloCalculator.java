@@ -4,6 +4,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
+import java.util.Locale;
 
 /**
  * Utilidad para cargar y gestionar la configuración del sistema ELO progresivo
@@ -69,6 +70,7 @@ public class ProgressiveEloCalculator {
 
     // Tipos de partida con sus modificadores
     public enum MatchType {
+        RANKED_2V2("ranked_2v2"),
         RANKED_5V5("ranked_5v5"),
         RANKED_8V8("ranked_8v8");
 
@@ -78,25 +80,70 @@ public class ProgressiveEloCalculator {
             this.configKey = configKey;
         }
 
-        public double getWinMultiplier() {
-            loadConfigIfNeeded();
-            return eloConfig.getDouble("match_types." + configKey + ".win_multiplier", 1.0);
-        }
-
-        public double getLossMultiplier() {
-            loadConfigIfNeeded();
-            return eloConfig.getDouble("match_types." + configKey + ".loss_multiplier", 1.0);
-        }
 
         public String getDisplayName() {
-            loadConfigIfNeeded();
-            return eloConfig.getString("match_types." + configKey + ".display_name", configKey);
+            switch (this) {
+                case RANKED_2V2:
+                    return "2v2";
+                case RANKED_5V5:
+                    return "5v5";
+                case RANKED_8V8:
+                    return "8v8";
+                default:
+                    return configKey;
+            }
         }
 
+        /**
+         * Parser defensivo: acepta "ranked_2v2", "2v2", "RANKED_2V2", etc.
+         * Útil cuando el MatchType no viene seteado correctamente desde ActiveMatch.
+         */
+        public static MatchType fromKey(String raw) {
+            if (raw == null) return null;
+            String s = raw.trim().toLowerCase(Locale.ROOT);
+            if (s.isEmpty()) return null;
+
+            if (s.contains("2v2") || s.contains("2x2")) return RANKED_2V2;
+            if (s.contains("5v5") || s.contains("5x5")) return RANKED_5V5;
+            if (s.contains("8v8") || s.contains("8x8")) return RANKED_8V8;
+
+            for (MatchType mt : values()) {
+                if (s.equals(mt.configKey)) return mt;
+                if (s.equals(mt.name().toLowerCase(Locale.ROOT))) return mt;
+            }
+            return null;
+        }
+
+
+        /** ✅ 2v2 NO afecta ELO */
+        public boolean affectsElo() {
+            return this != RANKED_2V2;
+        }
+
+        /** ✅ 2v2 NO afecta MMR */
+        public boolean affectsMmr() {
+            return this != RANKED_2V2;
+        }
+
+        /** ✅ 2v2 NO cuenta para placement */
+        public boolean affectsPlacement() {
+            return this != RANKED_2V2;
+        }
+
+        /** ✅ helper: “esto es ranked o no” */
+        public boolean isRatedQueue() {
+            return affectsElo() || affectsMmr() || affectsPlacement();
+        }
+
+        // Si tu código ya usa multiplier config, déjalo como estaba.
         public double getMultiplier() {
             loadConfigIfNeeded();
             return eloConfig.getDouble("match_types." + configKey + ".multiplier", 1.0);
         }
+
+        // Alias defensivos por si algún lado llama win/loss multipliers:
+        public double getWinMultiplier() { return getMultiplier(); }
+        public double getLossMultiplier() { return getMultiplier(); }
     }
 
     /**
@@ -106,7 +153,20 @@ public class ProgressiveEloCalculator {
                                                boolean won, MatchType matchType) {
         loadConfigIfNeeded();
 
+
+        if (matchType == null) {
+            // Fallback seguro: si alguien llama sin matchType, asumimos ranked 5v5.
+            // (Para 2v2, resuélvelo antes con MatchType.fromKey(...)).
+            matchType = MatchType.RANKED_5V5;
+        }
+
         Rank currentRank = Rank.getRankByElo(playerElo);
+
+
+        // ✅ 2v2 = UNRANKED: no cambia ELO (ni rank), ni debería afectar placements.
+        if (matchType == MatchType.RANKED_2V2) {
+            return new EloChange(0, playerElo, currentRank, currentRank, false, false);
+        }
 
         int eloChange;
 

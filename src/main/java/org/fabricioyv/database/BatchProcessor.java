@@ -1,6 +1,7 @@
 package org.fabricioyv.database;
 
 import org.bukkit.Bukkit;
+import org.fabricioyv.RankedMinecraft;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,80 @@ public class BatchProcessor {
 
     static {
         startBatchProcessor();
+    }
+
+    /**
+     * Operación de base de datos genérica
+     */
+    public interface DatabaseOperation {
+        void execute() throws Exception;
+        String getOperationType();
+        long getTimestamp();
+    }
+
+    /**
+     * Operación para actualizar estadísticas de jugador
+     */
+    public static class PlayerStatsUpdate implements DatabaseOperation {
+        private final DatabaseManager.PlayerStatUpdate update;
+        private final long timestamp;
+
+        public PlayerStatsUpdate(DatabaseManager.PlayerStatUpdate update) {
+            this.update = update;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        @Override
+        public void execute() throws Exception {
+            // Esta operación se agregará a un batch más grande
+            // La ejecución real se maneja en processBatch()
+        }
+
+        @Override
+        public String getOperationType() {
+            return "PLAYER_STATS_UPDATE";
+        }
+
+        @Override
+        public long getTimestamp() {
+            return timestamp;
+        }
+
+        public DatabaseManager.PlayerStatUpdate getUpdate() {
+            return update;
+        }
+    }
+
+    /**
+     * Operación para actualizar estado de partida
+     */
+    public static class MatchStatusUpdate implements DatabaseOperation {
+        private final String minecraftUuid;
+        private final boolean isInMatch;
+        private final String currentMatchId;
+        private final long timestamp;
+
+        public MatchStatusUpdate(String minecraftUuid, boolean isInMatch, String currentMatchId) {
+            this.minecraftUuid = minecraftUuid;
+            this.isInMatch = isInMatch;
+            this.currentMatchId = currentMatchId;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        @Override
+        public void execute() throws Exception {
+            DatabaseManager.updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
+        }
+
+        @Override
+        public String getOperationType() {
+            return "MATCH_STATUS_UPDATE";
+        }
+
+        @Override
+        public long getTimestamp() {
+            return timestamp;
+        }
     }
 
     /**
@@ -227,82 +302,6 @@ public class BatchProcessor {
             }
 
             Bukkit.getLogger().info("📊 " + getPerformanceStats());
-        }
-    }
-
-    /**
-     * Operación de base de datos genérica
-     */
-    public interface DatabaseOperation {
-        void execute() throws Exception;
-
-        String getOperationType();
-
-        long getTimestamp();
-    }
-
-    /**
-     * Operación para actualizar estadísticas de jugador
-     */
-    public static class PlayerStatsUpdate implements DatabaseOperation {
-        private final DatabaseManager.PlayerStatUpdate update;
-        private final long timestamp;
-
-        public PlayerStatsUpdate(DatabaseManager.PlayerStatUpdate update) {
-            this.update = update;
-            this.timestamp = System.currentTimeMillis();
-        }
-
-        @Override
-        public void execute() throws Exception {
-            // Esta operación se agregará a un batch más grande
-            // La ejecución real se maneja en processBatch()
-        }
-
-        @Override
-        public String getOperationType() {
-            return "PLAYER_STATS_UPDATE";
-        }
-
-        @Override
-        public long getTimestamp() {
-            return timestamp;
-        }
-
-        public DatabaseManager.PlayerStatUpdate getUpdate() {
-            return update;
-        }
-    }
-
-    /**
-     * Operación para actualizar estado de partida
-     */
-    public static class MatchStatusUpdate implements DatabaseOperation {
-        private final String minecraftUuid;
-        private final boolean isInMatch;
-        private final String currentMatchId;
-        private final long timestamp;
-
-        public MatchStatusUpdate(String minecraftUuid, boolean isInMatch, String currentMatchId) {
-            this.minecraftUuid = minecraftUuid;
-            this.isInMatch = isInMatch;
-            this.currentMatchId = currentMatchId;
-            this.timestamp = System.currentTimeMillis();
-        }
-
-        @Override
-        public void execute() throws Exception {
-            DatabaseManager.updatePlayerMatchStatus(minecraftUuid, isInMatch, currentMatchId);
-        }
-
-        @Override
-        public String getOperationType() {
-            return "MATCH_STATUS_UPDATE";
-        }
-
-        @Override
-        public long getTimestamp() {
-            return timestamp;
         }
     }
 }
