@@ -1,6 +1,6 @@
 discord:
   enabled: true
-  token: "NzcyNTI4MTg5Njc1Mjc0Mjcw.GKJzt2.W0G1QwK9ux2RKIUDf4ozpMUCJU5OoFqXntTi_g"
+  token: "NzcyNTI4MTg5Njc1Mjc0Mjcw.GhAvXW.10_CuaxD_G75js8R4SzHSmUHbuYAoXR8UhwmCE"
   guild-id: "1404292846340542554"
 
 databases:
@@ -35,3 +35,63 @@ forfeit:
 abandonment:
   # tiempo que permites para que alguien vuelva tras desconexión antes de marcar abandono
   reconnect-grace-seconds: 120
+
+# ========================================
+# CONFIGURACION DE PERFORMANCE Y HIT REGISTRATION
+# MODO ULTRA PERFORMANCE ACTIVADO
+# ========================================
+performance:
+  # Control principal de estadisticas durante partida - DESACTIVADO
+  stats:
+    enabled: false                  # DESACTIVADO - NO trackeo de stats durante partida
+    track-kills: false             # DESACTIVADO - No trackear kills
+    track-damage: false            # DESACTIVADO - No trackear daño
+    track-arrows: false            # DESACTIVADO - No trackear flechas
+    track-deaths: false            # DESACTIVADO - No trackear muertes
+    match-logs: false              # DESACTIVADO - No logs de eventos durante partida
+    database-saving: false         # DESACTIVADO - No guardar en DB durante partida
+
+  # Optimizaciones para hit registration perfecto - ACTIVADO
+  optimization:
+    async-stats: true              # Mantener async para compatibilidad
+    reduce-db-operations: true     # Reducir operaciones de DB
+    batch-writes: true             # Escritura en lotes (solo al final)
+    batch-size: 100                # Lotes mas grandes para menos overhead
+    batch-flush-interval: 10000    # Intervalo mas largo (10 segundos)
+
+  # Configuraciones especificas de PvP - OPTIMIZADO
+  pvp:
+    only-pvp-tracking: true        # Solo eventos PvP (si stats estuvieran activos)
+    disable-environmental: true    # Sin trackeo ambiental
+    optimize-event-priority: true  # Prioridad MONITOR para no bloquear
+    cache-player-matches: true     # Cache rapido habilitado
+
+# ========================================
+# RESULTADO ESPERADO:
+# ========================================
+# 0% CPU usado en trackeo durante hits
+# 0% RAM usado en cache de estadisticas
+# 0% I/O de base de datos durante partida
+# Hit registration perfecto sin interferencias
+# Solo se guardaran los ratings (ELO/MMR) al final
+#
+# ========================================
+# CONFIGURACIONES ALTERNATIVAS:
+# ========================================
+#
+# Para MAXIMO PERFORMANCE absoluto:
+# performance.stats.enabled: false
+# performance.stats.database-saving: false
+# performance.optimization.batch-writes: false
+#
+# Para PERFORMANCE BALANCEADO (solo kills/deaths):
+# performance.stats.enabled: true
+# performance.stats.track-damage: false
+# performance.stats.track-arrows: false
+# performance.stats.match-logs: false
+#
+# Para ESTADISTICAS COMPLETAS (performance normal):
+# performance.stats.enabled: true
+# (mantener todas las opciones en true)
+#
+# ========================================

@@ -4,7 +4,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.fabricioyv.commands.*;
+import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
@@ -14,6 +17,9 @@ import org.fabricioyv.match.AbandonmentDetectionSystem;
 import org.fabricioyv.match.MapManager;
 import org.fabricioyv.match.ForfeitManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
+
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public final class RankedMinecraft extends JavaPlugin {
     private DiscordBot discordBot;
@@ -25,8 +31,24 @@ public final class RankedMinecraft extends JavaPlugin {
     public void onEnable() {
         instance = this;
 
-        // 1) Generar/cargar config.yml principal (desde src/main/resources/config.yml)
-        saveDefaultConfig();
+        // 1) Generar/cargar config.yml principal y asegurar que esté completo
+        loadCompleteConfig();
+
+        // ========================================
+        // 2) INICIALIZAR SISTEMA DE PERFORMANCE OPTIMIZATION
+        // ========================================
+        getLogger().info("§a[Performance] Inicializando sistema de optimización de hit registration...");
+        PerformanceConfig.init(this);
+
+        // Log del estado de configuración de performance
+        if (PerformanceConfig.isUltraPerformanceMode()) {
+            getLogger().info("§e[Performance] ⚡ MODO ULTRA PERFORMANCE ACTIVADO - Stats completamente deshabilitados");
+        } else if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            getLogger().info("§e[Performance] ⚡ Stats tracking deshabilitado - Hit registration optimizado");
+        } else {
+            getLogger().info("§a[Performance] ✓ Performance balanceado - Stats: " +
+                PerformanceConfig.isAnyTrackingEnabled());
+        }
 
         // 2) Cargar settings del sistema de forfeit/afk desde config.yml
         ForfeitManager.loadSettings(this);
@@ -214,5 +236,49 @@ public final class RankedMinecraft extends JavaPlugin {
 
     public static RankedMinecraft getInstance() {
         return instance;
+    }
+
+    /**
+     * Cargar y completar el config.yml desde el archivo de recursos si es necesario
+     */
+    private void loadCompleteConfig() {
+        // Primero intentar guardar el archivo por defecto si no existe
+        saveDefaultConfig();
+
+        FileConfiguration config = getConfig();
+
+        // Cargar config.yml desde recursos
+        InputStream inputStream = getResource("config.yml");
+        if (inputStream == null) {
+            getLogger().severe("No se encontró el archivo config.yml en los recursos del plugin.");
+            return;
+        }
+
+        YamlConfiguration defaultConfig = new YamlConfiguration();
+        try {
+            defaultConfig.load(new InputStreamReader(inputStream));
+        } catch (Exception e) {
+            getLogger().severe("Error al cargar el archivo config.yml desde los recursos: " + e.getMessage());
+            e.printStackTrace();
+            return;
+        }
+
+        // Verificar y completar secciones faltantes
+        boolean modified = false;
+        for (String key : defaultConfig.getKeys(true)) {
+            if (!config.contains(key)) {
+                config.set(key, defaultConfig.get(key));
+                getLogger().info("§e[Config] Agregada sección faltante: " + key);
+                modified = true;
+            }
+        }
+
+        // Guardar config.yml solo si se realizaron cambios
+        if (modified) {
+            saveConfig();
+            getLogger().info("§a[Config] ✓ config.yml actualizado con las secciones por defecto.");
+        } else {
+            getLogger().info("§a[Config] ✓ config.yml está completo.");
+        }
     }
 }

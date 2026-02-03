@@ -33,8 +33,8 @@ public class CaptainPickSystem {
     private static final Map<String, PickSession> activeSessions = new ConcurrentHashMap<>();
 
     // ids de roles que pueden ser capitanes (según tu configuración actual)
-    private static final String VIP_PLUS_ROLE_ID = "1413241361087332505";
-    private static final String VIP_ROLE_ID = "1413241361087332505";
+    private static final String MAIN_SPONSOR_ROLE_ID = "1413241361087332505";
+    private static final String SPONSOR_ROLE_ID = "1413243740231041174";
     private static final String SERVER_BOOSTER_ROLE_ID = "1407203727076491295";
 
     private static final int PICK_TIMEOUT_SECONDS = 20;
@@ -94,7 +94,6 @@ public class CaptainPickSystem {
      * Inicia el sistema de picks después de seleccionar el mapa
      */
     public static void startPickPhase(ActiveMatch activeMatch, DiscordLogger logger) {
-        String matchId = activeMatch.getMatchId();
         List<PlayerData> allPlayers = activeMatch.getAllPlayers();
 
         // 1. Validaciones (IGUAL QUE ANTES)
@@ -122,9 +121,7 @@ public class CaptainPickSystem {
         // 4. En lugar de crear la PickSession, iniciamos la FASE DE REROLL
         // El Manager se encargará de hacer cambios al azar si la gente vota.
         // Cuando el tiempo termine, ejecutará el código dentro de () -> { ... }
-        runSync(() -> CaptainRerollManager.startRerollPhase(activeMatch, () -> {
-            iniciarSesionDePicksReal(activeMatch, logger);
-        }));
+        runSync(() -> CaptainRerollManager.startRerollPhase(activeMatch, () -> iniciarSesionDePicksReal(activeMatch, logger)));
     }
 
     private static void iniciarSesionDePicksReal(ActiveMatch activeMatch, DiscordLogger logger) {
@@ -204,7 +201,7 @@ public class CaptainPickSystem {
     }
 
     static String pairKey(String a, String b) {
-        if (a == null || b == null) return String.valueOf(a) + "|" + String.valueOf(b);
+        if (a == null || b == null) return a + "|" + b;
         return (a.compareTo(b) <= 0) ? (a + "|" + b) : (b + "|" + a);
     }
 
@@ -316,8 +313,8 @@ public class CaptainPickSystem {
             if (second != null) result.add(second);
         } else {
             // Si hay 0 o 2+ con ELO, elegimos la mejor pareja desde TODA la lista.
-            // Esto evita el problema que tú detectaste: “si solo 2 tienen ELO, siempre serán capitanes”.
-            boolean requireAtLeastOneElo = (eloPlayers.size() > 0);
+            // Esto evita el problema que tú detectaste: "si solo 2 tienen ELO, siempre serán capitanes".
+            boolean requireAtLeastOneElo = !eloPlayers.isEmpty();
             result = chooseBestPair(allPlayers, guild, recentPairs, lastSet, recentCount, requireAtLeastOneElo);
         }
 
@@ -472,14 +469,6 @@ public class CaptainPickSystem {
                     bestScore = score;
                     best = p;
                 }
-            } catch (Exception e) {
-                // Registrar el error en lugar de dejar el catch vacío
-                try {
-                    RankedMinecraft.getInstance().getLogger().warning("CaptainPickSystem: error comprobando roles sponsor para desempate - " + e.getMessage());
-                } catch (Exception logEx) {
-                    System.err.println("CaptainPickSystem: fallo al loggear: " + logEx.getMessage());
-                }
-                return 0;
             }
 
             if (best != null) break;
@@ -805,8 +794,6 @@ public class CaptainPickSystem {
         private boolean finished = false;
         private BukkitRunnable timeoutTask;
 
-        private int consecutivePicksRemaining = 1;
-
         private VoiceChannel tempPickChannel;
 
         public PickSession(String matchId, List<PlayerData> allPlayers,
@@ -840,7 +827,6 @@ public class CaptainPickSystem {
                 availablePlayers.remove(captain2);
 
                 currentCaptain = captain1;
-                consecutivePicksRemaining = 1;
 
                 createTemporaryPickChannelSingle();
 
@@ -1038,12 +1024,6 @@ public class CaptainPickSystem {
                 MessageUtil.send(cap, "&aEs tu turno. &7Usa &e/pick <jugador> &7o el &elibro de picks&7.");
                 MessageUtil.send(cap, "&7Disponibles: &f" + getAvailablePlayersInline(10));
             }
-
-            alertCaptainWithSound(
-                    currentCaptain,
-                    MessageUtil.c("&aEs tu turno. &7Pickea con &e/pick <jugador>"),
-                    3
-            );
 
             schedulePickTimeout();
         }
@@ -1472,3 +1452,4 @@ public class CaptainPickSystem {
         }
     }
 }
+

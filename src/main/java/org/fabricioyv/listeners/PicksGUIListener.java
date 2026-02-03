@@ -21,7 +21,7 @@ import java.util.List;
  */
 public class PicksGUIListener implements Listener {
 
-    private static final String PICKS_BOOK_NAME = "§6Libro de Picks";
+    private static final String PICKS_BOOK_NAME = "§6§lLibro de picks";
 
     /**
      * Maneja el click derecho en el libro de picks
@@ -46,12 +46,19 @@ public class PicksGUIListener implements Listener {
             return;
         }
 
-        if (!item.getItemMeta().getDisplayName().equals(PICKS_BOOK_NAME)) {
+        // Comparar sin códigos de color para mayor compatibilidad
+        String displayName = org.bukkit.ChatColor.stripColor(item.getItemMeta().getDisplayName());
+        String expectedName = org.bukkit.ChatColor.stripColor(PICKS_BOOK_NAME);
+
+        if (!displayName.equals(expectedName)) {
             return;
         }
 
         // Cancelar evento para evitar que abra libro normal
         event.setCancelled(true);
+
+        // DEBUG: Confirmar que se detectó el libro
+        player.sendMessage("§a[DEBUG] Libro de picks detectado correctamente.");
 
         // Buscar partida activa del jugador
         ActiveMatch activeMatch = ActiveMatch.getPlayerActiveMatch(player.getUniqueId().toString());
@@ -60,12 +67,38 @@ public class PicksGUIListener implements Listener {
             return;
         }
 
+        // Verificación: Solo capitanes pueden usar el libro de picks
+        PlayerData playerData = activeMatch.getPlayerByUUID(player.getUniqueId());
+        if (playerData == null) {
+            player.sendMessage("§cError: No se pudieron encontrar tus datos de jugador.");
+            return;
+        }
+
+        // Verificar si el jugador es uno de los capitanes
+        PlayerData blueCaptain = activeMatch.getBlueCaptain();
+        PlayerData redCaptain = activeMatch.getRedCaptain();
+
+        boolean isCaptain = false;
+        if (blueCaptain != null && playerData.getMinecraftUuid().equals(blueCaptain.getMinecraftUuid())) {
+            isCaptain = true;
+        } else if (redCaptain != null && playerData.getMinecraftUuid().equals(redCaptain.getMinecraftUuid())) {
+            isCaptain = true;
+        }
+
+        if (!isCaptain) {
+            player.sendMessage("§cSolo los capitanes pueden usar el libro de picks.");
+            return;
+        }
+
         // Obtener jugadores disponibles para pickear
         List<PlayerData> availablePlayers = CaptainPickSystem.getAvailablePlayers(activeMatch.getMatchId());
         if (availablePlayers == null || availablePlayers.isEmpty()) {
-            player.sendMessage("§cNo hay jugadores disponibles para pickear.");
+            player.sendMessage("§cNo hay jugadores disponibles para pickear o no es tu turno.");
             return;
         }
+
+        // DEBUG: Informar al jugador
+        player.sendMessage("§aAbriendo GUI de picks con " + availablePlayers.size() + " jugadores disponibles.");
 
         // Abrir GUI de picks
         PicksGUI.openPicksGUI(player, availablePlayers, activeMatch);
@@ -77,9 +110,20 @@ public class PicksGUIListener implements Listener {
     @EventHandler
     @SuppressWarnings("deprecation")
     public void onInventoryClick(InventoryClickEvent event) {
-        // Verificar que sea el GUI de picks
-        if (event.getView().getTitle() == null ||
-                !event.getView().getTitle().equals("§6Seleccionar Jugador")) {
+        // Verificar que sea el GUI de picks usando getTitle()
+        String title = null;
+        try {
+            title = event.getView().getTitle();
+        } catch (Exception e) {
+            // Fallback para versiones más antiguas
+            if (event.getInventory() != null) {
+                try {
+                    title = event.getInventory().getTitle();
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (title == null || !title.equals("§6Seleccionar Jugador")) {
             return;
         }
 
@@ -94,13 +138,22 @@ public class PicksGUIListener implements Listener {
         Player captain = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
 
-        // Verificar que clickeó en algo
+        // Verificar que clickeó en algo válido
         if (clickedItem == null || clickedItem.getType() == Material.AIR) {
             return;
         }
 
+        // DEBUG: Mostrar información del item clickeado
+        captain.sendMessage("§7[DEBUG] Item clickeado: " + clickedItem.getType() + " | Durabilidad: " + clickedItem.getDurability());
+
         // Verificar que sea una cabeza de jugador (1.8.8: SKULL_ITEM con durabilidad 3)
-        if (clickedItem.getType() != Material.SKULL_ITEM || clickedItem.getDurability() != 3) {
+        if (clickedItem.getType() != Material.SKULL_ITEM) {
+            captain.sendMessage("§7[DEBUG] No es SKULL_ITEM. Tipo: " + clickedItem.getType());
+            return;
+        }
+
+        if (clickedItem.getDurability() != 3) {
+            captain.sendMessage("§7[DEBUG] Durabilidad incorrecta: " + clickedItem.getDurability() + " (esperado: 3)");
             return;
         }
 
@@ -114,7 +167,7 @@ public class PicksGUIListener implements Listener {
 
         // Obtener jugadores disponibles
         List<PlayerData> availablePlayers = CaptainPickSystem.getAvailablePlayers(activeMatch.getMatchId());
-        if (availablePlayers == null) {
+        if (availablePlayers == null || availablePlayers.isEmpty()) {
             captain.sendMessage("§cError obteniendo jugadores disponibles.");
             captain.closeInventory();
             return;
@@ -124,6 +177,11 @@ public class PicksGUIListener implements Listener {
         PlayerData selectedPlayer = PicksGUI.getPlayerDataFromHead(clickedItem, availablePlayers);
         if (selectedPlayer == null) {
             captain.sendMessage("§cNo se pudo identificar al jugador seleccionado.");
+            captain.sendMessage("§7[DEBUG] Cabezas disponibles:");
+            for (PlayerData pd : availablePlayers) {
+                String playerName = getPlayerName(pd);
+                captain.sendMessage("§7- " + playerName);
+            }
             return;
         }
 
@@ -136,6 +194,9 @@ public class PicksGUIListener implements Listener {
             captain.sendMessage("§cError: No se pudo encontrar tus datos de jugador.");
             return;
         }
+
+        // DEBUG: Confirmar datos antes del pick
+        captain.sendMessage("§a[DEBUG] Realizando pick de " + getPlayerName(selectedPlayer));
 
         // Llamar al sistema de picks con el jugador seleccionado
         CaptainPickSystem.handlePlayerPick(

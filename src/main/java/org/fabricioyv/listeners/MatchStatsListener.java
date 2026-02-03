@@ -10,6 +10,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.database.MatchLogsManager;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.model.PlayerData;
@@ -23,7 +24,6 @@ import java.util.concurrent.*;
 /**
  * Listener OPTIMIZADO para estadísticas PvP - NO bloquea hit registration
  * Las estadísticas son completamente secundarias
- *
  * Created by FabricioYV
  * @author FabricioYV
  */
@@ -184,6 +184,20 @@ public class MatchStatsListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        // ========================================
+
+        // Si el trackeo de stats está completamente desactivado, salir inmediatamente
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // <0.01ms - sin procesamiento alguno
+        }
+
+        // Si solo el trackeo de daño está desactivado pero otros stats están activos
+        if (!PerformanceConfig.isDamageTrackingEnabled()) {
+            return; // Salir temprano si no se quiere trackear daño
+        }
+
         // **ULTRA-OPTIMIZACIÓN**: Verificación rápida de víctima
         if (!(event.getEntity() instanceof Player victim)) return;
 
@@ -196,23 +210,44 @@ public class MatchStatsListener implements Listener {
             // No permitir auto-daño
             if (attacker.equals(victim)) return;
         } else if (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player shooter) {
+            // Verificar si el trackeo de flechas está habilitado
+            if (!PerformanceConfig.isArrowTrackingEnabled()) {
+                return; // Salir si no se quiere trackear flechas
+            }
             attackerUuid = shooter.getUniqueId();
             attackerPlayer = shooter;
             // No permitir auto-daño
             if (shooter.equals(victim)) return;
         } else {
+            // Si disable-environmental está activo y no es PvP, salir
+            if (PerformanceConfig.isDisableEnvironmentalTracking()) {
+                return;
+            }
             return; // No es PvP
         }
 
-        // **BÚSQUEDA INTELIGENTE**: Primero buscar en cache rápido
-        String matchId = playerMatchCache.get(attackerUuid);
+        // ========================================
+        // OPTIMIZACIÓN PVP-ONLY
+        // ========================================
+
+        // Si pvp-only-tracking está activo, solo procesar eventos entre jugadores
+        if (PerformanceConfig.isPvpOnlyTracking() &&
+            !(event.getDamager() instanceof Player ||
+              (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player))) {
+            return;
+        }
+
+        // **BÚSQUEDA INTELIGENTE**: Usar cache si está habilitado
+        String matchId = null;
+        if (PerformanceConfig.isCachePlayerMatches()) {
+            matchId = playerMatchCache.get(attackerUuid);
+        }
 
         // **FALLBACK AUTOMÁTICO**: Si no está en cache, buscar en partidas activas
         if (matchId == null) {
             matchId = findAndCachePlayerMatch(attackerUuid, attackerPlayer.getName());
 
             if (matchId == null) {
-                // Solo debug si realmente no hay partida para este jugador
                 return;
             }
         }

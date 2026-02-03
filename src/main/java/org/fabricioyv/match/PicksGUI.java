@@ -74,15 +74,25 @@ public class PicksGUI {
                         playerName = off.getName();
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                // Fallback: usar UUID como identificador si no se puede obtener el nombre
+                playerName = "Jugador_" + playerData.getMinecraftUuid().substring(0, 8);
             }
 
             meta.setDisplayName("§a§l" + playerName);
 
-            // Establecer textura de la cabeza (setOwner usa el nombre, no importa si está offline)
+            // IMPORTANTE para 1.8.8: Establecer textura de la cabeza
             try {
                 meta.setOwner(playerName);
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                // Si falla setOwner, intentar con el UUID truncado
+                try {
+                    String shortUuid = playerData.getMinecraftUuid().replace("-", "").substring(0, 16);
+                    meta.setOwner(shortUuid);
+                } catch (Exception ignored) {
+                    // Como último recurso, usar un nombre genérico
+                    meta.setOwner("Steve");
+                }
             }
 
             // Crear lore con información detallada
@@ -120,6 +130,9 @@ public class PicksGUI {
             // Indicación de acción
             lore.add("§e§l▶ Click para seleccionar");
 
+            // DEBUG: Agregar información de identificación
+            lore.add("§8[DEBUG] UUID: " + playerData.getMinecraftUuid().substring(0, 8) + "...");
+
             meta.setLore(lore);
             head.setItemMeta(meta);
         }
@@ -154,6 +167,7 @@ public class PicksGUI {
 
     /**
      * Obtiene el PlayerData desde una cabeza de jugador en el inventario
+     * Versión mejorada con múltiples métodos de identificación
      */
     @SuppressWarnings("deprecation")
     public static PlayerData getPlayerDataFromHead(ItemStack item, List<PlayerData> availablePlayers) {
@@ -171,32 +185,76 @@ public class PicksGUI {
             return null;
         }
 
-        // En 1.8.8 se usa getOwner() en lugar de getOwningPlayer()
+        // Método 1: Por owner name (nombre del jugador)
         String ownerName = meta.getOwner();
-        if (ownerName == null) {
-            return null;
+        if (ownerName != null) {
+            for (PlayerData playerData : availablePlayers) {
+                try {
+                    UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+
+                    String name = null;
+                    Player online = Bukkit.getPlayer(uuid);
+                    if (online != null) {
+                        name = online.getName();
+                    } else {
+                        org.bukkit.OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
+                        if (off != null && off.getName() != null) {
+                            name = off.getName();
+                        }
+                    }
+
+                    if (name != null && name.equalsIgnoreCase(ownerName)) {
+                        return playerData;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
         }
 
-        // Buscar PlayerData por nombre (online u offline)
-        for (PlayerData playerData : availablePlayers) {
-            try {
-                UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+        // Método 2: Por display name si el owner falla
+        if (meta.hasDisplayName()) {
+            String displayName = org.bukkit.ChatColor.stripColor(meta.getDisplayName());
 
-                String name = null;
-                Player online = Bukkit.getPlayer(uuid);
-                if (online != null) {
-                    name = online.getName();
-                } else {
-                    org.bukkit.OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
-                    if (off != null && off.getName() != null) {
-                        name = off.getName();
+            for (PlayerData playerData : availablePlayers) {
+                try {
+                    UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+
+                    String name = null;
+                    Player online = Bukkit.getPlayer(uuid);
+                    if (online != null) {
+                        name = online.getName();
+                    } else {
+                        org.bukkit.OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
+                        if (off != null && off.getName() != null) {
+                            name = off.getName();
+                        }
                     }
-                }
 
-                if (name != null && name.equalsIgnoreCase(ownerName)) {
-                    return playerData;
+                    if (name != null && displayName.equalsIgnoreCase(name)) {
+                        return playerData;
+                    }
+                } catch (Exception ignored) {
                 }
-            } catch (Exception ignored) {
+            }
+        }
+
+        // Método 3: Por lore (buscar UUID en el debug)
+        if (meta.hasLore()) {
+            List<String> lore = meta.getLore();
+            for (String line : lore) {
+                if (line.contains("[DEBUG] UUID:")) {
+                    try {
+                        String uuidPart = line.substring(line.indexOf("UUID: ") + 6, line.indexOf("..."));
+
+                        for (PlayerData playerData : availablePlayers) {
+                            if (playerData.getMinecraftUuid().startsWith(uuidPart)) {
+                                return playerData;
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    break;
+                }
             }
         }
 
