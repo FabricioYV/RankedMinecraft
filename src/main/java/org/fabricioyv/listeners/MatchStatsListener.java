@@ -610,6 +610,17 @@ public class MatchStatsListener implements Listener {
      * Registrar muerte de jugador (llamado desde PGM listener)
      */
     public static void recordPlayerDeath(String matchId, UUID playerUuid, UUID killerUuid) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        // ========================================
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // <0.01ms - NO procesar si stats están desactivados
+        }
+
+        if (!PerformanceConfig.isDeathsTrackingEnabled()) {
+            return; // Salir si no se quiere trackear muertes
+        }
+
         // ✅ 2v2 UNRANKED: NO STATS
         cache2v2ByMatchId(matchId);
         if (is2v2MatchCached(matchId)) return;

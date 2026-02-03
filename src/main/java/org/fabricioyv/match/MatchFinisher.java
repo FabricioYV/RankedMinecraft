@@ -965,8 +965,8 @@ public class MatchFinisher {
         // **ELIMINADO**: La partida ya fue guardada en updatePlayerStatistics() con las stats correctas
         // No necesitamos guardarla de nuevo aquí
 
-        // Limpiar votos de forfeit
-        ForfeitManager.cleanupMatchVotes(activeMatch.getMatchId());
+        // Limpiar votos de forfeit y datos de AFK/DC
+        ForfeitManager.cleanupMatchData(activeMatch);
 
         // Finalizar estado global
         //MatchState.endMatch();
@@ -1746,3 +1746,4 @@ public class MatchFinisher {
         }
     }
 }
+

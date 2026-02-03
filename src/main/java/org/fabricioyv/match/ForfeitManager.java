@@ -96,15 +96,27 @@ public class ForfeitManager implements Listener {
      *
      * - Detecta AFK por inactividad (lastActivity)
      * - Solo aplica si el jugador pertenece a un team de un match IN_PROGRESS
+     * - Optimizado para evitar lag con jugadores desconectados
      */
     private static void startAfkKickTask(RankedMinecraft plugin) {
-        // Evita duplicar tasks si se crea más de un manager
+        // Ejecutar cada 2 segundos (40 ticks) en lugar de cada 1 segundo para reducir carga
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (!AFK_KICK_ENABLED) return;
+
             long now = System.currentTimeMillis();
 
-            for (Player p : Bukkit.getOnlinePlayers()) {
+            // Cachear la colección de jugadores online para evitar llamadas repetidas
+            Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
+            if (onlinePlayers.isEmpty()) return;
+
+            for (Player p : onlinePlayers) {
                 String uuid = p.getUniqueId().toString();
+
+                // Verificación rápida: si no está en lastActivity, inicializar ahora
+                if (!lastActivity.containsKey(uuid)) {
+                    lastActivity.put(uuid, now);
+                    continue;
+                }
 
                 ActiveMatch match = ActiveMatch.findActiveMatchForPlayer(uuid);
                 if (match == null) continue;
@@ -114,7 +126,7 @@ public class ForfeitManager implements Listener {
                 Team team = findTeam(match, uuid);
                 if (team == null) continue;
 
-                long last = lastActivity.getOrDefault(uuid, now);
+                long last = lastActivity.get(uuid);
                 long detectedAt = last + AFK_TIMEOUT_MILLIS;
 
                 if (now >= detectedAt) {
@@ -123,9 +135,24 @@ public class ForfeitManager implements Listener {
 
                     // Kick
                     p.kickPlayer(AFK_KICK_MESSAGE);
+
+                    // Limpiar inmediatamente después del kick para evitar reprocesamiento
+                    lastActivity.remove(uuid);
                 }
             }
-        }, 20L, 20L); // cada 1s
+
+            // Limpieza de jugadores desconectados: remover de lastActivity si no están online
+            // Esto previene que el mapa crezca indefinidamente
+            lastActivity.keySet().removeIf(uuid -> {
+                try {
+                    Player p = Bukkit.getPlayer(UUID.fromString(uuid));
+                    return p == null || !p.isOnline();
+                } catch (Exception e) {
+                    return true; // Remover UUIDs inválidos
+                }
+            });
+
+        }, 40L, 40L); // cada 2 segundos en lugar de 1
     }
 
     private static Team findTeam(ActiveMatch match, String playerUuid) {
@@ -245,16 +272,26 @@ public class ForfeitManager implements Listener {
             return new IssueGate(false, true, 0, "");
         }
 
+        // Cachear todas las verificaciones de jugadores online de una vez
+        Map<String, Player> onlinePlayersCache = new HashMap<>();
         for (PlayerData pd : teamPlayers) {
             String uuid = pd.getMinecraftUuid();
-            Player p = null;
             try {
-                p = Bukkit.getPlayer(UUID.fromString(uuid));
+                Player p = Bukkit.getPlayer(UUID.fromString(uuid));
+                if (p != null && p.isOnline()) {
+                    onlinePlayersCache.put(uuid, p);
+                }
             } catch (Exception ignored) {
+                // UUID inválido, se considerará DC
             }
+        }
+
+        for (PlayerData pd : teamPlayers) {
+            String uuid = pd.getMinecraftUuid();
+            Player p = onlinePlayersCache.get(uuid);
 
             // DC = no online
-            if (p == null || !p.isOnline()) {
+            if (p == null) {
                 hasDc = true;
                 // Si no tenemos timestamp (por reload, etc.), lo marcamos ahora para ser conservadores
                 long detected = disconnectAt.computeIfAbsent(uuid, k -> now);
@@ -408,6 +445,24 @@ public class ForfeitManager implements Listener {
 
     public static void cleanupMatchVotes(String matchId) {
         forfeitVotes.remove(matchId);
+    }
+
+    /**
+     * Limpia todos los datos de AFK/DC de los jugadores de una partida terminada.
+     * Esto previene acumulación de memoria y lag al procesar jugadores que ya no están en partida.
+     */
+    public static void cleanupMatchData(ActiveMatch match) {
+        if (match == null) return;
+
+        // Limpiar votos
+        forfeitVotes.remove(match.getMatchId());
+
+        // Limpiar datos de AFK/DC de todos los jugadores de la partida
+        for (PlayerData pd : match.getAllPlayers()) {
+            String uuid = pd.getMinecraftUuid();
+            disconnectAt.remove(uuid);
+            // No limpiamos lastActivity aquí para permitir tracking continuo entre partidas
+        }
     }
 
     // =========================

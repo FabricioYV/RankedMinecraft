@@ -890,6 +890,13 @@ public class PGMMatchListener implements Listener{
      * Actualiza PlayerData de forma asíncrona y optimizada
      */
     private void updatePlayerDataAsync(ActiveMatch activeMatch, UUID victimUUID, UUID killerUUID) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        // ========================================
+        if (!org.fabricioyv.config.PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // NO actualizar PlayerData si stats están desactivados
+        }
+
         try {
             // Víctima: añadir muerte
             PlayerData victimData = activeMatch.getPlayerByUUID(victimUUID);
@@ -902,16 +909,4 @@ public class PGMMatchListener implements Listener{
             // Killer: añadir kill
             if (killerUUID != null) {
                 PlayerData killerData = activeMatch.getPlayerByUUID(killerUUID);
-                if (killerData != null) {
-                    synchronized (killerData) { // Thread-safe para concurrent access
-                        killerData.addKill();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Manejo silencioso de errores
-            logger.warning("PlayerData Update Failed",
-                    "Error actualizando PlayerData async: " + e.getMessage());
-        }
-    }
-}
+                if
