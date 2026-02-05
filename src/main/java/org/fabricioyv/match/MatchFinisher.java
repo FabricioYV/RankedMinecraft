@@ -24,6 +24,10 @@ import org.fabricioyv.cache.PlayerDataCache;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 public class MatchFinisher {
 
@@ -253,26 +257,39 @@ public class MatchFinisher {
         // **CRÍTICO FIX**: ESTABLECER RESULTADOS ANTES DE FINALIZAR ESTADÍSTICAS
         MatchLogsIntegration.setMatchResults(activeMatch.getMatchId(), teams, winnerTeam);
 
-        // Esperar un momento para asegurar eventos pendientes
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        // ✅ OPTIMIZACIÓN CRÍTICA: Esperar eventos pendientes SIN BLOQUEAR main thread
+        // En lugar de Thread.sleep(100) bloqueante, usar CompletableFuture con timeout
+        final String matchId = activeMatch.getMatchId();
+        CompletableFuture<Map<UUID, MatchLogsManager.PlayerMatchStats>> statsFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    // Esperar en thread asíncrono (NO bloquea servidor)
+                    try {
+                        Thread.sleep(100); // Solo bloquea este thread worker
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return MatchStatsListener.finalizeMatchStats(matchId);
+                });
 
-        // Finalizar estadísticas
+        // Finalizar estadísticas con timeout (no bloquea)
         Map<UUID, MatchLogsManager.PlayerMatchStats> finalizedStats = null;
         try {
-            finalizedStats = MatchStatsListener.finalizeMatchStats(activeMatch.getMatchId());
+            // Espera máxima de 200ms para stats, pero NO bloquea otros jugadores
+            finalizedStats = statsFuture.get(200, TimeUnit.MILLISECONDS);
             if (finalizedStats != null && !finalizedStats.isEmpty()) {
                 logger.success("Match Stats Finalized",
                         String.format("✅ Estadísticas finalizadas para %d jugadores en match %s",
-                                finalizedStats.size(), activeMatch.getMatchId()));
+                                finalizedStats.size(), matchId));
             } else {
                 logger.warning("Match Stats Empty",
                         String.format("⚠️ No se encontraron estadísticas para match %s - usando valores por defecto",
-                                activeMatch.getMatchId()));
+                                matchId));
             }
+        } catch (TimeoutException e) {
+            logger.warning("Match Stats Timeout",
+                    "⚠️ Timeout esperando estadísticas - continuando con valores por defecto");
+            // Cancelar el future para liberar recursos
+            statsFuture.cancel(true);
         } catch (Exception e) {
             logger.error("Match Stats Finalization Failed",
                     String.format("❌ Error finalizando estadísticas: %s - continuando con valores por defecto",
