@@ -16,6 +16,8 @@ import org.fabricioyv.match.Team;
 
 // Imports de PGM - ajustar según la versión de PGM que uses
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.queue.RequeueManager;
 import tc.oc.pgm.api.match.Match;
 import tc.oc.pgm.api.match.event.MatchFinishEvent;
 import tc.oc.pgm.api.player.MatchPlayer;
@@ -80,6 +82,7 @@ public class PGMMatchListener implements Listener{
             // 1. PRIMERO: Marcar en memoria (instantáneo, no bloquea)
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
             }
 
@@ -746,9 +749,12 @@ public class PGMMatchListener implements Listener{
         logger.info("Cleaning Player States", "Limpiando estado inMatch de jugadores");
 
         int playersCleared = 0;
-        for (PlayerData player : activeMatch.getAllPlayers()) {
+        List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+        for (PlayerData player : allPlayers) {
             if (player.isInMatch()) {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
                 playersCleared++;
 

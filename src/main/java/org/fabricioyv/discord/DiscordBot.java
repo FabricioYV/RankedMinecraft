@@ -24,6 +24,7 @@ public class DiscordBot {
 
     private JDA jda;
     private QueueManager queueManager;
+    private String guildId;
     private DiscordLogger logger;
 
     public void initialize(RankedMinecraft plugin, String token, String guildId) {
@@ -46,6 +47,7 @@ public class DiscordBot {
             logger = new DiscordLogger(jda);
 
             // ✅ QueueManager con guildId (ideal)
+            this.guildId = guildId;
             queueManager = new QueueManager(jda, plugin, guildId);
 
             // Listener voice
@@ -132,6 +134,8 @@ public class DiscordBot {
     public JDA getJda() {
         return jda;
     }
+
+    public String getGuildId() { return guildId; }
 
     public DiscordLogger getLogger() {
         return logger;

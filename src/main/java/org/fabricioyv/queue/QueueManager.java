@@ -413,6 +413,20 @@ public class QueueManager {
         return getQueueList(queueType).size();
     }
 
+    public static String getQueueTypeFromSize(int size) {
+        size = size / 2;
+
+        if (size == 2) {
+            return "2vs2";
+        } else if (size == 5) {
+            return "5vs5";
+        } else if (size == 8) {
+            return "8vs8";
+        } else {
+            return "Unknown";
+        }
+    }
+
     public String getQueueInfo() {
         return String.format(
                 "Colas activas:\n2v2: %d/%d\n5v5: %d/%d\n8v8: %d/%d",

@@ -14,6 +14,7 @@ import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.config.VoiceChannelConfig;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 import java.time.LocalDateTime;
@@ -99,6 +100,7 @@ public class ActiveMatch {
         for (PlayerData player : this.allPlayers) {
             try {
                 player.setInMatch(true);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(matchId);
             } catch (Exception ignored) {}
         }
@@ -452,6 +454,7 @@ public class ActiveMatch {
         for (PlayerData player : allPlayers) {
             try {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
             } catch (Exception ignored) {}
         }

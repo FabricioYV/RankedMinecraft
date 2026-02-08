@@ -12,6 +12,7 @@ import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -187,7 +188,11 @@ public class AbandonmentDetectionSystem implements Listener {
         // ✅ SIEMPRE: doble loss
         applyDoubleLosses(playerData);
 
+        ActiveMatch activeMatch = ActiveMatch.getActiveMatch(playerData.getCurrentMatchId());
+        List<PlayerData> allPlayers = activeMatch != null ? activeMatch.getAllPlayers() : Collections.emptyList();
+
         playerData.setInMatch(false);
+        playerData.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
         playerData.setCurrentMatchId(null);
 
         Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
@@ -216,7 +221,11 @@ public class AbandonmentDetectionSystem implements Listener {
 
         applyDoubleLosses(playerData);
 
+        ActiveMatch activeMatch = ActiveMatch.getActiveMatch(playerData.getCurrentMatchId());
+        List<PlayerData> allPlayers = activeMatch != null ? activeMatch.getAllPlayers() : Collections.emptyList();
+
         playerData.setInMatch(false);
+        playerData.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
         playerData.setCurrentMatchId(null);
 
         Bukkit.getScheduler().runTaskAsynchronously(RankedMinecraft.getInstance(), () -> {
