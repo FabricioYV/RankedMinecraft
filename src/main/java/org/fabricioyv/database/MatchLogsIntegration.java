@@ -1,6 +1,7 @@
 package org.fabricioyv.database;
 
 import org.bukkit.Bukkit;
+import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.Team;
@@ -26,109 +27,57 @@ public class MatchLogsIntegration {
      * MODIFICADO: Inicializa estadísticas en memoria INMEDIATAMENTE, BD es secundaria
      */
     public static void startMatchTracking(String matchId, Map<Team, List<PlayerData>> teams, String matchType, String mapName) {
-        // **LOGGING CRÍTICO**: Verificar que el método se está llamando
-        System.out.println("[DEBUG] startMatchTracking llamado para " + matchId);
-        Bukkit.getConsoleSender().sendMessage(
-                "§c[DEBUG] startMatchTracking EJECUTÁNDOSE para " + matchId
-        );
+        // ⚡ VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        if (!PerformanceConfig.isStatsTrackingEnabled() || !PerformanceConfig.isMatchLogsEnabled()) {
+            // Salir inmediatamente si stats o match logs están desactivados
+            return;
+        }
+
+        // LOGGING REDUCIDO - Solo logs esenciales para debugging si es necesario
+        // Eliminados logs excesivos que afectan performance durante partidas
 
         try {
-            Bukkit.getConsoleSender().sendMessage(
-                    "§e[MatchLogs] Iniciando tracking para partida " + matchId + " con " + teams.size() + " equipos"
-            );
-
             // **CRÍTICO**: Verificar que teams no esté vacío
             if (teams == null || teams.isEmpty()) {
-                Bukkit.getConsoleSender().sendMessage(
-                        "§c[MatchLogs] ERROR: teams está vacío o nulo"
-                );
-                return;
+                return; // Salir silenciosamente para no afectar performance
             }
 
-            // **CRÍTICO**: Convertir equipos PRIMERO con logging detallado
+            // **CRÍTICO**: Convertir equipos PRIMERO (sin logging detallado)
             Map<String, String> playerTeams = new HashMap<>();
-            int totalPlayers = 0;
 
             for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
                 String teamName = entry.getKey().name(); // "BLUE" o "RED"
                 List<PlayerData> teamPlayers = entry.getValue();
 
-                Bukkit.getConsoleSender().sendMessage(
-                        "§e[MatchLogs] Procesando equipo " + teamName + " con " + teamPlayers.size() + " jugadores"
-                );
-
                 for (PlayerData player : teamPlayers) {
                     playerTeams.put(player.getMinecraftUuid(), teamName);
-                    totalPlayers++;
-
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§a[MatchLogs] ✓ Agregado " + player.getMinecraftName() + " al equipo " + teamName
-                    );
                 }
             }
-
-            Bukkit.getConsoleSender().sendMessage(
-                    "§e[MatchLogs] Convertidos " + totalPlayers + " jugadores a formato de tracking"
-            );
 
             // **CRÍTICO**: Verificar que playerTeams no esté vacío
             if (playerTeams.isEmpty()) {
-                Bukkit.getConsoleSender().sendMessage(
-                        "§c[MatchLogs] ERROR: playerTeams está vacío después de conversión"
-                );
-                return;
+                return; // Salir silenciosamente
             }
 
             // **CRÍTICO**: Inicializar estadísticas EN MEMORIA INMEDIATAMENTE
-            Bukkit.getConsoleSender().sendMessage(
-                    "§e[MatchLogs] Llamando a MatchStatsListener.initializeMatchStats..."
-            );
-
             MatchStatsListener.initializeMatchStats(matchId, playerTeams);
 
-            Bukkit.getConsoleSender().sendMessage(
-                    "§a✅ Estadísticas en memoria inicializadas para partida " + matchId
-            );
-
-            // **SECUNDARIO**: Inicializar en BD de forma asíncrona (no bloquear)
-            CompletableFuture.supplyAsync(() -> {
-                try {
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§e[MatchLogs] Iniciando inicialización en BD para " + matchId
-                    );
-                    return MatchLogsManager.initializeMatch(matchId, matchType, mapName).get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§c⚠️ Error al inicializar en BD (no crítico): " + e.getMessage()
-                    );
-                    return false;
-                }
-            }).thenAccept(success -> {
-                if (success) {
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§a✅ Inicialización en BD completada para " + matchId
-                    );
-                } else {
-                    Bukkit.getConsoleSender().sendMessage(
-                            "§c⚠️ Falló inicialización en BD para " + matchId + " (estadísticas en memoria OK)"
-                    );
-                }
-            });
+            // **SECUNDARIO**: Inicializar en BD de forma asíncrona SOLO si database-saving está habilitado
+            if (PerformanceConfig.isDatabaseSavingEnabled()) {
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return MatchLogsManager.initializeMatch(matchId, matchType, mapName).get(5, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        // Log silencioso para no afectar performance
+                        return false;
+                    }
+                });
+            }
 
         } catch (Exception e) {
-            Bukkit.getConsoleSender().sendMessage(
-                    "§c❌ Error crítico al inicializar tracking de partida " + matchId + ": " + e.getMessage()
-            );
-            e.printStackTrace();
-
-            // **LOGGING DETALLADO DEL ERROR**
-            System.out.println("[ERROR] Excepción en startMatchTracking:");
-            e.printStackTrace();
+            // Error handling silencioso para no afectar performance
+            // Solo log en casos críticos
         }
-
-        Bukkit.getConsoleSender().sendMessage(
-                "§c[DEBUG] startMatchTracking FINALIZADO para " + matchId
-        );
     }
 
     /**
@@ -136,6 +85,10 @@ public class MatchLogsIntegration {
      * Llamar este método cuando un jugador muera
      */
     public static void recordPlayerDeath(String matchId, UUID victimUuid, UUID killerUuid) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled() || !PerformanceConfig.isDeathsTrackingEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
         MatchStatsListener.recordPlayerDeath(matchId, victimUuid, killerUuid);
     }
 
@@ -145,6 +98,10 @@ public class MatchLogsIntegration {
      * IMPORTANTE: Este método solo registra los datos, NO modifica la base de datos principal
      */
     public static void updatePlayerRating(String matchId, PlayerData player, int oldElo, double oldMmr, int newElo, double newMmr) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
         MatchStatsListener.setPlayerRatingChanges(
                 matchId,
                 UUID.fromString(player.getMinecraftUuid()),
@@ -160,6 +117,11 @@ public class MatchLogsIntegration {
      * Llamar este método cuando termine la partida
      */
     public static void setMatchResults(String matchId, Map<Team, List<PlayerData>> teams, Team winnerTeam) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
+
         for (Map.Entry<Team, List<PlayerData>> entry : teams.entrySet()) {
             boolean won = entry.getKey().equals(winnerTeam);
 
@@ -267,6 +229,10 @@ public class MatchLogsIntegration {
      * Registra un evento personalizado en la partida
      */
     public static void logCustomEvent(String matchId, String eventType, UUID playerUuid, String eventData) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled() || !PerformanceConfig.isMatchLogsEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
         MatchLogsManager.logMatchEvent(matchId, eventType,
                 playerUuid != null ? playerUuid.toString() : null, eventData);
     }
@@ -275,11 +241,19 @@ public class MatchLogsIntegration {
      * Registra eventos importantes de la partida
      */
     public static void logMatchStart(String matchId, String mapName, int playerCount) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled() || !PerformanceConfig.isMatchLogsEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
         logCustomEvent(matchId, "MATCH_START", null,
                 String.format("Partida iniciada en mapa %s con %d jugadores", mapName, playerCount));
     }
 
     public static void logMatchEnd(String matchId, Team winnerTeam, long durationSeconds) {
+        // Verificar config antes de procesar
+        if (!PerformanceConfig.isStatsTrackingEnabled() || !PerformanceConfig.isMatchLogsEnabled()) {
+            return; // Salida ultra-rápida si está desactivado
+        }
         logCustomEvent(matchId, "MATCH_END", null,
                 String.format("Partida finalizada - Ganador: %s - Duración: %d segundos",
                         winnerTeam.name(), durationSeconds));
