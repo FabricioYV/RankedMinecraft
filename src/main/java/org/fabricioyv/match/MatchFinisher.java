@@ -79,6 +79,7 @@ public class MatchFinisher {
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
             }
 
@@ -377,6 +378,8 @@ public class MatchFinisher {
 
                     // ✅ (3) PROCESAMIENTO NORMAL
                     player.setCurrentMatchId(activeMatch.getMatchId());
+
+                    player.setLastQueueType(QueueManager.getQueueTypeFromSize(activeMatch.getAllPlayers().size()));
 
                     // Stats finalizadas desde cache
                     MatchLogsManager.PlayerMatchStats finalStats = null;
@@ -1008,6 +1011,7 @@ public class MatchFinisher {
         for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
             for (PlayerData playerData : teamPlayers) {
                 playerData.setInMatch(false);
+                playerData.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 playerData.setCurrentMatchId(null);
                 allPlayers.add(playerData);
             }
@@ -1137,6 +1141,7 @@ public class MatchFinisher {
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
             }
 

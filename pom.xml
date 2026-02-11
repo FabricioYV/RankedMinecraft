@@ -58,6 +58,10 @@
             <id>sonatype</id>
             <url>https://oss.sonatype.org/content/groups/public/</url>
         </repository>
+        <repository>
+            <id>pgm</id>
+            <url>https://repo.pgm.fyi/snapshots/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -88,11 +92,9 @@
             <version>5.0.1</version>
         </dependency>
         <dependency>
-            <groupId>tc</groupId>
-            <artifactId>pgm</artifactId>
-            <version>1</version>
-            <scope>provided</scope>
+            <groupId>tc.oc.pgm</groupId>
+            <artifactId>core</artifactId>
+            <version>0.16-SNAPSHOT</version>
         </dependency>
-
     </dependencies>
 </project>

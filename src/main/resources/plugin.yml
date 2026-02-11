@@ -15,7 +15,7 @@ commands:
     aliases: [ forfeit, surrender ]
   ready:
     description: Acelerar inicio de partida
-    aliases: [ r ]
+    aliases: [r]
     usage: /ready
   mapadmin:
     description: Comandos administrativos para gestionar el sistema de mapas
@@ -37,3 +37,7 @@ commands:
     usage: /elodecay <reload|force|info>
     permission: rankedmc.admin
     aliases: [decay]
+  requeue:
+    description: Reingresar a la cola después de una partida
+    usage: /requeue
+    aliases: [rq]

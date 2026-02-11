@@ -644,10 +644,12 @@ public class CaptainPickSystem {
             }
 
             QueueManager queueManager = RankedMinecraft.getInstance().getDiscordBot().getQueueManager();
-            for (PlayerData playerData : activeMatch.getAllPlayers()) {
+            List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+            for (PlayerData playerData : allPlayers) {
                 try {
                     queueManager.removePlayerFromAllQueues(playerData.getMinecraftUuid());
                     playerData.setInMatch(false);
+                    playerData.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                     playerData.setCurrentMatchId(null);
                 } catch (Exception e) {
                     logger.warning("Error limpiando jugador",

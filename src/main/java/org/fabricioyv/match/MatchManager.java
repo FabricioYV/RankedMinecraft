@@ -10,6 +10,7 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.database.MatchLogsIntegration;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -387,6 +388,7 @@ public class MatchManager {
     private static void updatePlayersMatchStatus(List<PlayerData> players, String matchId, boolean inMatch) {
         for (PlayerData player : players) {
             player.setInMatch(inMatch);
+            player.setLastQueueType(QueueManager.getQueueTypeFromSize(players.size()));
             player.setCurrentMatchId(matchId);
         }
 

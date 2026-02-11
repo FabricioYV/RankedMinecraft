@@ -69,6 +69,7 @@ public final class RankedMinecraft extends JavaPlugin {
             registerCommand("placement", new PlacementStatsCommand());
             registerCommand("testplacement", new TestPlacementAnalysisCommand());
             registerCommand("pick", new PickCommand());
+            registerCommand("requeue", new RequeueCommand());
 
             // Inicializar base de datos
             if (!DatabaseManager.initialize()) {
