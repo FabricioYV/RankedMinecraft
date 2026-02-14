@@ -44,6 +44,10 @@
       <id>sonatype</id>
       <url>https://oss.sonatype.org/content/groups/public/</url>
     </repository>
+    <repository>
+      <id>pgm</id>
+      <url>https://repo.pgm.fyi/snapshots/</url>
+    </repository>
   </repositories>
   <dependencies>
     <dependency>
@@ -57,12 +61,6 @@
       <artifactId>mysql-connector-java</artifactId>
       <version>8.0.33</version>
       <scope>compile</scope>
-    </dependency>
-    <dependency>
-      <groupId>tc</groupId>
-      <artifactId>pgm</artifactId>
-      <version>1</version>
-      <scope>provided</scope>
     </dependency>
   </dependencies>
   <properties>

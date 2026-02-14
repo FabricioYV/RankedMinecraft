@@ -1,5 +1,6 @@
 package org.fabricioyv.match;
 
+import net.dv8tion.jda.api.entities.Guild;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -13,7 +14,6 @@ import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.util.ActionBarUtil;
 import org.fabricioyv.util.TitleUtil;
-import net.dv8tion.jda.api.entities.Guild;
 
 import java.util.*;
 
@@ -21,9 +21,13 @@ public class CaptainRerollManager {
 
     private static final Map<String, RerollSession> sessions = new HashMap<>();
 
-    // Configuración
+    // ===================== Configuración =====================
     private static final int INITIAL_WAIT_SECONDS = 10;
     private static final int TIME_INCREMENT_PER_REROLL = 5;
+
+    // ✅ Cada voto vale x2 (RR capitanes)
+    private static final int VOTE_POWER = 2;
+
     // Requisitos por reroll aprobado: 4 -> 6 -> 8 -> 10, luego se bloquea
     private static final int[] VOTE_STEPS = {4, 6, 8, 10};
 
@@ -57,13 +61,11 @@ public class CaptainRerollManager {
         String s = raw.trim();
         if (s.isEmpty()) return null;
 
-        // Con guiones (formato estándar)
         try {
             return UUID.fromString(s);
         } catch (IllegalArgumentException ignored) {
         }
 
-        // Sin guiones (32 hex)
         if (s.length() == 32) {
             String dashed = s.substring(0, 8) + "-" +
                     s.substring(8, 12) + "-" +
@@ -79,21 +81,30 @@ public class CaptainRerollManager {
         return null;
     }
 
-    // Clase interna para manejar el estado de cada partida
+    // ===================== Sesión =====================
+
     private static class RerollSession {
 
         private final ActiveMatch match;
         private final Runnable onPhaseFinished;
         private final Set<UUID> votes = new HashSet<>();
         private final List<PlayerData> players;
-        private int successfulRerolls = 0;   // cuántos rerolls aprobaron y cambiaron capitanes
+
+        private int successfulRerolls = 0;
         private boolean rerollLocked = false;
 
         private int currentTimerSeconds;
         private BukkitTask timerTask;
 
-        private final Set<UUID> currentCaptainsPair = new HashSet<>();
+        // Session anti-loop (parejas ya usadas EN ESTA partida)
         private final Set<String> usedCaptainPairs = new HashSet<>();
+
+        // ✅ Anti “JugadorA se queda siempre”: historial por capitán en esta sesión
+        private final Map<String, Integer> sessionCaptainPickCount = new HashMap<>();
+
+        // ✅ Capitanes actuales (normalizados) para poder evitar reusar
+        private final Set<String> currentCaptainNorms = new HashSet<>();
+
         private final Map<UUID, Integer> rerollSlotByPlayer = new HashMap<>();
         private final Map<UUID, ItemStack> replacedItemByPlayer = new HashMap<>();
 
@@ -105,6 +116,12 @@ public class CaptainRerollManager {
             this.currentTimerSeconds = INITIAL_WAIT_SECONDS;
         }
 
+        private Player safeGet(PlayerData pd) {
+            if (pd == null) return null;
+            UUID id = CaptainRerollManager.parseUuid(pd.getMinecraftUuid());
+            return (id != null) ? Bukkit.getPlayer(id) : null;
+        }
+
         private String keyFor(PlayerData a, PlayerData b) {
             String au = CaptainPickSystem.normalize(a);
             String bu = CaptainPickSystem.normalize(b);
@@ -112,31 +129,20 @@ public class CaptainRerollManager {
             return CaptainPickSystem.pairKey(au, bu);
         }
 
-        private Player safeGet(PlayerData pd) {
-            if (pd == null) return null;
-            UUID id = CaptainRerollManager.parseUuid(pd.getMinecraftUuid());
-            return (id != null) ? Bukkit.getPlayer(id) : null;
-        }
-
         public void start() {
+            // Si ya vienen capitanes seteados, registrarlos como “pareja inicial”
             if (match.getBlueCaptain() != null && match.getRedCaptain() != null) {
                 PlayerData cap1 = match.getBlueCaptain();
                 PlayerData cap2 = match.getRedCaptain();
 
-                // Registrar pareja inicial si es posible
-                UUID u1 = CaptainRerollManager.parseUuid(cap1.getMinecraftUuid());
-                UUID u2 = CaptainRerollManager.parseUuid(cap2.getMinecraftUuid());
-
-                currentCaptainsPair.clear();
-                if (u1 != null) currentCaptainsPair.add(u1);
-                if (u2 != null) currentCaptainsPair.add(u2);
+                registerCurrentCaptains(cap1, cap2);
 
                 String initialKey = keyFor(cap1, cap2);
                 if (initialKey != null) usedCaptainPairs.add(initialKey);
 
-                // Solo anunciamos los actuales
                 broadcastTitle("§9Capitanes Seleccionados",
                         "§9" + cap1.getMinecraftName() + " §7vs §c" + cap2.getMinecraftName());
+
                 broadcast("§7--------------------------------");
                 broadcast("§9Capitán Azul: §f" + cap1.getMinecraftName());
                 broadcast("§cCapitán Rojo: §f" + cap2.getMinecraftName());
@@ -151,6 +157,10 @@ public class CaptainRerollManager {
             }
 
             giveVotingItems();
+
+            // ✅ Anuncio llamativo
+            announceRerollAvailable();
+
             startTimer();
         }
 
@@ -163,6 +173,11 @@ public class CaptainRerollManager {
                 if (id != null && id.equals(pid)) return true;
             }
             return false;
+        }
+
+        // ✅ puntos actuales (voto x2)
+        private int getVotePoints() {
+            return votes.size() * VOTE_POWER;
         }
 
         public void vote(Player player) {
@@ -179,21 +194,29 @@ public class CaptainRerollManager {
             }
 
             votes.add(player.getUniqueId());
-            int required = getRequiredVotes();
 
-            String msg = ChatColor.YELLOW + player.getName() + ChatColor.GRAY + " votó por cambiar capitanes " +
-                    ChatColor.AQUA + "(" + votes.size() + "/" + required + ")";
-            broadcast(msg);
+            int points = getVotePoints();
+            int required = getRequiredVotePoints();
+
+            broadcast(ChatColor.YELLOW + player.getName() + ChatColor.GRAY +
+                    " votó por cambiar capitanes " + ChatColor.AQUA +
+                    "(" + points + "/" + required + ")" + ChatColor.GRAY +
+                    " §7(voto x" + VOTE_POWER + ")");
+
+            player.sendMessage(ChatColor.GREEN + "✔ Tu voto cuenta x" + VOTE_POWER + " para el RR de capitanes.");
 
             playSound(soundByName("CLICK", "UI_BUTTON_CLICK"));
 
-            if (votes.size() >= required) {
+            if (points >= required) {
                 doReroll();
             }
         }
 
         private void doReroll() {
             if (rerollLocked) return;
+
+            PlayerData oldBlue = match.getBlueCaptain();
+            PlayerData oldRed = match.getRedCaptain();
 
             broadcast(ChatColor.GREEN + "¡Votación aprobada! Cambiando capitanes...");
             votes.clear();
@@ -204,19 +227,29 @@ public class CaptainRerollManager {
                 return;
             }
 
-            // ✅ Solo cuenta si realmente cambió capitanes
+            // ✅ Solo cuenta si realmente cambió
             successfulRerolls++;
 
-            // Aumenta el timer por reroll aprobado (como ya lo tenías)
+            // Aumenta el timer por reroll aprobado
             currentTimerSeconds += TIME_INCREMENT_PER_REROLL;
 
-            // Si ya se aprobó el paso 10 (o llegaste al final de VOTE_STEPS), se bloquea el reroll
+            // Mensaje comparativo (para que se note el cambio)
+            PlayerData newBlue = match.getBlueCaptain();
+            PlayerData newRed = match.getRedCaptain();
+            if (oldBlue != null && oldRed != null && newBlue != null && newRed != null) {
+                broadcast(ChatColor.GRAY + "Antes: " + ChatColor.BLUE + oldBlue.getMinecraftName()
+                        + ChatColor.GRAY + " vs " + ChatColor.RED + oldRed.getMinecraftName()
+                        + ChatColor.DARK_GRAY + "  |  "
+                        + ChatColor.GRAY + "Ahora: " + ChatColor.BLUE + newBlue.getMinecraftName()
+                        + ChatColor.GRAY + " vs " + ChatColor.RED + newRed.getMinecraftName());
+            }
+
+            // Bloqueo por límite
             if (successfulRerolls >= VOTE_STEPS.length) {
                 rerollLocked = true;
                 broadcast(ChatColor.RED + "Reroll deshabilitado: ya se alcanzó el máximo (4→6→8→10).");
-                clearItems(); // quita el disco para que no jodan más
+                clearItems();
             } else {
-                // refresca lore para mostrar el nuevo requisito
                 giveVotingItems();
             }
 
@@ -224,10 +257,16 @@ public class CaptainRerollManager {
             startTimer();
         }
 
+        /**
+         * ✅ Selección “smart” + anti “JugadorA se queda fijo”
+         * - No repite pareja dentro de esta sesión (usedCaptainPairs)
+         * - Prefiere NO reutilizar capitanes actuales (para evitar A vs B -> A vs C -> A vs D...)
+         * - Penaliza capitanes repetidos en esta sesión (sessionCaptainPickCount)
+         * - Mantiene anti-loop global (CaptainPickSystem snapshotRecentPairs, lastSet, recentCount)
+         */
         private boolean selectSmartCaptains() {
             if (players == null || players.size() < 2) return false;
 
-            // Solo candidatos con UUID parseable (evita llaves raras)
             List<PlayerData> valid = new ArrayList<>();
             for (PlayerData p : players) {
                 if (p == null) continue;
@@ -244,16 +283,18 @@ public class CaptainRerollManager {
 
             final Guild guild = match.getGuild();
 
-            // Historial anti-loop global (entre partidas) desde CaptainPickSystem
             Set<String> recentPairs = CaptainPickSystem.snapshotRecentPairs();
             Set<String> lastSet = CaptainPickSystem.snapshotLastCaptainSet();
             Map<String, Integer> recentCount = CaptainPickSystem.snapshotRecentCaptainCounts();
 
-            // Copia de los mismos valores que usas en CaptainPickSystem (para mantener comportamiento)
             final int MIN_WINS_FOR_CAPTAIN = 10;
             final int CAPTAIN_TOP_POOL = 10;
             final long PENALTY_BOTH_LAST_CAPTAINS = 100_000L;
             final long PENALTY_RECENT_CAPTAIN = 1_500L;
+
+            // ✅ Penalizaciones “session anti-repeat”
+            final long PENALTY_KEEP_CURRENT_CAPTAIN = 35_000L;     // mantener a un capitán actual
+            final long PENALTY_SESSION_REUSE_CAPTAIN = 20_000L;    // repetir capitán a lo largo de rerolls
 
             // Detectar quién tiene ELO
             List<PlayerData> eloPlayers = new ArrayList<>();
@@ -270,36 +311,9 @@ public class CaptainRerollManager {
             }
             if (filtered.size() < 2) filtered = valid;
 
-            // Orden por score base (ELO/VIP/WINS)
+            // Orden por score base
             filtered.sort(Comparator.comparingLong((PlayerData p) -> CaptainPickSystem.captainBaseScore(p, guild)).reversed());
 
-            // Caso especial: solo 1 con ELO -> fijo ese y roto el segundo (como tu lógica)
-            if (eloPlayers.size() == 1) {
-                PlayerData fixed = eloPlayers.get(0);
-
-                List<PlayerData> others = new ArrayList<>(filtered);
-                others.remove(fixed);
-                PlayerData second = chooseSecondWithFixedFirstSmart(
-                        fixed, others, guild, recentPairs, lastSet, recentCount,
-                        usedCaptainPairs,
-                        CAPTAIN_TOP_POOL,
-                        PENALTY_BOTH_LAST_CAPTAINS,
-                        PENALTY_RECENT_CAPTAIN
-                );
-
-                if (second == null) {
-                    broadcast(ChatColor.RED + "No se encontró un segundo capitán válido (sin repetir parejas).");
-                    return false;
-                }
-
-                String pk = keyFor(fixed, second);
-                if (pk == null || usedCaptainPairs.contains(pk)) return false;
-
-                applyCaptains(fixed, second, pk);
-                return true;
-            }
-
-            // Si existe ELO en la queue, fuerza que al menos 1 de los 2 capitanes tenga ELO
             boolean requireAtLeastOneElo = !eloPlayers.isEmpty();
 
             int limit = Math.min(CAPTAIN_TOP_POOL, filtered.size());
@@ -309,14 +323,79 @@ public class CaptainRerollManager {
             String bestKey = null;
             long bestScore = Long.MIN_VALUE;
 
-            // 2 pasadas: estricto (no recentPairs), luego relajado
-            for (int pass = 0; pass < 2; pass++) {
-                boolean allowRecentPairs = (pass == 1);
+            /*
+             * 3 pasadas:
+             * pass 0: NO permitir mantener capitanes actuales (ideal)
+             * pass 1: permitir mantener 1 (si no hay opción)
+             * pass 2: permitir cualquiera (último recurso)
+             *
+             * + 2 sub-pasadas internas para recentPairs: estricto y luego relajado
+             */
+            for (int passKeep = 0; passKeep < 3; passKeep++) {
+                for (int passRecent = 0; passRecent < 2; passRecent++) {
+                    boolean allowRecentPairs = (passRecent == 1);
 
-                for (int i = 0; i < pool.size(); i++) {
-                    for (int j = i + 1; j < pool.size(); j++) {
-                        PlayerData a = pool.get(i);
-                        PlayerData b = pool.get(j);
+                    for (int i = 0; i < pool.size(); i++) {
+                        for (int j = i + 1; j < pool.size(); j++) {
+                            PlayerData a = pool.get(i);
+                            PlayerData b = pool.get(j);
+
+                            String au = CaptainPickSystem.normalize(a);
+                            String bu = CaptainPickSystem.normalize(b);
+                            if (au == null || bu == null) continue;
+
+                            if (requireAtLeastOneElo && !(CaptainPickSystem.hasElo(a) || CaptainPickSystem.hasElo(b))) continue;
+
+                            String pk = CaptainPickSystem.pairKey(au, bu);
+
+                            if (usedCaptainPairs.contains(pk)) continue;
+                            if (!allowRecentPairs && recentPairs.contains(pk)) continue;
+
+                            // ✅ evitar patrón A fijo (control de “keep”)
+                            int keepCount = 0;
+                            if (currentCaptainNorms.contains(au)) keepCount++;
+                            if (currentCaptainNorms.contains(bu)) keepCount++;
+                            if (keepCount > passKeep) continue;
+
+                            long score = CaptainPickSystem.captainBaseScore(a, guild) + CaptainPickSystem.captainBaseScore(b, guild);
+
+                            // Evitar repetir 2/2 capitanes de la última partida
+                            if (lastSet.contains(au) && lastSet.contains(bu)) {
+                                score -= PENALTY_BOTH_LAST_CAPTAINS;
+                            }
+
+                            // Penalización por frecuencia global
+                            score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(au, 0);
+                            score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(bu, 0);
+
+                            // ✅ Penalización por mantener capitanes actuales
+                            if (keepCount > 0) score -= PENALTY_KEEP_CURRENT_CAPTAIN * (long) keepCount;
+
+                            // ✅ Penalización por repetir capitanes en esta sesión
+                            score -= PENALTY_SESSION_REUSE_CAPTAIN * (long) sessionCaptainPickCount.getOrDefault(au, 0);
+                            score -= PENALTY_SESSION_REUSE_CAPTAIN * (long) sessionCaptainPickCount.getOrDefault(bu, 0);
+
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestA = a;
+                                bestB = b;
+                                bestKey = pk;
+                            }
+                        }
+                    }
+
+                    if (bestA != null && bestB != null) break;
+                }
+                if (bestA != null && bestB != null) break;
+            }
+
+            // Fallback: cualquier pareja no usada
+            if (bestA == null || bestB == null) {
+                outer:
+                for (int i = 0; i < filtered.size(); i++) {
+                    for (int j = i + 1; j < filtered.size(); j++) {
+                        PlayerData a = filtered.get(i);
+                        PlayerData b = filtered.get(j);
 
                         String au = CaptainPickSystem.normalize(a);
                         String bu = CaptainPickSystem.normalize(b);
@@ -325,50 +404,8 @@ public class CaptainRerollManager {
                         if (requireAtLeastOneElo && !(CaptainPickSystem.hasElo(a) || CaptainPickSystem.hasElo(b))) continue;
 
                         String pk = CaptainPickSystem.pairKey(au, bu);
-
-                        // ✅ NO repetir pareja dentro de esta sesión (incluye primera pareja)
-                        if (usedCaptainPairs.contains(pk)) continue;
-
-                        // Anti-loop global (entre matches)
-                        if (!allowRecentPairs && recentPairs.contains(pk)) continue;
-
-                        long score = CaptainPickSystem.captainBaseScore(a, guild) + CaptainPickSystem.captainBaseScore(b, guild);
-
-                        // Evitar repetir 2/2 capitanes de la última partida
-                        if (lastSet.contains(au) && lastSet.contains(bu)) {
-                            score -= PENALTY_BOTH_LAST_CAPTAINS;
-                        }
-
-                        // Penalización por frecuencia reciente
-                        score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(au, 0);
-                        score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(bu, 0);
-
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestA = a;
-                            bestB = b;
-                            bestKey = pk;
-                        }
-                    }
-                }
-
-                if (bestA != null && bestB != null) break;
-            }
-
-            // Fallback: busca cualquier pareja no usada (sin score) antes de rendirte
-            if (bestA == null || bestB == null) {
-                outer:
-                for (int i = 0; i < filtered.size(); i++) {
-                    for (int j = i + 1; j < filtered.size(); j++) {
-                        PlayerData a = filtered.get(i);
-                        PlayerData b = filtered.get(j);
-
-                        String pk = keyFor(a, b);
                         if (pk == null) continue;
                         if (usedCaptainPairs.contains(pk)) continue;
-
-                        // si requiere ELO y ninguno lo tiene, salta (solo si hay ELO en pool)
-                        if (requireAtLeastOneElo && !(CaptainPickSystem.hasElo(a) || CaptainPickSystem.hasElo(b))) continue;
 
                         bestA = a; bestB = b; bestKey = pk;
                         break outer;
@@ -385,69 +422,6 @@ public class CaptainRerollManager {
             return true;
         }
 
-        private PlayerData chooseSecondWithFixedFirstSmart(PlayerData first,
-                                                           List<PlayerData> others,
-                                                           Guild guild,
-                                                           Set<String> recentPairs,
-                                                           Set<String> lastSet,
-                                                           Map<String, Integer> recentCount,
-                                                           Set<String> usedPairs,
-                                                           int topPool,
-                                                           long penaltyBothLast,
-                                                           long penaltyRecent) {
-            if (first == null || others == null || others.isEmpty()) return null;
-
-            List<PlayerData> filtered = new ArrayList<>();
-            for (PlayerData p : others) {
-                try {
-                    if (p != null && p.getWins() >= 10) filtered.add(p);
-                } catch (Exception ignored) {}
-            }
-            if (filtered.isEmpty()) filtered = new ArrayList<>(others);
-
-            filtered.sort(Comparator.comparingLong((PlayerData p) -> CaptainPickSystem.captainBaseScore(p, guild)).reversed());
-
-            String fu = CaptainPickSystem.normalize(first);
-            if (fu == null) return filtered.get(0);
-
-            int limit = Math.min(topPool, filtered.size());
-            List<PlayerData> pool = filtered.subList(0, limit);
-
-            PlayerData best = null;
-            long bestScore = Long.MIN_VALUE;
-
-            for (int pass = 0; pass < 2; pass++) {
-                boolean allowRecentPairs = (pass == 1);
-
-                for (PlayerData p : pool) {
-                    if (p == null) continue;
-                    String pu = CaptainPickSystem.normalize(p);
-                    if (pu == null) continue;
-
-                    String pk = CaptainPickSystem.pairKey(fu, pu);
-                    if (usedPairs.contains(pk)) continue;
-                    if (!allowRecentPairs && recentPairs.contains(pk)) continue;
-
-                    long score = CaptainPickSystem.captainBaseScore(p, guild);
-
-                    if (lastSet.contains(fu) && lastSet.contains(pu)) {
-                        score -= penaltyBothLast;
-                    }
-
-                    score -= penaltyRecent * (long) recentCount.getOrDefault(pu, 0);
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        best = p;
-                    }
-                }
-
-                if (best != null) break;
-            }
-
-            return best;
-        }
-
         private void applyCaptains(PlayerData cap1, PlayerData cap2, String pairKey) {
             usedCaptainPairs.add(pairKey);
 
@@ -455,16 +429,34 @@ public class CaptainRerollManager {
             match.setRedCaptain(cap2);
             match.setPicksMatch(true);
 
+            // ✅ registrar current captains + session counts
+            registerCurrentCaptains(cap1, cap2);
+
             broadcastTitle(ChatColor.BLUE + "Capitanes Seleccionados",
                     ChatColor.BLUE + cap1.getMinecraftName() + ChatColor.GRAY + " vs " + ChatColor.RED + cap2.getMinecraftName());
 
             broadcast(ChatColor.GRAY + "--------------------------------");
             broadcast(ChatColor.BLUE + "Capitán Azul: " + ChatColor.WHITE + cap1.getMinecraftName());
             broadcast(ChatColor.RED + "Capitán Rojo: " + ChatColor.WHITE + cap2.getMinecraftName());
-            broadcast(ChatColor.YELLOW + "Usa el disco para votar por nuevos capitanes.");
+            broadcast(ChatColor.YELLOW + "Usa el disco para votar por nuevos capitanes. §7(voto x" + VOTE_POWER + ")");
             broadcast(ChatColor.GRAY + "--------------------------------");
         }
 
+        private void registerCurrentCaptains(PlayerData cap1, PlayerData cap2) {
+            currentCaptainNorms.clear();
+
+            String u1 = CaptainPickSystem.normalize(cap1);
+            String u2 = CaptainPickSystem.normalize(cap2);
+
+            if (u1 != null) {
+                currentCaptainNorms.add(u1);
+                sessionCaptainPickCount.put(u1, sessionCaptainPickCount.getOrDefault(u1, 0) + 1);
+            }
+            if (u2 != null) {
+                currentCaptainNorms.add(u2);
+                sessionCaptainPickCount.put(u2, sessionCaptainPickCount.getOrDefault(u2, 0) + 1);
+            }
+        }
 
         private void startTimer() {
             cancelTimer();
@@ -482,11 +474,10 @@ public class CaptainRerollManager {
 
                     String rrPart = rerollLocked
                             ? (ChatColor.RED + "Reroll: OFF")
-                            : (ChatColor.YELLOW + "Votos Reroll: " + votes.size() + "/" + getRequiredVotes());
+                            : (ChatColor.YELLOW + "Reroll: " + getVotePoints() + "/" + getRequiredVotePoints() + ChatColor.GRAY + " (x" + VOTE_POWER + ")");
 
                     String bar = ChatColor.GOLD + "Iniciando Picks en: " + ChatColor.WHITE + timeLeft + "s " +
                             ChatColor.GRAY + "| " + rrPart;
-
 
                     for (PlayerData p : players) {
                         Player pl = safeGet(p);
@@ -505,13 +496,27 @@ public class CaptainRerollManager {
         }
 
         private void finishPhase() {
-            cleanup(match.getMatchId()); // esto ya cancela timer + clearItems + limpia maps
+            cleanup(match.getMatchId());
             broadcast(ChatColor.GREEN + "¡Fase de votación terminada! Iniciando picks...");
             if (onPhaseFinished != null) onPhaseFinished.run();
         }
 
+        private void announceRerollAvailable() {
+            // Un anuncio “no puedes decir que no lo viste”
+            String title = "§d§lREROLL DE CAPITANES";
+            String subtitle = "§fClick derecho al §bDISCO §fpara votar §7(voto x" + VOTE_POWER + ")";
+            broadcastTitle(title, subtitle);
+
+            broadcast("§7--------------------------------");
+            broadcast("§d§lREROLL DISPONIBLE §7» §fClick derecho al §bDISCO §fpara votar por nuevos capitanes.");
+            broadcast("§7Tu voto vale §ax" + VOTE_POWER + "§7. Si no votas, luego no llores por los capitanes.");
+            broadcast("§7--------------------------------");
+
+            playSound(soundByName("LEVEL_UP", "ENTITY_PLAYER_LEVELUP"));
+        }
+
         private void giveVotingItems() {
-            if (rerollLocked) return; // recomendado (ver punto 3)
+            if (rerollLocked) return;
 
             Material voteMat = materialByName("RECORD_3", "MUSIC_DISC_BLOCKS");
             if (voteMat == null) voteMat = Material.PAPER;
@@ -519,7 +524,7 @@ public class CaptainRerollManager {
             ItemStack item = new ItemStack(voteMat);
             ItemMeta meta = item.getItemMeta();
 
-            int req = getRequiredVotes();
+            int req = getRequiredVotePoints();
             int remaining = getRerollsRemaining();
 
             if (meta != null) {
@@ -528,7 +533,8 @@ public class CaptainRerollManager {
                         ChatColor.GRAY + "Click derecho para votar",
                         ChatColor.GRAY + "por nuevos capitanes.",
                         "",
-                        ChatColor.YELLOW + "Requiere: " + ChatColor.AQUA + req + " votos",
+                        ChatColor.YELLOW + "Cada voto vale: " + ChatColor.AQUA + "x" + VOTE_POWER,
+                        ChatColor.YELLOW + "Requiere: " + ChatColor.AQUA + req + " puntos",
                         ChatColor.YELLOW + "Rerolls restantes: " + ChatColor.AQUA + remaining
                 ));
                 item.setItemMeta(meta);
@@ -539,7 +545,6 @@ public class CaptainRerollManager {
                 if (pl != null) {
                     int slot = findBestHotbarSlot(pl);
 
-                    // Guardar para restaurar luego (solo la primera vez por jugador)
                     UUID pid = pl.getUniqueId();
                     if (!rerollSlotByPlayer.containsKey(pid)) {
                         rerollSlotByPlayer.put(pid, slot);
@@ -555,9 +560,6 @@ public class CaptainRerollManager {
         }
 
         private void clearItems() {
-            Material air = materialByName("AIR");
-            ItemStack empty = (air != null) ? new ItemStack(air) : null;
-
             for (PlayerData p : players) {
                 Player pl = safeGet(p);
                 if (pl != null) {
@@ -566,12 +568,11 @@ public class CaptainRerollManager {
                     Integer slot = rerollSlotByPlayer.remove(pid);
                     if (slot == null) continue;
 
-                    ItemStack prev = replacedItemByPlayer.remove(pid); // puede ser null (equivale a AIR)
+                    ItemStack prev = replacedItemByPlayer.remove(pid);
                     pl.getInventory().setItem(slot, prev);
                     pl.updateInventory();
                 }
             }
-
         }
 
         private void cancelTimer() {
@@ -588,7 +589,8 @@ public class CaptainRerollManager {
             replacedItemByPlayer.clear();
         }
 
-        private int getRequiredVotes() {
+        // ✅ Requerido en “puntos”, capado para no soft-lock (max = players * VOTE_POWER)
+        private int getRequiredVotePoints() {
             if (players == null) return Integer.MAX_VALUE;
             int total = players.size();
             if (total <= 0) return Integer.MAX_VALUE;
@@ -596,8 +598,8 @@ public class CaptainRerollManager {
             int stepIndex = Math.min(successfulRerolls, VOTE_STEPS.length - 1);
             int required = VOTE_STEPS[stepIndex];
 
-            // Para no dejar el match en soft-lock si hay menos jugadores que el paso requerido
-            return Math.min(required, total);
+            int maxPossible = total * VOTE_POWER;
+            return Math.min(required, maxPossible);
         }
 
         private int getRerollsRemaining() {
@@ -630,8 +632,7 @@ public class CaptainRerollManager {
             for (String n : names) {
                 try {
                     return Sound.valueOf(n);
-                } catch (IllegalArgumentException ignored) {
-                }
+                } catch (IllegalArgumentException ignored) {}
             }
             return null;
         }
@@ -640,8 +641,7 @@ public class CaptainRerollManager {
             for (String n : names) {
                 try {
                     return Material.valueOf(n);
-                } catch (IllegalArgumentException ignored) {
-                }
+                } catch (IllegalArgumentException ignored) {}
             }
             return null;
         }
@@ -651,12 +651,10 @@ public class CaptainRerollManager {
         }
 
         private int findBestHotbarSlot(Player pl) {
-            // Preferimos el último libre (8 -> 0)
             for (int i = 8; i >= 0; i--) {
                 ItemStack it = pl.getInventory().getItem(i);
                 if (isAir(it)) return i;
             }
-            // Si todo está ocupado, usar 8 (pero guardaremos/restauraremos el item anterior)
             return 8;
         }
     }

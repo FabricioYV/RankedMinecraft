@@ -1063,23 +1063,52 @@ public class CaptainPickSystem {
         }
 
         public void handlePlayerPick(String captainDiscordId, String pickedPlayerUuid) {
-            if (finished) return;
+            if (this.finished) return;
 
-            // Verificar que sea el turno del capitán correcto
-            if (!currentCaptain.getDiscordId().equals(captainDiscordId)) {
-                PlayerData requester = findPlayerByDiscordId(captainDiscordId);
-                Player p = requester != null ? safeGet(requester) : null;
+            String caller = (captainDiscordId == null) ? "" : captainDiscordId.trim();
+            String pickedRaw = (pickedPlayerUuid == null) ? "" : pickedPlayerUuid.trim();
+
+            // 1) Validar turno: caller puede ser DiscordID (snowflake) o MC UUID
+            boolean isDiscordCaller = caller.matches("\\d{15,25}");
+            boolean isTurn;
+
+            if (isDiscordCaller) {
+                isTurn = Objects.equals(currentCaptain.getDiscordId(), caller);
+            } else {
+                String currentCapUuid = CaptainPickSystem.normalize(currentCaptain);
+                String callerUuid = CaptainPickSystem.normalizeUuidString(caller);
+                isTurn = currentCapUuid != null && currentCapUuid.equals(callerUuid);
+            }
+
+            if (!isTurn) {
+                // si caller era discordId, intenta avisarle; si no, al capitán actual
+                PlayerData requester = isDiscordCaller ? findPlayerByDiscordId(caller) : null;
+                Player p = requester != null ? safeGet(requester) : safeGet(currentCaptain);
                 if (p != null) {
                     MessageUtil.send(p, "&cNo es tu turno. &7Le toca a &f" + getPlayerName(currentCaptain) + "&7.");
                 }
                 return;
             }
 
+            // 2) Resolver jugador pickeado: UUID normalizado (con/sin guiones) y fallback por nombre
+            String pickedNorm = CaptainPickSystem.normalizeUuidString(pickedRaw);
             PlayerData pickedPlayer = null;
-            for (PlayerData player : availablePlayers) {
-                if (player.getMinecraftUuid().equals(pickedPlayerUuid)) {
-                    pickedPlayer = player;
-                    break;
+
+            for (PlayerData pd : availablePlayers) {
+                if (pd == null) continue;
+
+                if (pickedNorm != null) {
+                    String pdNorm = CaptainPickSystem.normalize(pd);
+                    if (pickedNorm.equals(pdNorm)) {
+                        pickedPlayer = pd;
+                        break;
+                    }
+                } else {
+                    // /pick <nombre>
+                    if (getPlayerName(pd).equalsIgnoreCase(pickedRaw)) {
+                        pickedPlayer = pd;
+                        break;
+                    }
                 }
             }
 
@@ -1089,9 +1118,9 @@ public class CaptainPickSystem {
                 return;
             }
 
-            // Realizar el pick
             performPick(pickedPlayer);
         }
+
 
         private void performPick(PlayerData pickedPlayer) {
             // Cancelar timeout
