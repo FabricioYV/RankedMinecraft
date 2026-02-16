@@ -3,9 +3,10 @@ package org.fabricioyv;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandExecutor;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
+
 import org.fabricioyv.commands.*;
 import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.database.BatchProcessor;
@@ -13,17 +14,21 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
+import org.fabricioyv.listeners.RequeuePearlListener;
 import org.fabricioyv.match.AbandonmentDetectionSystem;
-import org.fabricioyv.match.MapManager;
 import org.fabricioyv.match.ForfeitManager;
+import org.fabricioyv.match.MapManager;
+import org.fabricioyv.queue.RequeueManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
 
 public final class RankedMinecraft extends JavaPlugin {
+
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
+
     private AbandonmentDetectionSystem abandonmentSystem;
     private org.fabricioyv.rating.EloDecaySystem eloDecaySystem;
 
@@ -47,10 +52,10 @@ public final class RankedMinecraft extends JavaPlugin {
             getLogger().info("§e[Performance] ⚡ Stats tracking deshabilitado - Hit registration optimizado");
         } else {
             getLogger().info("§a[Performance] ✓ Performance balanceado - Stats: " +
-                PerformanceConfig.isAnyTrackingEnabled());
+                    PerformanceConfig.isAnyTrackingEnabled());
         }
 
-        // 2) Cargar settings del sistema de forfeit/afk desde config.yml
+        // 3) Cargar settings del sistema de forfeit/afk desde config.yml
         ForfeitManager.loadSettings(this);
 
         try {
@@ -83,6 +88,18 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // Inicializar Discord bot ANTES de listeners que lo necesiten
             initializeDiscordBot();
+
+            //INYECTAR DiscordBot al RequeueManager (OBLIGATORIO para /requeue)
+            if (discordBot != null) {
+                RequeueManager.setDiscordBot(discordBot);
+                getLogger().info("§a[Requeue] DiscordBot conectado a RequeueManager.");
+            } else {
+                getLogger().warning("§e[Requeue] DiscordBot es null. /requeue funcionará solo si Discord está inicializado.");
+            }
+
+            //Registrar listener de la perla de requeue (OBLIGATORIO para click derecho)
+            getServer().getPluginManager().registerEvents(new RequeuePearlListener(), this);
+            getLogger().info("§a[Requeue] RequeuePearlListener registrado.");
 
             // Inicializar sistema de detección de abandono (si hay Discord logger)
             if (discordBot != null && discordBot.getLogger() != null) {

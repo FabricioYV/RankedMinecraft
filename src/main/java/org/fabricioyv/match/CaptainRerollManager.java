@@ -25,8 +25,8 @@ public class CaptainRerollManager {
     private static final int INITIAL_WAIT_SECONDS = 10;
     private static final int TIME_INCREMENT_PER_REROLL = 5;
 
-    // ✅ Cada voto vale x2 (RR capitanes)
-    private static final int VOTE_POWER = 2;
+    // ✅ Solo los capitanes valen x2 (RR capitanes). El resto vale x1.
+    private static final int CAPTAIN_VOTE_POWER = 2;
 
     // Requisitos por reroll aprobado: 4 -> 6 -> 8 -> 10, luego se bloquea
     private static final int[] VOTE_STEPS = {4, 6, 8, 10};
@@ -175,9 +175,30 @@ public class CaptainRerollManager {
             return false;
         }
 
-        // ✅ puntos actuales (voto x2)
+        // ✅ Puntos actuales: votos normales x1, votos de capitanes xCAPTAIN_VOTE_POWER
         private int getVotePoints() {
-            return votes.size() * VOTE_POWER;
+            int sum = 0;
+            for (UUID u : votes) {
+                sum += isCurrentCaptain(u) ? CAPTAIN_VOTE_POWER : 1;
+            }
+            return sum;
+        }
+
+        private boolean isCurrentCaptain(UUID voterUuid) {
+            if (voterUuid == null) return false;
+
+            PlayerData blue = match.getBlueCaptain();
+            PlayerData red = match.getRedCaptain();
+
+            UUID blueId = (blue != null) ? CaptainRerollManager.parseUuid(blue.getMinecraftUuid()) : null;
+            UUID redId = (red != null) ? CaptainRerollManager.parseUuid(red.getMinecraftUuid()) : null;
+
+            return (blueId != null && blueId.equals(voterUuid)) || (redId != null && redId.equals(voterUuid));
+        }
+
+        private int getVoteWeight(Player player) {
+            if (player == null) return 1;
+            return isCurrentCaptain(player.getUniqueId()) ? CAPTAIN_VOTE_POWER : 1;
         }
 
         public void vote(Player player) {
@@ -198,12 +219,15 @@ public class CaptainRerollManager {
             int points = getVotePoints();
             int required = getRequiredVotePoints();
 
+            int weight = getVoteWeight(player);
+
             broadcast(ChatColor.YELLOW + player.getName() + ChatColor.GRAY +
                     " votó por cambiar capitanes " + ChatColor.AQUA +
                     "(" + points + "/" + required + ")" + ChatColor.GRAY +
-                    " §7(voto x" + VOTE_POWER + ")");
+                    " §7(capitanes x" + CAPTAIN_VOTE_POWER + (weight == CAPTAIN_VOTE_POWER ? ", tu voto x" + CAPTAIN_VOTE_POWER : ", tu voto x1") + ")");
 
-            player.sendMessage(ChatColor.GREEN + "✔ Tu voto cuenta x" + VOTE_POWER + " para el RR de capitanes.");
+            player.sendMessage(ChatColor.GREEN + "✔ Tu voto vale x" + weight + ChatColor.GRAY +
+                    (weight == CAPTAIN_VOTE_POWER ? " (eres capitán)." : "."));
 
             playSound(soundByName("CLICK", "UI_BUTTON_CLICK"));
 
@@ -438,7 +462,7 @@ public class CaptainRerollManager {
             broadcast(ChatColor.GRAY + "--------------------------------");
             broadcast(ChatColor.BLUE + "Capitán Azul: " + ChatColor.WHITE + cap1.getMinecraftName());
             broadcast(ChatColor.RED + "Capitán Rojo: " + ChatColor.WHITE + cap2.getMinecraftName());
-            broadcast(ChatColor.YELLOW + "Usa el disco para votar por nuevos capitanes. §7(voto x" + VOTE_POWER + ")");
+            broadcast(ChatColor.YELLOW + "Usa el disco para votar por nuevos capitanes. §7(capitanes x" + CAPTAIN_VOTE_POWER + ")");
             broadcast(ChatColor.GRAY + "--------------------------------");
         }
 
@@ -474,7 +498,7 @@ public class CaptainRerollManager {
 
                     String rrPart = rerollLocked
                             ? (ChatColor.RED + "Reroll: OFF")
-                            : (ChatColor.YELLOW + "Reroll: " + getVotePoints() + "/" + getRequiredVotePoints() + ChatColor.GRAY + " (x" + VOTE_POWER + ")");
+                            : (ChatColor.YELLOW + "Reroll: " + getVotePoints() + "/" + getRequiredVotePoints() + ChatColor.GRAY + " (capitanes x" + CAPTAIN_VOTE_POWER + ")");
 
                     String bar = ChatColor.GOLD + "Iniciando Picks en: " + ChatColor.WHITE + timeLeft + "s " +
                             ChatColor.GRAY + "| " + rrPart;
@@ -504,12 +528,12 @@ public class CaptainRerollManager {
         private void announceRerollAvailable() {
             // Un anuncio “no puedes decir que no lo viste”
             String title = "§d§lREROLL DE CAPITANES";
-            String subtitle = "§fClick derecho al §bDISCO §fpara votar §7(voto x" + VOTE_POWER + ")";
+            String subtitle = "§fClick derecho al §bDISCO §fpara votar §7(capitanes x" + CAPTAIN_VOTE_POWER + ")";
             broadcastTitle(title, subtitle);
 
             broadcast("§7--------------------------------");
             broadcast("§d§lREROLL DISPONIBLE §7» §fClick derecho al §bDISCO §fpara votar por nuevos capitanes.");
-            broadcast("§7Tu voto vale §ax" + VOTE_POWER + "§7. Si no votas, luego no llores por los capitanes.");
+            broadcast("§7Si eres §bCAPITÁN§7, tu voto vale §ax" + CAPTAIN_VOTE_POWER + "§7 (si no, vale x1).");
             broadcast("§7--------------------------------");
 
             playSound(soundByName("LEVEL_UP", "ENTITY_PLAYER_LEVELUP"));
@@ -533,7 +557,7 @@ public class CaptainRerollManager {
                         ChatColor.GRAY + "Click derecho para votar",
                         ChatColor.GRAY + "por nuevos capitanes.",
                         "",
-                        ChatColor.YELLOW + "Cada voto vale: " + ChatColor.AQUA + "x" + VOTE_POWER,
+                        ChatColor.YELLOW + "Capitanes: " + ChatColor.AQUA + "x" + CAPTAIN_VOTE_POWER + ChatColor.YELLOW + " | Jugadores: " + ChatColor.AQUA + "x1",
                         ChatColor.YELLOW + "Requiere: " + ChatColor.AQUA + req + " puntos",
                         ChatColor.YELLOW + "Rerolls restantes: " + ChatColor.AQUA + remaining
                 ));
@@ -589,7 +613,7 @@ public class CaptainRerollManager {
             replacedItemByPlayer.clear();
         }
 
-        // ✅ Requerido en “puntos”, capado para no soft-lock (max = players * VOTE_POWER)
+        // ✅ Requerido en “puntos”, capado para no soft-lock (max = players + capitanes*(CAPTAIN_VOTE_POWER-1))
         private int getRequiredVotePoints() {
             if (players == null) return Integer.MAX_VALUE;
             int total = players.size();
@@ -598,8 +622,37 @@ public class CaptainRerollManager {
             int stepIndex = Math.min(successfulRerolls, VOTE_STEPS.length - 1);
             int required = VOTE_STEPS[stepIndex];
 
-            int maxPossible = total * VOTE_POWER;
+            // ✅ Máximo posible:
+            //   - jugadores normales: x1
+            //   - capitanes (máx 2): xCAPTAIN_VOTE_POWER
+            int maxPossible = getMaxPossibleVotePoints();
             return Math.min(required, maxPossible);
+        }
+
+        private int getMaxPossibleVotePoints() {
+            if (players == null || players.isEmpty()) return 0;
+
+            // Capitanes (únicos)
+            Set<UUID> captainUuids = new HashSet<>();
+            PlayerData blue = match.getBlueCaptain();
+            PlayerData red = match.getRedCaptain();
+            UUID blueId = (blue != null) ? CaptainRerollManager.parseUuid(blue.getMinecraftUuid()) : null;
+            UUID redId = (red != null) ? CaptainRerollManager.parseUuid(red.getMinecraftUuid()) : null;
+            if (blueId != null) captainUuids.add(blueId);
+            if (redId != null) captainUuids.add(redId);
+
+            // Solo cuenta capitanes que realmente estén dentro del roster de esta partida
+            int captainsInPlayers = 0;
+            if (!captainUuids.isEmpty()) {
+                for (PlayerData p : players) {
+                    if (p == null) continue;
+                    UUID u = CaptainRerollManager.parseUuid(p.getMinecraftUuid());
+                    if (u != null && captainUuids.contains(u)) captainsInPlayers++;
+                }
+            }
+
+            // Base: todos los jugadores cuentan x1, y cada capitán agrega (power-1) extra
+            return players.size() + (captainsInPlayers * (CAPTAIN_VOTE_POWER - 1));
         }
 
         private int getRerollsRemaining() {

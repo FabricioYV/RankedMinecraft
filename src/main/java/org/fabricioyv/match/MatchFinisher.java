@@ -16,6 +16,7 @@ import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.util.RequeuePearlUtil;
 import org.fabricioyv.rating.MMRCalculator;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 import org.fabricioyv.rating.Rank;
@@ -132,6 +133,9 @@ public class MatchFinisher {
             // 6) Mover jugadores a Sala de espera (una sola vez)
             try {
                 movePlayersToWaitingRoom(activeMatch, plugin, logger);
+
+                // 6.1) Dar item de requeue (perla) en el slot medio - solo rankeds
+                giveRequeuePearlAfterMatch(activeMatch, plugin, logger);
             } catch (Exception e) {
                 logger.warning("Discord Move Failed",
                         "Error moviendo jugadores a sala de espera: " + e.getMessage());
@@ -1219,6 +1223,9 @@ public class MatchFinisher {
             // 7) Mover a sala de espera (una sola vez)
             try {
                 movePlayersToWaitingRoom(activeMatch, plugin, logger);
+
+                // 6.1) Dar item de requeue (perla) en el slot medio - solo rankeds
+                giveRequeuePearlAfterMatch(activeMatch, plugin, logger);
             } catch (Exception e) {
                 logger.warning("Discord Move Failed", "Error moviendo jugadores (DRAW) a sala de espera: " + e.getMessage());
             }
@@ -1321,6 +1328,39 @@ public class MatchFinisher {
     /**
      * Limpia a los jugadores de la cola después de que termine la partida
      */
+    /**
+     * Da a los jugadores del match un item (ENDER_PEARL) para requeue.
+     * - Se coloca en el slot medio de la hotbar (slot 4)
+     * - Se entrega con delay para evitar que otros sistemas (kits/cleanup) lo borren
+     * - Solo para rankeds (no 2v2 unranked)
+     */
+    private static void giveRequeuePearlAfterMatch(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
+        try {
+            if (activeMatch == null || plugin == null) return;
+            if (activeMatch.isUnrankedMatch()) return; // 2v2 unranked
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    for (PlayerData playerData : activeMatch.getAllPlayers()) {
+                        if (playerData == null) continue;
+                        try {
+                            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                            if (mcPlayer != null && mcPlayer.isOnline()) {
+                                // Limpieza defensiva por si quedó de un match anterior
+                                RequeuePearlUtil.removeFromInventory(mcPlayer);
+                                RequeuePearlUtil.giveToMiddleSlot(mcPlayer);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                } catch (Exception ignored) {}
+            }, 20L); // 1 segundo
+        } catch (Exception e) {
+            if (logger != null) {
+                logger.warning("Requeue Pearl", "Error entregando perla de requeue: " + e.getMessage());
+            }
+        }
+    }
+
     private static void cleanupPlayersFromQueue(ActiveMatch activeMatch, DiscordLogger logger) {
         try {
             // Obtener todos los jugadores de la partida
@@ -1791,4 +1831,3 @@ public class MatchFinisher {
         }
     }
 }
-

@@ -16,6 +16,7 @@ import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
+import org.fabricioyv.util.RequeuePearlUtil;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -104,6 +105,9 @@ public class ActiveMatch {
                 player.setCurrentMatchId(matchId);
             } catch (Exception ignored) {}
         }
+
+        // Limpia cualquier perla vieja de requeue al iniciar un match (evita exploits)
+        Bukkit.getScheduler().runTaskLater(plugin, this::clearRequeuePearlFromAllOnlinePlayers, 2L);
     }
 
     private static String detectMatchType(int playerCount) {
@@ -269,10 +273,6 @@ public class ActiveMatch {
         }, 40L);
     }
 
-    /**
-     * ✅ FIX CLAVE:
-     * Si getMemberById() da null, hacemos retrieveMemberById() y movemos igual.
-     */
     private void moveTeamToChannel(Team team, VoiceChannel channel) {
         if (channel == null) {
             logger.error("Canal No Disponible", "Canal del equipo " + team.getDisplayName() + " no está disponible");
@@ -346,10 +346,6 @@ public class ActiveMatch {
             }
         }
     }
-
-    // ---------------------------
-    // Permisos Discord (callback)
-    // ---------------------------
 
     private void setupChannelPermissions(VoiceChannel channel, Team team, Runnable onComplete) {
         try {
@@ -441,6 +437,34 @@ public class ActiveMatch {
 
         } catch (Exception e) {
             setupTeamMemberPermissions(channel, teamPlayers, idx + 1, onComplete);
+        }
+    }
+
+    // =========================================================
+    // Requeue pearl helpers (NUEVO)
+    // =========================================================
+
+    /** Da la perla de requeue (slot 4) a todos los jugadores ONLINE del match */
+    public void giveRequeuePearlToAllOnlinePlayers() {
+        for (PlayerData pd : allPlayers) {
+            try {
+                Player p = Bukkit.getPlayer(UUID.fromString(pd.getMinecraftUuid()));
+                if (p != null && p.isOnline()) {
+                    RequeuePearlUtil.giveToMiddleSlot(p);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /** Quita perlas de requeue del inventario a todos los jugadores ONLINE del match */
+    public void clearRequeuePearlFromAllOnlinePlayers() {
+        for (PlayerData pd : allPlayers) {
+            try {
+                Player p = Bukkit.getPlayer(UUID.fromString(pd.getMinecraftUuid()));
+                if (p != null && p.isOnline()) {
+                    RequeuePearlUtil.removeFromInventory(p);
+                }
+            } catch (Exception ignored) {}
         }
     }
 
@@ -538,21 +562,18 @@ public class ActiveMatch {
         return activeMatches.get(matchId);
     }
 
-    /** Devuelve un map NO modificable de matches activos */
     public static Map<String, ActiveMatch> getActiveMatches() {
         return Collections.unmodifiableMap(activeMatches);
     }
 
-    /** Devuelve todos los matches activos (Collection) */
     public static Collection<ActiveMatch> getAllActiveMatches() {
         return activeMatches.values();
     }
 
-    /** Devuelve el match activo donde está el playerUuid (buscando en allPlayers) */
     public static ActiveMatch getPlayerActiveMatch(String playerUuid) {
         if (playerUuid == null) return null;
         for (ActiveMatch match : activeMatches.values()) {
-            for (PlayerData p : match.allPlayers) { // usa campo directo para evitar copias
+            for (PlayerData p : match.allPlayers) {
                 if (playerUuid.equalsIgnoreCase(p.getMinecraftUuid())) {
                     return match;
                 }
@@ -561,12 +582,10 @@ public class ActiveMatch {
         return null;
     }
 
-    /** Alias que tu código llama en varios lados */
     public static ActiveMatch findActiveMatchForPlayer(String playerUuid) {
         return getPlayerActiveMatch(playerUuid);
     }
 
-    /** Busca PlayerData dentro de ESTE match por UUID */
     public PlayerData getPlayerByUUID(UUID playerUUID) {
         if (playerUUID == null) return null;
         for (PlayerData p : allPlayers) {
@@ -579,17 +598,14 @@ public class ActiveMatch {
         return null;
     }
 
-    /** Getter usado por MatchFinisher */
     public ProgressiveEloCalculator.MatchType getMatchTypeEnum() {
         return matchTypeEnum;
     }
 
-    /** Getter usado por MatchLogsIntegration y MatchFinisher */
     public LocalDateTime getStartTime() {
         return startTime;
     }
 
-    /** Flags usados por PGMMatchListener / ForfeitManager */
     public boolean isFinishedByForfeit() {
         return finishedByForfeit;
     }
@@ -598,7 +614,6 @@ public class ActiveMatch {
         this.finishedByForfeit = finishedByForfeit;
     }
 
-    /** Winner usado por MatchFinisher */
     public Team getWinnerTeam() {
         return winnerTeam;
     }
