@@ -47,11 +47,11 @@ public final class RankedMinecraft extends JavaPlugin {
 
         // Log del estado de configuración de performance
         if (PerformanceConfig.isUltraPerformanceMode()) {
-            getLogger().info("§e[Performance] ⚡ MODO ULTRA PERFORMANCE ACTIVADO - Stats completamente deshabilitados");
+            getLogger().info("§e[Performance]  MODO ULTRA PERFORMANCE ACTIVADO - Stats completamente deshabilitados");
         } else if (!PerformanceConfig.isStatsTrackingEnabled()) {
-            getLogger().info("§e[Performance] ⚡ Stats tracking deshabilitado - Hit registration optimizado");
+            getLogger().info("§e[Performance]  Stats tracking deshabilitado - Hit registration optimizado");
         } else {
-            getLogger().info("§a[Performance] ✓ Performance balanceado - Stats: " +
+            getLogger().info("§a[Performance] OK Performance balanceado - Stats: " +
                     PerformanceConfig.isAnyTrackingEnabled());
         }
 
@@ -67,6 +67,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // Registrar comandos (con protección anti-null)
             registerCommand("votemap", new VoteCommand());
+            registerCommand("veto", new VetoCommand());
             registerCommand("ff", new ForfeitCommand(this));
             registerCommand("ready", new ReadyCommand());
             // NO uses getCommand("r") -> "r" es alias de "ready" en plugin.yml
@@ -143,7 +144,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
     private void registerCommand(String name, CommandExecutor executor) {
         if (getCommand(name) == null) {
-            getLogger().severe("❌ Comando '" + name + "' no está definido en plugin.yml");
+            getLogger().severe("X Comando '" + name + "' no está definido en plugin.yml");
             return;
         }
         getCommand(name).setExecutor(executor);
@@ -176,7 +177,7 @@ public final class RankedMinecraft extends JavaPlugin {
             }
 
             if (removedItems > 0 || removedArrows > 0) {
-                getLogger().info(String.format("§a✓ Limpieza automática: %d items, %d flechas removidas",
+                getLogger().info(String.format("§aOK Limpieza automática: %d items, %d flechas removidas",
                         removedItems, removedArrows));
             }
         }, 6000L, 6000L);
@@ -233,9 +234,9 @@ public final class RankedMinecraft extends JavaPlugin {
             getServer().getPluginManager().registerEvents(
                     new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
 
-            getLogger().info("✅ Listeners de PGM y Rejoin registrados exitosamente");
+            getLogger().info("OK Listeners de PGM y Rejoin registrados exitosamente");
         } else {
-            getLogger().warning("⚠️ Discord bot no está listo, intentando registrar listeners en 5 segundos...");
+            getLogger().warning("WARN Discord bot no está listo, intentando registrar listeners en 5 segundos...");
             Bukkit.getScheduler().runTaskLater(this, this::registerPGMListeners, 100L);
         }
     }
@@ -294,9 +295,9 @@ public final class RankedMinecraft extends JavaPlugin {
         // Guardar config.yml solo si se realizaron cambios
         if (modified) {
             saveConfig();
-            getLogger().info("§a[Config] ✓ config.yml actualizado con las secciones por defecto.");
+            getLogger().info("§a[Config] OK config.yml actualizado con las secciones por defecto.");
         } else {
-            getLogger().info("§a[Config] ✓ config.yml está completo.");
+            getLogger().info("§a[Config] OK config.yml está completo.");
         }
     }
 }

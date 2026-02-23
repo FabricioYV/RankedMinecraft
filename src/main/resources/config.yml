@@ -1,22 +1,22 @@
 discord:
   enabled: true
-  token: "NzcyNTI4MTg5Njc1Mjc0Mjcw.GhAvXW.10_CuaxD_G75js8R4SzHSmUHbuYAoXR8UhwmCE"
-  guild-id: "1404292846340542554"
+  token: NzcyNTI4MTg5Njc1Mjc0Mjcw.GhAvXW.10_CuaxD_G75js8R4SzHSmUHbuYAoXR8UhwmCE
+  guild-id: '1404292846340542554'
 
 databases:
   ranked:
-    host: "db-mfl-01.apollopanel.com"
-    port: "3306"
-    database: "s211319_ranked_db"
-    username: "u211319_Ad6KwoO4z0"
-    password: "ZuWzGA^@!eeJaftDXqEBlJmy"
-
+    host: 127.0.0.1
+    port: '3306'
+    database: bot_db1
+    username: botuser
+    password: ZuWzGA^@!eeJaftDXqEBlJmy
   match_logs:
-    host: "db-mfl-01.apollopanel.com"
-    port: "3306"
-    database: "s211319_match_logs_db"
-    username: "u211319_rLXIzfmmdO"
-    password: "!=zz@6yiVm^iruU66ix6e3cL"
+    host: 127.0.0.1
+    port: '3306'
+    database: bot_db2
+    username: botuser
+    password: ZuWzGA^@!eeJaftDXqEBlJmy
+
 
 forfeit:
   # primeros 3 minutos: /ff bloqueado

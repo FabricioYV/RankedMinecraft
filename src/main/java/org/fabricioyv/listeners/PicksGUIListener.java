@@ -201,7 +201,7 @@ public class PicksGUIListener implements Listener {
         // Llamar al sistema de picks con el jugador seleccionado
         CaptainPickSystem.handlePlayerPick(
                 activeMatch.getMatchId(),
-                captainData.getDiscordId(),
+                captain.getUniqueId().toString(),
                 selectedPlayer.getMinecraftUuid()
         );
 

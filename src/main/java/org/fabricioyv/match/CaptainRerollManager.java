@@ -25,7 +25,7 @@ public class CaptainRerollManager {
     private static final int INITIAL_WAIT_SECONDS = 10;
     private static final int TIME_INCREMENT_PER_REROLL = 5;
 
-    // ✅ Solo los capitanes valen x2 (RR capitanes). El resto vale x1.
+    // OK Solo los capitanes valen x2 (RR capitanes). El resto vale x1.
     private static final int CAPTAIN_VOTE_POWER = 2;
 
     // Requisitos por reroll aprobado: 4 -> 6 -> 8 -> 10, luego se bloquea
@@ -99,10 +99,10 @@ public class CaptainRerollManager {
         // Session anti-loop (parejas ya usadas EN ESTA partida)
         private final Set<String> usedCaptainPairs = new HashSet<>();
 
-        // ✅ Anti “JugadorA se queda siempre”: historial por capitán en esta sesión
+        // OK Anti "JugadorA se queda siempre": historial por capitán en esta sesión
         private final Map<String, Integer> sessionCaptainPickCount = new HashMap<>();
 
-        // ✅ Capitanes actuales (normalizados) para poder evitar reusar
+        // OK Capitanes actuales (normalizados) para poder evitar reusar
         private final Set<String> currentCaptainNorms = new HashSet<>();
 
         private final Map<UUID, Integer> rerollSlotByPlayer = new HashMap<>();
@@ -130,7 +130,7 @@ public class CaptainRerollManager {
         }
 
         public void start() {
-            // Si ya vienen capitanes seteados, registrarlos como “pareja inicial”
+            // Si ya vienen capitanes seteados, registrarlos como "pareja inicial"
             if (match.getBlueCaptain() != null && match.getRedCaptain() != null) {
                 PlayerData cap1 = match.getBlueCaptain();
                 PlayerData cap2 = match.getRedCaptain();
@@ -158,7 +158,7 @@ public class CaptainRerollManager {
 
             giveVotingItems();
 
-            // ✅ Anuncio llamativo
+            // OK Anuncio llamativo
             announceRerollAvailable();
 
             startTimer();
@@ -175,7 +175,7 @@ public class CaptainRerollManager {
             return false;
         }
 
-        // ✅ Puntos actuales: votos normales x1, votos de capitanes xCAPTAIN_VOTE_POWER
+        // OK Puntos actuales: votos normales x1, votos de capitanes xCAPTAIN_VOTE_POWER
         private int getVotePoints() {
             int sum = 0;
             for (UUID u : votes) {
@@ -226,7 +226,7 @@ public class CaptainRerollManager {
                     "(" + points + "/" + required + ")" + ChatColor.GRAY +
                     " §7(capitanes x" + CAPTAIN_VOTE_POWER + (weight == CAPTAIN_VOTE_POWER ? ", tu voto x" + CAPTAIN_VOTE_POWER : ", tu voto x1") + ")");
 
-            player.sendMessage(ChatColor.GREEN + "✔ Tu voto vale x" + weight + ChatColor.GRAY +
+            player.sendMessage(ChatColor.GREEN + "OK Tu voto vale x" + weight + ChatColor.GRAY +
                     (weight == CAPTAIN_VOTE_POWER ? " (eres capitán)." : "."));
 
             playSound(soundByName("CLICK", "UI_BUTTON_CLICK"));
@@ -242,7 +242,7 @@ public class CaptainRerollManager {
             PlayerData oldBlue = match.getBlueCaptain();
             PlayerData oldRed = match.getRedCaptain();
 
-            broadcast(ChatColor.GREEN + "¡Votación aprobada! Cambiando capitanes...");
+            broadcast(ChatColor.GREEN + "!Votación aprobada! Cambiando capitanes...");
             votes.clear();
 
             boolean changed = selectSmartCaptains();
@@ -251,7 +251,7 @@ public class CaptainRerollManager {
                 return;
             }
 
-            // ✅ Solo cuenta si realmente cambió
+            // OK Solo cuenta si realmente cambió
             successfulRerolls++;
 
             // Aumenta el timer por reroll aprobado
@@ -271,7 +271,7 @@ public class CaptainRerollManager {
             // Bloqueo por límite
             if (successfulRerolls >= VOTE_STEPS.length) {
                 rerollLocked = true;
-                broadcast(ChatColor.RED + "Reroll deshabilitado: ya se alcanzó el máximo (4→6→8→10).");
+                broadcast(ChatColor.RED + "Reroll deshabilitado: ya se alcanzó el máximo (4->6->8->10).");
                 clearItems();
             } else {
                 giveVotingItems();
@@ -282,7 +282,7 @@ public class CaptainRerollManager {
         }
 
         /**
-         * ✅ Selección “smart” + anti “JugadorA se queda fijo”
+         * OK Selección "smart" + anti "JugadorA se queda fijo"
          * - No repite pareja dentro de esta sesión (usedCaptainPairs)
          * - Prefiere NO reutilizar capitanes actuales (para evitar A vs B -> A vs C -> A vs D...)
          * - Penaliza capitanes repetidos en esta sesión (sessionCaptainPickCount)
@@ -316,7 +316,7 @@ public class CaptainRerollManager {
             final long PENALTY_BOTH_LAST_CAPTAINS = 100_000L;
             final long PENALTY_RECENT_CAPTAIN = 1_500L;
 
-            // ✅ Penalizaciones “session anti-repeat”
+            // OK Penalizaciones "session anti-repeat"
             final long PENALTY_KEEP_CURRENT_CAPTAIN = 35_000L;     // mantener a un capitán actual
             final long PENALTY_SESSION_REUSE_CAPTAIN = 20_000L;    // repetir capitán a lo largo de rerolls
 
@@ -375,7 +375,7 @@ public class CaptainRerollManager {
                             if (usedCaptainPairs.contains(pk)) continue;
                             if (!allowRecentPairs && recentPairs.contains(pk)) continue;
 
-                            // ✅ evitar patrón A fijo (control de “keep”)
+                            // OK evitar patrón A fijo (control de "keep")
                             int keepCount = 0;
                             if (currentCaptainNorms.contains(au)) keepCount++;
                             if (currentCaptainNorms.contains(bu)) keepCount++;
@@ -392,10 +392,10 @@ public class CaptainRerollManager {
                             score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(au, 0);
                             score -= PENALTY_RECENT_CAPTAIN * (long) recentCount.getOrDefault(bu, 0);
 
-                            // ✅ Penalización por mantener capitanes actuales
+                            // OK Penalización por mantener capitanes actuales
                             if (keepCount > 0) score -= PENALTY_KEEP_CURRENT_CAPTAIN * (long) keepCount;
 
-                            // ✅ Penalización por repetir capitanes en esta sesión
+                            // OK Penalización por repetir capitanes en esta sesión
                             score -= PENALTY_SESSION_REUSE_CAPTAIN * (long) sessionCaptainPickCount.getOrDefault(au, 0);
                             score -= PENALTY_SESSION_REUSE_CAPTAIN * (long) sessionCaptainPickCount.getOrDefault(bu, 0);
 
@@ -453,7 +453,7 @@ public class CaptainRerollManager {
             match.setRedCaptain(cap2);
             match.setPicksMatch(true);
 
-            // ✅ registrar current captains + session counts
+            // OK registrar current captains + session counts
             registerCurrentCaptains(cap1, cap2);
 
             broadcastTitle(ChatColor.BLUE + "Capitanes Seleccionados",
@@ -521,18 +521,18 @@ public class CaptainRerollManager {
 
         private void finishPhase() {
             cleanup(match.getMatchId());
-            broadcast(ChatColor.GREEN + "¡Fase de votación terminada! Iniciando picks...");
+            broadcast(ChatColor.GREEN + "!Fase de votación terminada! Iniciando picks...");
             if (onPhaseFinished != null) onPhaseFinished.run();
         }
 
         private void announceRerollAvailable() {
-            // Un anuncio “no puedes decir que no lo viste”
+            // Un anuncio "no puedes decir que no lo viste"
             String title = "§d§lREROLL DE CAPITANES";
             String subtitle = "§fClick derecho al §bDISCO §fpara votar §7(capitanes x" + CAPTAIN_VOTE_POWER + ")";
             broadcastTitle(title, subtitle);
 
             broadcast("§7--------------------------------");
-            broadcast("§d§lREROLL DISPONIBLE §7» §fClick derecho al §bDISCO §fpara votar por nuevos capitanes.");
+            broadcast("§d§lREROLL DISPONIBLE §7> §fClick derecho al §bDISCO §fpara votar por nuevos capitanes.");
             broadcast("§7Si eres §bCAPITÁN§7, tu voto vale §ax" + CAPTAIN_VOTE_POWER + "§7 (si no, vale x1).");
             broadcast("§7--------------------------------");
 
@@ -613,7 +613,7 @@ public class CaptainRerollManager {
             replacedItemByPlayer.clear();
         }
 
-        // ✅ Requerido en “puntos”, capado para no soft-lock (max = players + capitanes*(CAPTAIN_VOTE_POWER-1))
+        // OK Requerido en "puntos", capado para no soft-lock (max = players + capitanes*(CAPTAIN_VOTE_POWER-1))
         private int getRequiredVotePoints() {
             if (players == null) return Integer.MAX_VALUE;
             int total = players.size();
@@ -622,7 +622,7 @@ public class CaptainRerollManager {
             int stepIndex = Math.min(successfulRerolls, VOTE_STEPS.length - 1);
             int required = VOTE_STEPS[stepIndex];
 
-            // ✅ Máximo posible:
+            // OK Máximo posible:
             //   - jugadores normales: x1
             //   - capitanes (máx 2): xCAPTAIN_VOTE_POWER
             int maxPossible = getMaxPossibleVotePoints();

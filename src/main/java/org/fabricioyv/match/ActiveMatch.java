@@ -42,6 +42,7 @@ public class ActiveMatch {
 
     private String selectedMap;
     private MapVoting mapVoting;
+    private MapVeto mapVeto;
     private VoiceChannel blueTeamChannel;
     private VoiceChannel redTeamChannel;
     private MatchStatus status;
@@ -53,6 +54,7 @@ public class ActiveMatch {
 
     // Picks
     private boolean isPicksMatch = false;
+    private boolean picksCompleted = false;
     private PlayerData blueCaptain = null;
     private PlayerData redCaptain = null;
 
@@ -237,7 +239,7 @@ public class ActiveMatch {
                 logger.warning("Discord", "TEAM_CHANNELS_CATEGORY_ID no válido o categoría no encontrada. Se crearán canales sin parent.");
             }
 
-            ChannelAction<VoiceChannel> blueCreate = guild.createVoiceChannel("🔵 Equipo Azul " + timestamp);
+            ChannelAction<VoiceChannel> blueCreate = guild.createVoiceChannel("BLUE Equipo Azul " + timestamp);
             if (parentCategory != null) blueCreate = blueCreate.setParent(parentCategory);
 
             blueCreate.queue(channel -> {
@@ -246,7 +248,7 @@ public class ActiveMatch {
                 setupChannelPermissions(channel, Team.BLUE, onOneReady);
             }, error -> logger.error("Error Canal Azul", "No se pudo crear canal azul: " + error.getMessage()));
 
-            ChannelAction<VoiceChannel> redCreate = guild.createVoiceChannel("🔴 Equipo Rojo " + timestamp);
+            ChannelAction<VoiceChannel> redCreate = guild.createVoiceChannel("RED Equipo Rojo " + timestamp);
             if (parentCategory != null) redCreate = redCreate.setParent(parentCategory);
 
             redCreate.queue(channel -> {
@@ -474,6 +476,7 @@ public class ActiveMatch {
 
     public void cleanup() {
         logger.info("Limpieza de Partida", "Limpiando partida " + matchId);
+        this.mapVeto = null;
 
         for (PlayerData player : allPlayers) {
             try {
@@ -537,6 +540,9 @@ public class ActiveMatch {
 
     public boolean isPicksMatch() { return isPicksMatch; }
     public void setPicksMatch(boolean picksMatch) { isPicksMatch = picksMatch; }
+
+    public boolean isPicksCompleted() { return picksCompleted; }
+    public void setPicksCompleted(boolean picksCompleted) { this.picksCompleted = picksCompleted; }
 
     public PlayerData getBlueCaptain() { return blueCaptain; }
     public void setBlueCaptain(PlayerData blueCaptain) { this.blueCaptain = blueCaptain; }
@@ -620,5 +626,13 @@ public class ActiveMatch {
 
     public void setWinnerTeam(Team winnerTeam) {
         this.winnerTeam = winnerTeam;
+    }
+
+    public MapVeto getMapVeto() {
+        return mapVeto;
+    }
+
+    public void setMapVeto(MapVeto mapVeto) {
+        this.mapVeto = mapVeto;
     }
 }

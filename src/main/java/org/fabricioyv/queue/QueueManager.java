@@ -39,6 +39,13 @@ public class QueueManager {
     // Instancia estática para acceso global
     private static QueueManager instance;
 
+
+
+    // Evita doble countdown (antes se usaba MatchState.startMatch() acá y chocaba con MatchManager.startMatch()).
+    private final Object countdownLock = new Object();
+    private boolean countdownActive = false;
+    private QueueType countdownQueueType = null;
+
     public QueueManager(JDA jda, RankedMinecraft plugin, String guildId) {
         this.jda = jda;
         this.plugin = plugin;
@@ -66,6 +73,11 @@ public class QueueManager {
 
     public QueueResult addPlayerToQueue(PlayerData player, QueueType queueType) {
         if (player == null) return QueueResult.failure("Jugador inválido");
+
+        // Safety: UUID inválido rompe el flujo (UUID.fromString) y deja la cola "congelada"
+        if (player.getMinecraftUuid() == null || player.getMinecraftUuid().trim().isEmpty()) {
+            return QueueResult.failure("UUID de Minecraft inválido");
+        }
 
         if (player.isInMatch()) {
             return QueueResult.failure("Ya estás en una partida");
@@ -232,12 +244,35 @@ public class QueueManager {
         Bukkit.getScheduler().runTask(plugin, () -> Bukkit.broadcastMessage(message));
     }
 
+    private UUID parseUuid(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+
+        // Acepta UUID con o sin guiones (por si tu DB guarda "compacto")
+        try {
+            return UUID.fromString(s);
+        } catch (IllegalArgumentException ignored) {}
+
+        if (s.length() == 32) {
+            try {
+                String dashed = s.substring(0, 8) + "-" + s.substring(8, 12) + "-" + s.substring(12, 16) + "-" +
+                        s.substring(16, 20) + "-" + s.substring(20);
+                return UUID.fromString(dashed);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        return null;
+    }
+
     private String getMinecraftPlayerNameSafe(String minecraftUuid) {
         try {
-            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(minecraftUuid));
+            UUID u = parseUuid(minecraftUuid);
+            if (u == null) return "Jugador";
+
+            Player mcPlayer = Bukkit.getPlayer(u);
             if (mcPlayer != null) return mcPlayer.getName();
 
-            String offlineName = Bukkit.getOfflinePlayer(UUID.fromString(minecraftUuid)).getName();
+            String offlineName = Bukkit.getOfflinePlayer(u).getName();
             if (offlineName != null && !offlineName.isEmpty()) return offlineName;
         } catch (Exception ignored) {}
         return "Jugador";
@@ -281,14 +316,20 @@ public class QueueManager {
     }
 
     private void handleFullQueue(List<PlayerData> players, QueueType queueType) {
+        // Si ya hay match activo, no hacemos nada.
         if (MatchState.isMatchActive()) {
             logger.warning("QueueManager", "No se puede iniciar: ya hay una partida activa");
             return;
         }
 
-        if (!MatchState.startMatch()) {
-            logger.warning("QueueManager", "No se pudo iniciar: estado inconsistente");
-            return;
+        // Evitar que el mismo fill dispare 2+ count-downs.
+        synchronized (countdownLock) {
+            if (countdownActive) {
+                // Ya hay un countdown corriendo. Ignorar este fill extra.
+                return;
+            }
+            countdownActive = true;
+            countdownQueueType = queueType;
         }
 
         startCountdown(new ArrayList<>(players), queueType);
@@ -300,14 +341,27 @@ public class QueueManager {
 
             @Override
             public void run() {
-                if (!MatchState.isMatchActive()) {
-                    logger.warning("QueueManager", "Countdown cancelado: el estado ya no es activo");
+                // Si otro sistema ya inició un match, este countdown ya no tiene sentido.
+                if (MatchState.isMatchActive()) {
+                    logger.warning("QueueManager", "Countdown cancelado: ya hay una partida activa");
+                    clearCountdown();
+                    cancel();
+                    return;
+                }
+
+                // Si por algún motivo el countdown fue invalidado (nuevo fill, reinicio, etc.)
+                if (!isCountdownActive(queueType)) {
+                    clearCountdown();
                     cancel();
                     return;
                 }
 
                 if (countdown <= 0) {
-                    handleCountdownEnd(queueType);
+                    try {
+                        handleCountdownEnd(queueType);
+                    } finally {
+                        clearCountdown();
+                    }
                     cancel();
                     return;
                 }
@@ -318,31 +372,50 @@ public class QueueManager {
         }.runTaskTimer(RankedMinecraft.getInstance(), 0L, 20L);
     }
 
+
+    private boolean isCountdownActive(QueueType queueType) {
+        synchronized (countdownLock) {
+            return countdownActive && countdownQueueType == queueType;
+        }
+    }
+
+    private void clearCountdown() {
+        synchronized (countdownLock) {
+            countdownActive = false;
+            countdownQueueType = null;
+        }
+    }
+
     private void handleCountdownEnd(QueueType queueType) {
         List<PlayerData> targetQueue = getQueueList(queueType);
 
-        synchronized (targetQueue) {
-            List<PlayerData> connectedPlayers = new ArrayList<>();
-            List<PlayerData> disconnectedPlayers = new ArrayList<>();
+        try {
+            synchronized (targetQueue) {
+                List<PlayerData> connectedPlayers = new ArrayList<>();
+                List<PlayerData> disconnectedPlayers = new ArrayList<>();
 
-            for (PlayerData playerData : new ArrayList<>(targetQueue)) {
-                Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
-                boolean isConnectedToMC = mcPlayer != null && mcPlayer.isOnline();
-                boolean isInCorrectChannel = isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType);
+                for (PlayerData playerData : new ArrayList<>(targetQueue)) {
+                    if (playerData == null) continue;
+                    UUID u = parseUuid(playerData.getMinecraftUuid());
+                    Player mcPlayer = (u == null) ? null : Bukkit.getPlayer(u);
+                    boolean isConnectedToMC = mcPlayer != null && mcPlayer.isOnline();
+                    boolean isInCorrectChannel = isPlayerInCorrectVoiceChannel(playerData.getDiscordId(), queueType);
 
-                if (isConnectedToMC && isInCorrectChannel) connectedPlayers.add(playerData);
-                else disconnectedPlayers.add(playerData);
+                    if (isConnectedToMC && isInCorrectChannel) connectedPlayers.add(playerData);
+                    else disconnectedPlayers.add(playerData);
+                }
+
+                cleanupDisconnectedPlayers(disconnectedPlayers, targetQueue);
+
+                if (connectedPlayers.size() >= queueType.getRequiredPlayers()) {
+                    startMatchWithPlayers(connectedPlayers, queueType, targetQueue);
+                } else {
+                    logger.warning("QueueManager",
+                            "Partida cancelada: conectados " + connectedPlayers.size() + "/" + queueType.getRequiredPlayers());
+                }
             }
-
-            cleanupDisconnectedPlayers(disconnectedPlayers, targetQueue);
-
-            if (connectedPlayers.size() >= queueType.getRequiredPlayers()) {
-                startMatchWithPlayers(connectedPlayers, queueType, targetQueue);
-            } else {
-                MatchState.endMatch();
-                logger.warning("QueueManager",
-                        "Partida cancelada: conectados " + connectedPlayers.size() + "/" + queueType.getRequiredPlayers());
-            }
+        } catch (Exception e) {
+            logger.warning("QueueManager", "Error iniciando match desde cola: " + e.getMessage());
         }
     }
 
@@ -353,7 +426,8 @@ public class QueueManager {
 
             movePlayerToWaitingRoom(disconnected.getDiscordId());
 
-            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(disconnected.getMinecraftUuid()));
+            UUID u = parseUuid(disconnected.getMinecraftUuid());
+            Player mcPlayer = (u == null) ? null : Bukkit.getPlayer(u);
             if (mcPlayer != null && mcPlayer.isOnline()) {
                 mcPlayer.sendMessage(PREFIX + "§cFuiste removido de la cola por no estar en el canal correcto.");
             }
@@ -368,20 +442,33 @@ public class QueueManager {
             playersForMatch = playersForMatch.subList(0, required);
         }
 
+        // Detectar si el match realmente se inició (evita limpiar cola si MatchManager rechazó por match activo).
+        boolean wasActiveBefore = MatchState.isMatchActive();
+
         try {
-            MatchManager.startMatch(playersForMatch);
+            MatchManager.startMatchFromQueue(playersForMatch);
 
-            for (PlayerData p : playersForMatch) {
-                targetQueue.remove(p);
-                playersInQueue.remove(p.getMinecraftUuid());
+            boolean isActiveAfter = MatchState.isMatchActive();
+            boolean startedByUs = (!wasActiveBefore && isActiveAfter);
+
+            if (startedByUs) {
+                // Guardar referencia de la última partida para Requeue (no depende del cache TTL)
+                RequeueManager.rememberLastMatchPlayers(playersForMatch, queueType);
+                for (PlayerData p : playersForMatch) {
+                    targetQueue.remove(p);
+                    playersInQueue.remove(p.getMinecraftUuid());
+                }
+
+                logger.matchEvent("QUEUE_" + queueType.name(), "Match iniciado",
+                        "Partida iniciada con " + playersForMatch.size() + " jugadores", playersForMatch.size());
+            } else {
+                // No se inició (o ya había match). Dejar a los jugadores en cola.
+                logger.warning("QueueManager", "MatchManager no inició el match (posible match activo). Se mantiene la cola.");
             }
-
-            logger.matchEvent("QUEUE_" + queueType.name(), "Match iniciado",
-                    "Partida iniciada con " + playersForMatch.size() + " jugadores", playersForMatch.size());
 
         } catch (Exception e) {
             logger.logError("QueueManager", e);
-            MatchState.endMatch();
+            // No llamamos MatchState.endMatch() aquí: MatchManager es el dueño del lock/estado.
         }
     }
 
@@ -389,7 +476,8 @@ public class QueueManager {
         List<PlayerData> targetQueue = getQueueList(queueType);
 
         for (PlayerData playerData : new ArrayList<>(targetQueue)) {
-            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            UUID u = parseUuid(playerData.getMinecraftUuid());
+            Player mcPlayer = (u == null) ? null : Bukkit.getPlayer(u);
             if (mcPlayer != null && mcPlayer.isOnline()) {
                 mcPlayer.sendMessage(PREFIX + "§7Iniciando §f" + getQueueTypeName(queueType) +
                         " §7en §f" + countdown + "§7s...");

@@ -78,10 +78,28 @@ public class MatchFinisher {
         try {
             // 1. INMEDIATO: Marcar jugadores como NO en partida EN MEMORIA (instantáneo)
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+            // FIX: Determinar QueueType de forma segura por el nombre, NO por la cantidad de jugadores
+            String safeQueueType = "FIVE_VS_FIVE"; // Fallback por defecto
+            ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+            if (mt != null) {
+                if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+                else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+            } else {
+                String rawType = activeMatch.getMatchType();
+                if (rawType != null) {
+                    if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                    else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+                }
+            }
+
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
-                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
+                player.setLastQueueType(safeQueueType);
                 player.setCurrentMatchId(null);
+
+                // FIX: Guardar en caché inmediatamente para que la perla funcione al instante
+                PlayerDataCache.cachePlayer(player);
             }
 
             // 2. ACTUALIZAR BD DE FORMA ASÍNCRONA (no bloquea el servidor)
@@ -1021,13 +1039,28 @@ public class MatchFinisher {
                 "Ejecutando limpieza de emergencia para partida " + activeMatch.getMatchId());
 
         // Limpiar estado de jugadores
+        // FIX: Determinar QueueType de forma segura antes del loop
+        String safeQueueType = "FIVE_VS_FIVE"; // Fallback
+        ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+        if (mt != null) {
+            if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+            else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+        } else {
+            String rawType = activeMatch.getMatchType();
+            if (rawType != null) {
+                if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+            }
+        }
+
         List<PlayerData> allPlayers = new ArrayList<>();
         for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
             for (PlayerData playerData : teamPlayers) {
                 playerData.setInMatch(false);
-                playerData.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
+                playerData.setLastQueueType(safeQueueType);
                 playerData.setCurrentMatchId(null);
                 allPlayers.add(playerData);
+                PlayerDataCache.cachePlayer(playerData); // Actualización inmediata en caché
             }
         }
 
@@ -1166,10 +1199,25 @@ public class MatchFinisher {
         try {
             // 1) Limpiar estado en memoria
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+            // FIX: Determinar QueueType de forma segura por el nombre
+            String safeQueueType = "FIVE_VS_FIVE"; // Fallback
+            ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+            if (mt != null) {
+                if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+                else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+            } else {
+                String rawType = activeMatch.getMatchType();
+                if (rawType != null) {
+                    if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                    else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+                }
+            }
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
-                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
+                player.setLastQueueType(safeQueueType);
                 player.setCurrentMatchId(null);
+                PlayerDataCache.cachePlayer(player); // Actualización inmediata en caché
             }
 
             // 2) Limpieza de votos de forfeit (para que no queden colgados)

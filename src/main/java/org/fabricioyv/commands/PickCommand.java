@@ -1,28 +1,29 @@
 package org.fabricioyv.commands;
 
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.CaptainPickSystem;
-import org.fabricioyv.model.PlayerData;
 
 /**
  * Comando para manejar picks de capitanes
  * Uso: /pick <jugador>
  *
- * Created by FabricioYV
- * @author FabricioYV
+ * Compatible con Java 8 / MC 1.7-1.8
  */
 public class PickCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
+        if (!(sender instanceof Player)) {
             sender.sendMessage("§cEste comando solo puede ser usado por jugadores.");
             return true;
         }
+
+        Player player = (Player) sender;
 
         if (args.length != 1) {
             player.sendMessage("§cUso: /pick <jugador>");
@@ -37,8 +38,8 @@ public class PickCommand implements CommandExecutor {
             return true;
         }
 
-        // Buscar al jugador objetivo
-        Player targetPlayer = org.bukkit.Bukkit.getPlayer(args[0]);
+        // Buscar al jugador objetivo (debe estar online)
+        Player targetPlayer = Bukkit.getPlayer(args[0]);
         if (targetPlayer == null) {
             player.sendMessage("§cJugador no encontrado: §e" + args[0]);
             player.sendMessage("§7¿Está en línea? ¿Escribiste bien el nombre?");
@@ -52,17 +53,11 @@ public class PickCommand implements CommandExecutor {
             return true;
         }
 
-        // Obtener PlayerData del remitente
-        PlayerData senderData = activeMatch.getPlayerByUUID(player.getUniqueId());
-        if (senderData == null) {
-            player.sendMessage("§cError: No se pudo encontrar tus datos de jugador.");
-            return true;
-        }
-
-        // Manejar el pick
+        // IMPORTANTE:
+        // Para picks in-game NO dependemos de DiscordId. Pasamos el UUID MC del capitán.
         CaptainPickSystem.handlePlayerPick(
                 activeMatch.getMatchId(),
-                senderData.getDiscordId(),
+                player.getUniqueId().toString(),
                 targetPlayer.getUniqueId().toString()
         );
 

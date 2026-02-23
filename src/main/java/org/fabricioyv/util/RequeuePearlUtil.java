@@ -37,16 +37,19 @@ public final class RequeuePearlUtil {
         return item;
     }
 
+    /**
+     * Identifica la perla de requeue de forma robusta:
+     * - Requiere ENDER_PEARL
+     * - Requiere marker en lore (no depende del displayName exacto, por si otro plugin lo cambia)
+     */
     public static boolean isRequeuePearl(ItemStack item) {
         if (item == null) return false;
         if (item.getType() != Material.ENDER_PEARL) return false;
         if (!item.hasItemMeta()) return false;
 
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.hasDisplayName()) return false;
-        if (!DISPLAY_NAME.equals(meta.getDisplayName())) return false;
+        if (meta == null || !meta.hasLore()) return false;
 
-        if (!meta.hasLore()) return false;
         List<String> lore = meta.getLore();
         return lore != null && lore.contains(LORE_MARKER);
     }
@@ -72,6 +75,15 @@ public final class RequeuePearlUtil {
         }
 
         inv.setItem(HOTBAR_MIDDLE_SLOT, pearl);
+        player.updateInventory();
+    }
+
+    /**
+     * Fuerza que el slot tenga la perla (evita que se "consuma" o se cambie por plugins / versiones).
+     */
+    public static void forceRestoreInMiddleSlot(Player player) {
+        if (player == null) return;
+        player.getInventory().setItem(HOTBAR_MIDDLE_SLOT, createRequeuePearl());
         player.updateInventory();
     }
 

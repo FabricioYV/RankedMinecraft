@@ -23,10 +23,17 @@ pools:
     - "NextGen"
     - "Gobi"
     - "Oriental"
+# Configuración de RankedMinecraft
+# Opciones: VOTING, VETO, RANDOM
+selection_mode: "VETO"
 
 voting:
   duration: 20
-  enable_player_voting: true
+  enable_player_voting: false # Se ignorará si selection_mode es VETO o RANDOM
+
+veto:
+  duration_per_turn: 15
+  announce_to_all: true
 
 map_cycle:
   delay: 6

@@ -63,7 +63,7 @@ public class PicksGUI {
             // Obtener nombre del jugador (online u offline)
             String playerName = "Jugador";
             try {
-                UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+                UUID uuid = parseUuid(playerData.getMinecraftUuid());
 
                 Player online = Bukkit.getPlayer(uuid);
                 if (online != null) {
@@ -190,7 +190,7 @@ public class PicksGUI {
         if (ownerName != null) {
             for (PlayerData playerData : availablePlayers) {
                 try {
-                    UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+                    UUID uuid = parseUuid(playerData.getMinecraftUuid());
 
                     String name = null;
                     Player online = Bukkit.getPlayer(uuid);
@@ -217,7 +217,7 @@ public class PicksGUI {
 
             for (PlayerData playerData : availablePlayers) {
                 try {
-                    UUID uuid = UUID.fromString(playerData.getMinecraftUuid());
+                    UUID uuid = parseUuid(playerData.getMinecraftUuid());
 
                     String name = null;
                     Player online = Bukkit.getPlayer(uuid);
@@ -260,4 +260,27 @@ public class PicksGUI {
 
         return null;
     }
+
+    private static UUID parseUuid(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+
+        try {
+            return UUID.fromString(s);
+        } catch (IllegalArgumentException ignored) {}
+
+        if (s.length() == 32) {
+            String dashed = s.substring(0, 8) + "-" +
+                    s.substring(8, 12) + "-" +
+                    s.substring(12, 16) + "-" +
+                    s.substring(16, 20) + "-" +
+                    s.substring(20);
+            try {
+                return UUID.fromString(dashed);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        return null;
+    }
+
 }

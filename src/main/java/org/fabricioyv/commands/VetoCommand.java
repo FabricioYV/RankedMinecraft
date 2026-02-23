@@ -7,11 +7,12 @@ import org.bukkit.entity.Player;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.MapManager;
 
-public class VoteCommand implements CommandExecutor {
+public class VetoCommand implements CommandExecutor {
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("§cEste comando solo puede ser usado por jugadores.");
+            sender.sendMessage("§cEste comando es solo para jugadores.");
             return true;
         }
 
@@ -19,17 +20,13 @@ public class VoteCommand implements CommandExecutor {
 
         // Gate por modo
         String mode = MapManager.getSelectionMode();
-        if (!"VOTING".equalsIgnoreCase(mode)) {
-            player.sendMessage("§cLa votación de mapas está desactivada. §7Modo actual: §f" + mode);
-            return true;
-        }
-        if (!MapManager.isPlayerVotingEnabled()) {
-            player.sendMessage("§cLa votación de mapas está desactivada por configuración. §7(voting.enable_player_voting=false)");
+        if (!"VETO".equalsIgnoreCase(mode)) {
+            player.sendMessage("§cEl veto de mapas está desactivado. §7Modo actual: §f" + mode);
             return true;
         }
 
         if (args.length != 1) {
-            player.sendMessage("§cUso: /votemap <número>");
+            player.sendMessage("§cUso: /veto <número>");
             return true;
         }
 
@@ -37,7 +34,7 @@ public class VoteCommand implements CommandExecutor {
         try {
             mapIndex = Integer.parseInt(args[0]);
         } catch (NumberFormatException e) {
-            player.sendMessage("§cPor favor, introduce un número válido.");
+            player.sendMessage("§cPor favor, ingresa un número válido de mapa.");
             return true;
         }
 
@@ -46,20 +43,22 @@ public class VoteCommand implements CommandExecutor {
             return true;
         }
 
-        ActiveMatch activeMatch = ActiveMatch.findActiveMatchForPlayer(player.getUniqueId().toString());
-        if (activeMatch == null) {
+        ActiveMatch match = ActiveMatch.findActiveMatchForPlayer(player.getUniqueId().toString());
+
+        if (match == null) {
             player.sendMessage("§cNo estás en una partida activa.");
             return true;
         }
 
-        if (activeMatch.getMapVoting() == null) {
-            player.sendMessage("§cNo hay votación activa en este momento.");
+        if (match.getMapVeto() == null) {
+            player.sendMessage("§cNo hay una fase de vetos activa en tu partida.");
             return true;
         }
 
-        boolean success = activeMatch.getMapVoting().processVote(player.getUniqueId().toString(), mapIndex);
+        boolean success = match.getMapVeto().processVeto(player.getUniqueId().toString(), mapIndex);
+
         if (!success) {
-            player.sendMessage("§cVoto inválido. Asegúrate de usar un número válido.");
+            player.sendMessage("§cNo es tu turno, ingresaste un número inválido o no eres el capitán.");
         }
 
         return true;
