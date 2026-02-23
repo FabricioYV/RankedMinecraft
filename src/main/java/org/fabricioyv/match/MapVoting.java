@@ -234,7 +234,7 @@ public class MapVoting {
     }
 
     private void announceTimeRemaining(int seconds) {
-        String message = "§e⏰ §c" + seconds + " §esegundo" + (seconds == 1 ? "" : "s") +
+        String message = "§e §c" + seconds + " §esegundo" + (seconds == 1 ? "" : "s") +
                 " restante" + (seconds == 1 ? "" : "s") + " para votar!";
 
         for (PlayerData playerData : players) {

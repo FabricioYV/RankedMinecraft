@@ -12,9 +12,19 @@
       <option name="url" value="https://oss.sonatype.org/content/groups/public/" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="pgm" />
+      <option name="name" value="pgm" />
+      <option name="url" value="https://repo.pgm.fyi/snapshots/" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="papermc-repo" />
       <option name="name" value="papermc-repo" />
       <option name="url" value="https://repo.papermc.io/repository/maven-public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="pgm" />
+      <option name="name" value="pgm" />
+      <option name="url" value="https://repo.pgm.fyi/" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="central" />

@@ -18,7 +18,7 @@ public class CaptainRerollListener implements Listener {
     private boolean isRerollMaterial(Material m) {
         if (m == null) return false;
 
-        String name = m.name(); // ✅ evita enums inexistentes en 1.8
+        String name = m.name(); // evita enums inexistentes en 1.8
 
         // 1.8
         if ("RECORD_3".equalsIgnoreCase(name)) return true;
@@ -26,7 +26,7 @@ public class CaptainRerollListener implements Listener {
         // 1.13+
         if ("MUSIC_DISC_BLOCKS".equalsIgnoreCase(name)) return true;
 
-        // fallback si en algún punto cae a PAPER
+        // fallback (si cae a PAPER)
         return "PAPER".equalsIgnoreCase(name);
     }
 
@@ -40,7 +40,6 @@ public class CaptainRerollListener implements Listener {
         ItemStack item = event.getItem();
         if (item == null) return;
 
-        // ✅ Validar material primero
         if (!isRerollMaterial(item.getType())) return;
 
         ItemMeta meta = item.getItemMeta();
@@ -50,6 +49,7 @@ public class CaptainRerollListener implements Listener {
         if (plain == null || !plain.contains(REROLL_NAME_CONTAINS)) return;
 
         event.setCancelled(true);
+
         Player player = event.getPlayer();
         CaptainRerollManager.handleInteract(player);
     }

@@ -5,20 +5,19 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.fabricioyv.match.MapManager;
 
+import java.util.List;
+
 /**
- * Comando administrativo para gestionar el sistema de mapas
- *
- * Created by FabricioYV
- * @author FabricioYV
+ * Comando administrativo para gestionar el sistema de mapas.
+ * Sin emojis/unicode raro para compilar bien en Windows/Java 8.
  */
 public class MapAdminCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
 
-        // Verificar permisos de administrador
         if (!sender.hasPermission("rankedmc.admin") && !sender.isOp()) {
-            sender.sendMessage("§c❌ No tienes permisos para usar este comando.");
+            sender.sendMessage("§cX No tienes permisos para usar este comando.");
             return true;
         }
 
@@ -29,160 +28,191 @@ public class MapAdminCommand implements CommandExecutor {
 
         String subCommand = args[0].toLowerCase();
 
-        switch (subCommand) {
-            case "stats":
-                showMapStats(sender);
-                break;
-
-            case "recent":
-                showRecentMaps(sender, args);
-                break;
-
-            case "clear":
-                clearRecentMaps(sender, args);
-                break;
-
-            case "list":
-                listAvailableMaps(sender, args);
-                break;
-
-            case "test":
-                testMapSelection(sender, args);
-                break;
-
-            default:
-                showHelp(sender);
-                break;
+        if ("mode".equals(subCommand)) {
+            handleMode(sender, args);
+            return true;
         }
 
+        if ("reload".equals(subCommand) || "reloadmaps".equals(subCommand)) {
+            MapManager.reload();
+            sender.sendMessage("§aOK maps.yml recargado. Modo actual: §f" + MapManager.getSelectionMode());
+            return true;
+        }
+
+        if ("stats".equals(subCommand)) {
+            showMapStats(sender);
+            return true;
+        }
+
+        if ("recent".equals(subCommand)) {
+            showRecentMaps(sender, args);
+            return true;
+        }
+
+        if ("clear".equals(subCommand)) {
+            clearRecentMaps(sender, args);
+            return true;
+        }
+
+        if ("list".equals(subCommand)) {
+            listAvailableMaps(sender, args);
+            return true;
+        }
+
+        if ("test".equals(subCommand)) {
+            testMapSelection(sender, args);
+            return true;
+        }
+
+        showHelp(sender);
         return true;
     }
 
     private void showHelp(CommandSender sender) {
-        sender.sendMessage("§6=== Sistema de Mapas - Comandos Admin ===");
-        sender.sendMessage("§e/mapadmin stats §7- Mostrar estadísticas del sistema");
-        sender.sendMessage("§e/mapadmin recent [5v5|8v8] §7- Ver mapas recientes");
-        sender.sendMessage("§e/mapadmin clear [5v5|8v8|all] §7- Limpiar mapas recientes");
-        sender.sendMessage("§e/mapadmin list [5v5|8v8] §7- Listar mapas disponibles");
-        sender.sendMessage("§e/mapadmin test [5v5|8v8] §7- Probar selección de mapa");
+        sender.sendMessage("§6=== Sistema de Mapas - Admin ===");
+        sender.sendMessage("§e/mapadmin stats §7- Ver estadisticas");
+        sender.sendMessage("§e/mapadmin recent [2v2|5v5|8v8] §7- Ver recientes");
+        sender.sendMessage("§e/mapadmin clear [2v2|5v5|8v8|all] §7- Limpiar recientes");
+        sender.sendMessage("§e/mapadmin list [2v2|5v5|8v8] §7- Listar mapas");
+        sender.sendMessage("§e/mapadmin test [2v2|5v5|8v8] §7- Test de seleccion (NO marca recientes)");
+        sender.sendMessage("§e/mapadmin mode <VOTING|VETO|RANDOM> §7- Cambiar modo (y guardar)");
+        sender.sendMessage("§e/mapadmin reload §7- Recargar maps.yml");
+    }
+
+    private void handleMode(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("§6Modo actual: §f" + MapManager.getSelectionMode());
+            sender.sendMessage("§eUso: §f/mapadmin mode <VOTING|VETO|RANDOM>");
+            return;
+        }
+
+        String mode = args[1].toUpperCase();
+        boolean ok = MapManager.setSelectionMode(mode, true);
+        if (!ok) {
+            sender.sendMessage("§cX Modo invalido. Usa: VOTING, VETO o RANDOM.");
+            return;
+        }
+
+        // Recargar por si tambien editaron maps.yml manualmente
+        MapManager.reload();
+
+        sender.sendMessage("§aOK Modo actualizado a §f" + MapManager.getSelectionMode() + "§a.");
+        if (!MapManager.isPlayerVotingEnabled()) {
+            sender.sendMessage("§7Nota: player voting esta §cOFF§7 (normal si no estas en VOTING).");
+        }
     }
 
     private void showMapStats(CommandSender sender) {
         String stats = MapManager.getMapStats();
-        sender.sendMessage("§6=== Estadísticas del Sistema de Mapas ===");
-
-        // Convertir el formato Discord a formato Minecraft
+        sender.sendMessage("§6=== Stats Sistema de Mapas ===");
         String[] lines = stats.split("\n");
         for (String line : lines) {
-            String formatted = line.replace("**", "§e").replace("📊", "§6📊").replace("🔄", "§a🔄").replace("🗳️", "§b🗳️");
-            sender.sendMessage(formatted);
+            sender.sendMessage("§7" + line);
         }
     }
 
     private void showRecentMaps(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§c❌ Uso: /mapadmin recent [5v5|8v8]");
+            sender.sendMessage("§cX Uso: /mapadmin recent [2v2|5v5|8v8]");
             return;
         }
 
         String matchType = args[1];
-        if (!matchType.equals("5v5") && !matchType.equals("8v8")) {
-            sender.sendMessage("§c❌ Tipo de partida inválido. Usa: 5v5 o 8v8");
+        if (!matchType.equals("2v2") && !matchType.equals("5v5") && !matchType.equals("8v8")) {
+            sender.sendMessage("§cX Tipo invalido. Usa: 2v2, 5v5 o 8v8");
             return;
         }
 
-        var recentMaps = MapManager.getRecentMaps(matchType);
+        List<String> recent = MapManager.getRecentMaps(matchType);
 
-        sender.sendMessage("§6=== Mapas Recientes para " + matchType + " ===");
-        if (recentMaps.isEmpty()) {
-            sender.sendMessage("§7No hay mapas recientes registrados para " + matchType);
+        sender.sendMessage("§6=== Recientes para " + matchType + " ===");
+        if (recent.isEmpty()) {
+            sender.sendMessage("§7No hay recientes para " + matchType);
         } else {
-            sender.sendMessage("§eCantidad: §f" + recentMaps.size() + " mapas");
-            for (int i = 0; i < recentMaps.size(); i++) {
-                sender.sendMessage("§7" + (i + 1) + ". §f" + recentMaps.get(i));
+            sender.sendMessage("§eCantidad: §f" + recent.size());
+            for (int i = 0; i < recent.size(); i++) {
+                sender.sendMessage("§7" + (i + 1) + ". §f" + recent.get(i));
             }
         }
     }
 
     private void clearRecentMaps(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§c❌ Uso: /mapadmin clear [5v5|8v8|all]");
+            sender.sendMessage("§cX Uso: /mapadmin clear [2v2|5v5|8v8|all]");
             return;
         }
 
         String target = args[1].toLowerCase();
 
-        switch (target) {
-            case "5v5":
-                MapManager.clearRecentMaps("5v5");
-                sender.sendMessage("§a✅ Lista de mapas recientes para 5v5 limpiada");
-                break;
-
-            case "8v8":
-                MapManager.clearRecentMaps("8v8");
-                sender.sendMessage("§a✅ Lista de mapas recientes para 8v8 limpiada");
-                break;
-
-            case "all":
-                MapManager.clearAllRecentMaps();
-                sender.sendMessage("§a✅ Todas las listas de mapas recientes limpiadas");
-                break;
-
-            default:
-                sender.sendMessage("§c❌ Opción inválida. Usa: 5v5, 8v8 o all");
-                break;
+        if ("2v2".equals(target)) {
+            MapManager.clearRecentMaps("2v2");
+            sender.sendMessage("§aOK recientes 2v2 limpiados");
+            return;
         }
+        if ("5v5".equals(target)) {
+            MapManager.clearRecentMaps("5v5");
+            sender.sendMessage("§aOK recientes 5v5 limpiados");
+            return;
+        }
+        if ("8v8".equals(target)) {
+            MapManager.clearRecentMaps("8v8");
+            sender.sendMessage("§aOK recientes 8v8 limpiados");
+            return;
+        }
+        if ("all".equals(target)) {
+            MapManager.clearAllRecentMaps();
+            sender.sendMessage("§aOK todos los recientes limpiados");
+            return;
+        }
+
+        sender.sendMessage("§cX Opcion invalida. Usa: 2v2, 5v5, 8v8 o all");
     }
 
     private void listAvailableMaps(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§c❌ Uso: /mapadmin list [5v5|8v8]");
+            sender.sendMessage("§cX Uso: /mapadmin list [2v2|5v5|8v8]");
             return;
         }
 
         String matchType = args[1];
-        if (!matchType.equals("5v5") && !matchType.equals("8v8")) {
-            sender.sendMessage("§c❌ Tipo de partida inválido. Usa: 5v5 o 8v8");
+        if (!matchType.equals("2v2") && !matchType.equals("5v5") && !matchType.equals("8v8")) {
+            sender.sendMessage("§cX Tipo invalido. Usa: 2v2, 5v5 o 8v8");
             return;
         }
 
-        var availableMaps = MapManager.getAvailableMaps(matchType);
-        var recentMaps = MapManager.getRecentMaps(matchType);
+        List<String> available = MapManager.getAvailableMaps(matchType);
+        List<String> recent = MapManager.getRecentMaps(matchType);
 
-        sender.sendMessage("§6=== Mapas Disponibles para " + matchType + " ===");
-        sender.sendMessage("§eTotal: §f" + availableMaps.size() + " mapas");
+        sender.sendMessage("§6=== Mapas para " + matchType + " ===");
+        sender.sendMessage("§eTotal: §f" + available.size());
 
-        for (String map : availableMaps) {
-            String status = recentMaps.contains(map) ? "§c[RECIENTE]" : "§a[DISPONIBLE]";
-            sender.sendMessage("§7• §f" + map + " " + status);
+        for (String map : available) {
+            String status = recent.contains(map) ? "§c[RECIENTE]" : "§a[OK]";
+            sender.sendMessage("§7- §f" + map + " " + status);
         }
     }
 
     private void testMapSelection(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§c❌ Uso: /mapadmin test [5v5|8v8]");
+            sender.sendMessage("§cX Uso: /mapadmin test [2v2|5v5|8v8]");
             return;
         }
 
         String matchType = args[1];
-        if (!matchType.equals("5v5") && !matchType.equals("8v8")) {
-            sender.sendMessage("§c❌ Tipo de partida inválido. Usa: 5v5 o 8v8");
+        if (!matchType.equals("2v2") && !matchType.equals("5v5") && !matchType.equals("8v8")) {
+            sender.sendMessage("§cX Tipo invalido. Usa: 2v2, 5v5 o 8v8");
             return;
         }
 
-        sender.sendMessage("§6=== Prueba de Selección de Mapa ===");
-        sender.sendMessage("§eTipo de partida: §f" + matchType);
+        sender.sendMessage("§6=== Test Seleccion de Mapa ===");
+        sender.sendMessage("§eTipo: §f" + matchType);
+        sender.sendMessage("§eModo: §f" + MapManager.getSelectionMode());
 
-        // Mostrar estado actual
-        var recentMaps = MapManager.getRecentMaps(matchType);
-        sender.sendMessage("§eMapas recientes: §f" + recentMaps.size() + " (" + String.join(", ", recentMaps) + ")");
+        List<String> recent = MapManager.getRecentMaps(matchType);
+        sender.sendMessage("§eRecientes: §f" + recent.size());
 
-        // Probar selección
-        String selectedMap = MapManager.getRandomMap(matchType);
-        sender.sendMessage("§aMapa seleccionado: §f" + selectedMap);
-
-        // Mostrar nuevo estado
-        var newRecentMaps = MapManager.getRecentMaps(matchType);
-        sender.sendMessage("§eNuevos mapas recientes: §f" + newRecentMaps.size() + " (" + String.join(", ", newRecentMaps) + ")");
+        String selected = MapManager.getRandomMap(matchType);
+        sender.sendMessage("§aMapa seleccionado: §f" + selected);
+        sender.sendMessage("§7Nota: este test NO marca recientes. Eso ocurre al iniciar el match oficial.");
     }
 }

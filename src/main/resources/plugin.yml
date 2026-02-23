@@ -5,6 +5,9 @@ authors: [ FabricioYv ]
 depend: [PGM]
 
 commands:
+  veto:
+    description: Usado para vetar mapas
+    usage: /veto <numero>
   votemap:
     description: Votar por un mapa durante la votación
     usage: /votemap <número>
@@ -15,11 +18,11 @@ commands:
     aliases: [ forfeit, surrender ]
   ready:
     description: Acelerar inicio de partida
-    aliases: [ r ]
+    aliases: [r]
     usage: /ready
   mapadmin:
     description: Comandos administrativos para gestionar el sistema de mapas
-    usage: /mapadmin <stats|recent|clear|list|test>
+    usage: /mapadmin <stats|recent|clear|list|test|mode|reload>
     permission: rankedmc.admin
   placement:
     description: Ver estadísticas de jugadores en placement matches
@@ -37,3 +40,7 @@ commands:
     usage: /elodecay <reload|force|info>
     permission: rankedmc.admin
     aliases: [decay]
+  requeue:
+    description: Reingresar a la cola después de una partida
+    usage: /requeue
+    aliases: [rq]

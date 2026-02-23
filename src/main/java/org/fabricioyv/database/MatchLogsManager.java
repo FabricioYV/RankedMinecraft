@@ -1,6 +1,7 @@
 package org.fabricioyv.database;
 
 import org.bukkit.Bukkit;
+import org.fabricioyv.config.PerformanceConfig;
 
 import java.sql.*;
 import java.time.LocalDateTime;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class MatchLogsManager {
@@ -39,10 +41,9 @@ public class MatchLogsManager {
     private static boolean isUnranked2v2(String matchType) {
         if (matchType == null) return false;
         String t = matchType.trim().toLowerCase();
-        // aguanta "2v2", "ranked_2v2", "queue-2v2", etc.
-        return t.equals("2v2") || t.contains("2v2");
+        // Verificar si contiene "2v2" en cualquier parte
+        return t.contains("2v2");
     }
-
 
     /**
      * Clase para almacenar las estadísticas de un jugador en una partida
@@ -529,7 +530,7 @@ public class MatchLogsManager {
                         if (rs.next() && rs.getInt(1) > 0) {
                             Bukkit.getConsoleSender().sendMessage(
                                     "§a✅ Partida " + matchId + " inicializada y VERIFICADA en base de datos (Hora Lima: " +
-                                            startTimeLima.toString() + ")"
+                                            startTimeLima + ")"
                             );
                             return true;
                         } else {
@@ -755,17 +756,6 @@ public class MatchLogsManager {
         }
     }
 
-
-
-
-
-
-
-
-
-
-
-
     /**
      * Obtiene las partidas más recientes (para todos los jugadores)
      */
@@ -810,4 +800,217 @@ public class MatchLogsManager {
             return matches;
         });
     }
+
+    /**
+     * Log de evento de partida - OPTIMIZADO CON PERFORMANCE CONFIG
+     */
+    public static void logMatchEventOptimized(String matchId, String eventType, String playerUuid, String details) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - SALIDA ULTRA RÁPIDA
+        // ========================================
+
+        // Si match logs están desactivados, salir inmediatamente
+        if (!PerformanceConfig.isMatchLogsEnabled()) {
+            return; // <0.01ms - sin procesamiento alguno
+        }
+
+        // Si el guardado en base de datos está desactivado, no procesar
+        if (!PerformanceConfig.isDatabaseSavingEnabled()) {
+            return; // Evitar cualquier operación de DB
+        }
+
+        // ✅ 2v2 UNRANKED: NO LOGS
+        if (unranked2v2MatchIds.contains(matchId)) return;
+
+        // Si async stats está habilitado, procesar de forma asíncrona
+        if (PerformanceConfig.isAsyncStatsProcessing()) {
+            CompletableFuture.runAsync(() -> processMatchEventLog(matchId, eventType, playerUuid, details));
+        } else {
+            // Procesamiento síncrono para compatibilidad
+            processMatchEventLog(matchId, eventType, playerUuid, details);
+        }
+    }
+
+    /**
+     * Procesamiento interno del log de evento
+     */
+    private static void processMatchEventLog(String matchId, String eventType, String playerUuid, String details) {
+        // Verificar nuevamente las configuraciones (por si cambiaron)
+        if (!PerformanceConfig.isMatchLogsEnabled() || !PerformanceConfig.isDatabaseSavingEnabled()) {
+            return;
+        }
+
+        try {
+            Connection conn = DatabaseManager.getConnectionTo("match_logs");
+            if (conn == null) return;
+
+            String sql = "INSERT INTO match_events (match_id, event_type, player_uuid, details, timestamp) VALUES (?, ?, ?, ?, ?)";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+
+            stmt.setString(1, matchId);
+            stmt.setString(2, eventType);
+            stmt.setString(3, playerUuid);
+            stmt.setString(4, details);
+            stmt.setTimestamp(5, Timestamp.valueOf(LocalDateTime.now(LIMA_ZONE)));
+
+            stmt.executeUpdate();
+            stmt.close();
+
+        } catch (SQLException e) {
+            // Solo log en debug si está habilitado
+            if (PerformanceConfig.isStatsTrackingEnabled()) {
+                Bukkit.getLogger().warning("Error logging match event: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Guardar estadísticas completas de partida - OPTIMIZADO
+     */
+    public static void saveMatchStats(String matchId, Map<UUID, PlayerMatchStats> playerStats) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG
+        // ========================================
+
+        // Si el guardado en DB está desactivado, salir inmediatamente
+        if (!PerformanceConfig.isDatabaseSavingEnabled()) {
+            return;
+        }
+
+        // Si stats tracking está completamente desactivado, no guardar
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return;
+        }
+
+        // ✅ 2v2 UNRANKED: NO GUARDAR STATS
+        if (unranked2v2MatchIds.contains(matchId)) return;
+
+        // Si batch writes está habilitado, usar procesamiento por lotes
+        if (PerformanceConfig.isBatchDatabaseWrites()) {
+            saveBatchedMatchStats(matchId, playerStats);
+        } else {
+            // Guardado individual para compatibilidad
+            saveIndividualMatchStats(matchId, playerStats);
+        }
+    }
+
+    /**
+     * Guardado por lotes optimizado para performance
+     */
+    private static void saveBatchedMatchStats(String matchId, Map<UUID, PlayerMatchStats> playerStats) {
+        if (PerformanceConfig.isAsyncStatsProcessing()) {
+            CompletableFuture.runAsync(() -> processBatchedSave(matchId, playerStats));
+        } else {
+            processBatchedSave(matchId, playerStats);
+        }
+    }
+
+    /**
+     * Procesamiento interno del guardado por lotes
+     */
+    private static void processBatchedSave(String matchId, Map<UUID, PlayerMatchStats> playerStats) {
+        try {
+            Connection conn = DatabaseManager.getConnectionTo("match_logs");
+            if (conn == null) return;
+
+            // Usar transacción para mejor performance
+            conn.setAutoCommit(false);
+
+            String sql = "INSERT INTO player_match_stats (match_id, player_uuid, player_name, team, " +
+                        "kills, deaths, damage_dealt, damage_received, arrows_shot, arrows_hit, " +
+                        "arrow_accuracy, old_elo, new_elo, elo_change, old_mmr, new_mmr, mmr_change, won, timestamp) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+            PreparedStatement stmt = conn.prepareStatement(sql);
+
+            int batchCount = 0;
+            int maxBatchSize = PerformanceConfig.getBatchSize();
+
+            for (PlayerMatchStats stats : playerStats.values()) {
+                // Solo guardar si las estadísticas específicas están habilitadas
+                if (shouldSavePlayerStats(stats)) {
+                    setPlayerStatsParameters(stmt, matchId, stats);
+                    stmt.addBatch();
+                    batchCount++;
+
+                    // Ejecutar lote cuando alcance el tamaño máximo
+                    if (batchCount >= maxBatchSize) {
+                        stmt.executeBatch();
+                        batchCount = 0;
+                    }
+                }
+            }
+
+            // Ejecutar el lote restante
+            if (batchCount > 0) {
+                stmt.executeBatch();
+            }
+
+            conn.commit();
+            stmt.close();
+            conn.setAutoCommit(true);
+
+        } catch (SQLException e) {
+            if (PerformanceConfig.isStatsTrackingEnabled()) {
+                Bukkit.getLogger().warning("Error saving batched match stats: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Guardado individual para compatibilidad
+     */
+    private static void saveIndividualMatchStats(String matchId, Map<UUID, PlayerMatchStats> playerStats) {
+        // Implementación básica individual
+        for (PlayerMatchStats stats : playerStats.values()) {
+            if (shouldSavePlayerStats(stats)) {
+                // Usar el método original logMatchEvent para compatibilidad
+                logMatchEvent(matchId, "PLAYER_STATS", stats.getPlayerUuid(),
+                    String.format("K:%d D:%d DMG:%.1f", stats.getKills(), stats.getDeaths(), stats.getDamageDealt()));
+            }
+        }
+    }
+
+    /**
+     * Determina si se deben guardar las estadísticas del jugador según la configuración
+     */
+    private static boolean shouldSavePlayerStats(PlayerMatchStats stats) {
+        // Verificar configuraciones específicas
+        boolean hasKills = stats.getKills() > 0 && PerformanceConfig.isKillsTrackingEnabled();
+        boolean hasDeaths = stats.getDeaths() > 0 && PerformanceConfig.isDeathsTrackingEnabled();
+        boolean hasDamage = stats.getDamageDealt() > 0 && PerformanceConfig.isDamageTrackingEnabled();
+        boolean hasArrows = stats.getArrowsShot() > 0 && PerformanceConfig.isArrowTrackingEnabled();
+
+        // Guardar si al menos una estadística está habilitada y tiene datos
+        return hasKills || hasDeaths || hasDamage || hasArrows;
+    }
+
+    /**
+     * Establece los parámetros del PreparedStatement según las configuraciones activas
+     */
+    private static void setPlayerStatsParameters(PreparedStatement stmt, String matchId, PlayerMatchStats stats) throws SQLException {
+        stmt.setString(1, matchId);
+        stmt.setString(2, stats.getPlayerUuid());
+        stmt.setString(3, stats.getPlayerName());
+        stmt.setString(4, stats.getTeam());
+
+        // Solo establecer valores si el trackeo está habilitado
+        stmt.setInt(5, PerformanceConfig.isKillsTrackingEnabled() ? stats.getKills() : 0);
+        stmt.setInt(6, PerformanceConfig.isDeathsTrackingEnabled() ? stats.getDeaths() : 0);
+        stmt.setDouble(7, PerformanceConfig.isDamageTrackingEnabled() ? stats.getDamageDealt() : 0.0);
+        stmt.setDouble(8, PerformanceConfig.isDamageTrackingEnabled() ? stats.getDamageReceived() : 0.0);
+        stmt.setInt(9, PerformanceConfig.isArrowTrackingEnabled() ? stats.getArrowsShot() : 0);
+        stmt.setInt(10, PerformanceConfig.isArrowTrackingEnabled() ? stats.getArrowsHit() : 0);
+        stmt.setDouble(11, PerformanceConfig.isArrowTrackingEnabled() ? stats.getArrowAccuracy() : 0.0);
+
+        stmt.setInt(12, stats.getOldElo());
+        stmt.setInt(13, stats.getNewElo());
+        stmt.setInt(14, stats.getEloChange());
+        stmt.setDouble(15, stats.getOldMmr());
+        stmt.setDouble(16, stats.getNewMmr());
+        stmt.setDouble(17, stats.getMmrChange());
+        stmt.setBoolean(18, stats.isWon());
+        stmt.setTimestamp(19, Timestamp.valueOf(LocalDateTime.now(LIMA_ZONE)));
+    }
 }
+

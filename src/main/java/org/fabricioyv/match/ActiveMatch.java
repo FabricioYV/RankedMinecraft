@@ -14,7 +14,9 @@ import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.config.VoiceChannelConfig;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
+import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
+import org.fabricioyv.util.RequeuePearlUtil;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -40,6 +42,7 @@ public class ActiveMatch {
 
     private String selectedMap;
     private MapVoting mapVoting;
+    private MapVeto mapVeto;
     private VoiceChannel blueTeamChannel;
     private VoiceChannel redTeamChannel;
     private MatchStatus status;
@@ -51,6 +54,7 @@ public class ActiveMatch {
 
     // Picks
     private boolean isPicksMatch = false;
+    private boolean picksCompleted = false;
     private PlayerData blueCaptain = null;
     private PlayerData redCaptain = null;
 
@@ -99,9 +103,13 @@ public class ActiveMatch {
         for (PlayerData player : this.allPlayers) {
             try {
                 player.setInMatch(true);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(matchId);
             } catch (Exception ignored) {}
         }
+
+        // Limpia cualquier perla vieja de requeue al iniciar un match (evita exploits)
+        Bukkit.getScheduler().runTaskLater(plugin, this::clearRequeuePearlFromAllOnlinePlayers, 2L);
     }
 
     private static String detectMatchType(int playerCount) {
@@ -231,7 +239,7 @@ public class ActiveMatch {
                 logger.warning("Discord", "TEAM_CHANNELS_CATEGORY_ID no válido o categoría no encontrada. Se crearán canales sin parent.");
             }
 
-            ChannelAction<VoiceChannel> blueCreate = guild.createVoiceChannel("🔵 Equipo Azul " + timestamp);
+            ChannelAction<VoiceChannel> blueCreate = guild.createVoiceChannel("BLUE Equipo Azul " + timestamp);
             if (parentCategory != null) blueCreate = blueCreate.setParent(parentCategory);
 
             blueCreate.queue(channel -> {
@@ -240,7 +248,7 @@ public class ActiveMatch {
                 setupChannelPermissions(channel, Team.BLUE, onOneReady);
             }, error -> logger.error("Error Canal Azul", "No se pudo crear canal azul: " + error.getMessage()));
 
-            ChannelAction<VoiceChannel> redCreate = guild.createVoiceChannel("🔴 Equipo Rojo " + timestamp);
+            ChannelAction<VoiceChannel> redCreate = guild.createVoiceChannel("RED Equipo Rojo " + timestamp);
             if (parentCategory != null) redCreate = redCreate.setParent(parentCategory);
 
             redCreate.queue(channel -> {
@@ -267,10 +275,6 @@ public class ActiveMatch {
         }, 40L);
     }
 
-    /**
-     * ✅ FIX CLAVE:
-     * Si getMemberById() da null, hacemos retrieveMemberById() y movemos igual.
-     */
     private void moveTeamToChannel(Team team, VoiceChannel channel) {
         if (channel == null) {
             logger.error("Canal No Disponible", "Canal del equipo " + team.getDisplayName() + " no está disponible");
@@ -344,10 +348,6 @@ public class ActiveMatch {
             }
         }
     }
-
-    // ---------------------------
-    // Permisos Discord (callback)
-    // ---------------------------
 
     private void setupChannelPermissions(VoiceChannel channel, Team team, Runnable onComplete) {
         try {
@@ -443,15 +443,45 @@ public class ActiveMatch {
     }
 
     // =========================================================
+    // Requeue pearl helpers (NUEVO)
+    // =========================================================
+
+    /** Da la perla de requeue (slot 4) a todos los jugadores ONLINE del match */
+    public void giveRequeuePearlToAllOnlinePlayers() {
+        for (PlayerData pd : allPlayers) {
+            try {
+                Player p = Bukkit.getPlayer(UUID.fromString(pd.getMinecraftUuid()));
+                if (p != null && p.isOnline()) {
+                    RequeuePearlUtil.giveToMiddleSlot(p);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /** Quita perlas de requeue del inventario a todos los jugadores ONLINE del match */
+    public void clearRequeuePearlFromAllOnlinePlayers() {
+        for (PlayerData pd : allPlayers) {
+            try {
+                Player p = Bukkit.getPlayer(UUID.fromString(pd.getMinecraftUuid()));
+                if (p != null && p.isOnline()) {
+                    RequeuePearlUtil.removeFromInventory(p);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // =========================================================
     // Cleanup
     // =========================================================
 
     public void cleanup() {
         logger.info("Limpieza de Partida", "Limpiando partida " + matchId);
+        this.mapVeto = null;
 
         for (PlayerData player : allPlayers) {
             try {
                 player.setInMatch(false);
+                player.setLastQueueType(QueueManager.getQueueTypeFromSize(allPlayers.size()));
                 player.setCurrentMatchId(null);
             } catch (Exception ignored) {}
         }
@@ -511,6 +541,9 @@ public class ActiveMatch {
     public boolean isPicksMatch() { return isPicksMatch; }
     public void setPicksMatch(boolean picksMatch) { isPicksMatch = picksMatch; }
 
+    public boolean isPicksCompleted() { return picksCompleted; }
+    public void setPicksCompleted(boolean picksCompleted) { this.picksCompleted = picksCompleted; }
+
     public PlayerData getBlueCaptain() { return blueCaptain; }
     public void setBlueCaptain(PlayerData blueCaptain) { this.blueCaptain = blueCaptain; }
 
@@ -535,21 +568,18 @@ public class ActiveMatch {
         return activeMatches.get(matchId);
     }
 
-    /** Devuelve un map NO modificable de matches activos */
     public static Map<String, ActiveMatch> getActiveMatches() {
         return Collections.unmodifiableMap(activeMatches);
     }
 
-    /** Devuelve todos los matches activos (Collection) */
     public static Collection<ActiveMatch> getAllActiveMatches() {
         return activeMatches.values();
     }
 
-    /** Devuelve el match activo donde está el playerUuid (buscando en allPlayers) */
     public static ActiveMatch getPlayerActiveMatch(String playerUuid) {
         if (playerUuid == null) return null;
         for (ActiveMatch match : activeMatches.values()) {
-            for (PlayerData p : match.allPlayers) { // usa campo directo para evitar copias
+            for (PlayerData p : match.allPlayers) {
                 if (playerUuid.equalsIgnoreCase(p.getMinecraftUuid())) {
                     return match;
                 }
@@ -558,12 +588,10 @@ public class ActiveMatch {
         return null;
     }
 
-    /** Alias que tu código llama en varios lados */
     public static ActiveMatch findActiveMatchForPlayer(String playerUuid) {
         return getPlayerActiveMatch(playerUuid);
     }
 
-    /** Busca PlayerData dentro de ESTE match por UUID */
     public PlayerData getPlayerByUUID(UUID playerUUID) {
         if (playerUUID == null) return null;
         for (PlayerData p : allPlayers) {
@@ -576,17 +604,14 @@ public class ActiveMatch {
         return null;
     }
 
-    /** Getter usado por MatchFinisher */
     public ProgressiveEloCalculator.MatchType getMatchTypeEnum() {
         return matchTypeEnum;
     }
 
-    /** Getter usado por MatchLogsIntegration y MatchFinisher */
     public LocalDateTime getStartTime() {
         return startTime;
     }
 
-    /** Flags usados por PGMMatchListener / ForfeitManager */
     public boolean isFinishedByForfeit() {
         return finishedByForfeit;
     }
@@ -595,12 +620,19 @@ public class ActiveMatch {
         this.finishedByForfeit = finishedByForfeit;
     }
 
-    /** Winner usado por MatchFinisher */
     public Team getWinnerTeam() {
         return winnerTeam;
     }
 
     public void setWinnerTeam(Team winnerTeam) {
         this.winnerTeam = winnerTeam;
+    }
+
+    public MapVeto getMapVeto() {
+        return mapVeto;
+    }
+
+    public void setMapVeto(MapVeto mapVeto) {
+        this.mapVeto = mapVeto;
     }
 }

@@ -3,21 +3,32 @@ package org.fabricioyv;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandExecutor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
+
 import org.fabricioyv.commands.*;
+import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.database.BatchProcessor;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.discord.DiscordBot;
 import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.listeners.PGMMatchListener;
+import org.fabricioyv.listeners.RequeuePearlListener;
 import org.fabricioyv.match.AbandonmentDetectionSystem;
-import org.fabricioyv.match.MapManager;
 import org.fabricioyv.match.ForfeitManager;
+import org.fabricioyv.match.MapManager;
+import org.fabricioyv.queue.RequeueManager;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
 public final class RankedMinecraft extends JavaPlugin {
+
     private DiscordBot discordBot;
     private static RankedMinecraft instance;
+
     private AbandonmentDetectionSystem abandonmentSystem;
     private org.fabricioyv.rating.EloDecaySystem eloDecaySystem;
 
@@ -25,10 +36,26 @@ public final class RankedMinecraft extends JavaPlugin {
     public void onEnable() {
         instance = this;
 
-        // 1) Generar/cargar config.yml principal (desde src/main/resources/config.yml)
-        saveDefaultConfig();
+        // 1) Generar/cargar config.yml principal y asegurar que esté completo
+        loadCompleteConfig();
 
-        // 2) Cargar settings del sistema de forfeit/afk desde config.yml
+        // ========================================
+        // 2) INICIALIZAR SISTEMA DE PERFORMANCE OPTIMIZATION
+        // ========================================
+        getLogger().info("§a[Performance] Inicializando sistema de optimización de hit registration...");
+        PerformanceConfig.init(this);
+
+        // Log del estado de configuración de performance
+        if (PerformanceConfig.isUltraPerformanceMode()) {
+            getLogger().info("§e[Performance]  MODO ULTRA PERFORMANCE ACTIVADO - Stats completamente deshabilitados");
+        } else if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            getLogger().info("§e[Performance]  Stats tracking deshabilitado - Hit registration optimizado");
+        } else {
+            getLogger().info("§a[Performance] OK Performance balanceado - Stats: " +
+                    PerformanceConfig.isAnyTrackingEnabled());
+        }
+
+        // 3) Cargar settings del sistema de forfeit/afk desde config.yml
         ForfeitManager.loadSettings(this);
 
         try {
@@ -40,6 +67,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // Registrar comandos (con protección anti-null)
             registerCommand("votemap", new VoteCommand());
+            registerCommand("veto", new VetoCommand());
             registerCommand("ff", new ForfeitCommand(this));
             registerCommand("ready", new ReadyCommand());
             // NO uses getCommand("r") -> "r" es alias de "ready" en plugin.yml
@@ -47,6 +75,7 @@ public final class RankedMinecraft extends JavaPlugin {
             registerCommand("placement", new PlacementStatsCommand());
             registerCommand("testplacement", new TestPlacementAnalysisCommand());
             registerCommand("pick", new PickCommand());
+            registerCommand("requeue", new RequeueCommand());
 
             // Inicializar base de datos
             if (!DatabaseManager.initialize()) {
@@ -60,6 +89,18 @@ public final class RankedMinecraft extends JavaPlugin {
 
             // Inicializar Discord bot ANTES de listeners que lo necesiten
             initializeDiscordBot();
+
+            //INYECTAR DiscordBot al RequeueManager (OBLIGATORIO para /requeue)
+            if (discordBot != null) {
+                RequeueManager.setDiscordBot(discordBot);
+                getLogger().info("§a[Requeue] DiscordBot conectado a RequeueManager.");
+            } else {
+                getLogger().warning("§e[Requeue] DiscordBot es null. /requeue funcionará solo si Discord está inicializado.");
+            }
+
+            //Registrar listener de la perla de requeue (OBLIGATORIO para click derecho)
+            getServer().getPluginManager().registerEvents(new RequeuePearlListener(), this);
+            getLogger().info("§a[Requeue] RequeuePearlListener registrado.");
 
             // Inicializar sistema de detección de abandono (si hay Discord logger)
             if (discordBot != null && discordBot.getLogger() != null) {
@@ -103,7 +144,7 @@ public final class RankedMinecraft extends JavaPlugin {
 
     private void registerCommand(String name, CommandExecutor executor) {
         if (getCommand(name) == null) {
-            getLogger().severe("❌ Comando '" + name + "' no está definido en plugin.yml");
+            getLogger().severe("X Comando '" + name + "' no está definido en plugin.yml");
             return;
         }
         getCommand(name).setExecutor(executor);
@@ -136,7 +177,7 @@ public final class RankedMinecraft extends JavaPlugin {
             }
 
             if (removedItems > 0 || removedArrows > 0) {
-                getLogger().info(String.format("§a✓ Limpieza automática: %d items, %d flechas removidas",
+                getLogger().info(String.format("§aOK Limpieza automática: %d items, %d flechas removidas",
                         removedItems, removedArrows));
             }
         }, 6000L, 6000L);
@@ -193,9 +234,9 @@ public final class RankedMinecraft extends JavaPlugin {
             getServer().getPluginManager().registerEvents(
                     new org.fabricioyv.listeners.PlayerRejoinListener(this, discordBot.getLogger()), this);
 
-            getLogger().info("✅ Listeners de PGM y Rejoin registrados exitosamente");
+            getLogger().info("OK Listeners de PGM y Rejoin registrados exitosamente");
         } else {
-            getLogger().warning("⚠️ Discord bot no está listo, intentando registrar listeners en 5 segundos...");
+            getLogger().warning("WARN Discord bot no está listo, intentando registrar listeners en 5 segundos...");
             Bukkit.getScheduler().runTaskLater(this, this::registerPGMListeners, 100L);
         }
     }
@@ -214,5 +255,49 @@ public final class RankedMinecraft extends JavaPlugin {
 
     public static RankedMinecraft getInstance() {
         return instance;
+    }
+
+    /**
+     * Cargar y completar el config.yml desde el archivo de recursos si es necesario
+     */
+    private void loadCompleteConfig() {
+        // Primero intentar guardar el archivo por defecto si no existe
+        saveDefaultConfig();
+
+        FileConfiguration config = getConfig();
+
+        // Cargar config.yml desde recursos
+        InputStream inputStream = getResource("config.yml");
+        if (inputStream == null) {
+            getLogger().severe("No se encontró el archivo config.yml en los recursos del plugin.");
+            return;
+        }
+
+        YamlConfiguration defaultConfig = new YamlConfiguration();
+        try {
+            defaultConfig.load(new InputStreamReader(inputStream));
+        } catch (Exception e) {
+            getLogger().severe("Error al cargar el archivo config.yml desde los recursos: " + e.getMessage());
+            e.printStackTrace();
+            return;
+        }
+
+        // Verificar y completar secciones faltantes
+        boolean modified = false;
+        for (String key : defaultConfig.getKeys(true)) {
+            if (!config.contains(key)) {
+                config.set(key, defaultConfig.get(key));
+                getLogger().info("§e[Config] Agregada sección faltante: " + key);
+                modified = true;
+            }
+        }
+
+        // Guardar config.yml solo si se realizaron cambios
+        if (modified) {
+            saveConfig();
+            getLogger().info("§a[Config] OK config.yml actualizado con las secciones por defecto.");
+        } else {
+            getLogger().info("§a[Config] OK config.yml está completo.");
+        }
     }
 }

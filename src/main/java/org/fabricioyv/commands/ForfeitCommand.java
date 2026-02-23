@@ -25,7 +25,6 @@ public class ForfeitCommand implements CommandExecutor {
             return true;
         }
 
-        Player player = (Player) sender;
         String uuidStr = player.getUniqueId().toString();
 
         // 1) Fuente de verdad: ActiveMatch (no dependemos de BD para validar si está en match)

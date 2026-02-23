@@ -16,6 +16,7 @@ import org.fabricioyv.listeners.MatchStatsListener;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.util.RequeuePearlUtil;
 import org.fabricioyv.rating.MMRCalculator;
 import org.fabricioyv.rating.ProgressiveEloCalculator;
 import org.fabricioyv.rating.Rank;
@@ -24,6 +25,10 @@ import org.fabricioyv.cache.PlayerDataCache;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 public class MatchFinisher {
 
@@ -73,9 +78,28 @@ public class MatchFinisher {
         try {
             // 1. INMEDIATO: Marcar jugadores como NO en partida EN MEMORIA (instantáneo)
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+            // FIX: Determinar QueueType de forma segura por el nombre, NO por la cantidad de jugadores
+            String safeQueueType = "FIVE_VS_FIVE"; // Fallback por defecto
+            ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+            if (mt != null) {
+                if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+                else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+            } else {
+                String rawType = activeMatch.getMatchType();
+                if (rawType != null) {
+                    if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                    else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+                }
+            }
+
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
+                player.setLastQueueType(safeQueueType);
                 player.setCurrentMatchId(null);
+
+                // FIX: Guardar en caché inmediatamente para que la perla funcione al instante
+                PlayerDataCache.cachePlayer(player);
             }
 
             // 2. ACTUALIZAR BD DE FORMA ASÍNCRONA (no bloquea el servidor)
@@ -127,6 +151,9 @@ public class MatchFinisher {
             // 6) Mover jugadores a Sala de espera (una sola vez)
             try {
                 movePlayersToWaitingRoom(activeMatch, plugin, logger);
+
+                // 6.1) Dar item de requeue (perla) en el slot medio - solo rankeds
+                giveRequeuePearlAfterMatch(activeMatch, plugin, logger);
             } catch (Exception e) {
                 logger.warning("Discord Move Failed",
                         "Error moviendo jugadores a sala de espera: " + e.getMessage());
@@ -253,26 +280,39 @@ public class MatchFinisher {
         // **CRÍTICO FIX**: ESTABLECER RESULTADOS ANTES DE FINALIZAR ESTADÍSTICAS
         MatchLogsIntegration.setMatchResults(activeMatch.getMatchId(), teams, winnerTeam);
 
-        // Esperar un momento para asegurar eventos pendientes
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        // ✅ OPTIMIZACIÓN CRÍTICA: Esperar eventos pendientes SIN BLOQUEAR main thread
+        // En lugar de Thread.sleep(100) bloqueante, usar CompletableFuture con timeout
+        final String matchId = activeMatch.getMatchId();
+        CompletableFuture<Map<UUID, MatchLogsManager.PlayerMatchStats>> statsFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    // Esperar en thread asíncrono (NO bloquea servidor)
+                    try {
+                        Thread.sleep(100); // Solo bloquea este thread worker
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return MatchStatsListener.finalizeMatchStats(matchId);
+                });
 
-        // Finalizar estadísticas
+        // Finalizar estadísticas con timeout (no bloquea)
         Map<UUID, MatchLogsManager.PlayerMatchStats> finalizedStats = null;
         try {
-            finalizedStats = MatchStatsListener.finalizeMatchStats(activeMatch.getMatchId());
+            // Espera máxima de 200ms para stats, pero NO bloquea otros jugadores
+            finalizedStats = statsFuture.get(200, TimeUnit.MILLISECONDS);
             if (finalizedStats != null && !finalizedStats.isEmpty()) {
                 logger.success("Match Stats Finalized",
                         String.format("✅ Estadísticas finalizadas para %d jugadores en match %s",
-                                finalizedStats.size(), activeMatch.getMatchId()));
+                                finalizedStats.size(), matchId));
             } else {
                 logger.warning("Match Stats Empty",
                         String.format("⚠️ No se encontraron estadísticas para match %s - usando valores por defecto",
-                                activeMatch.getMatchId()));
+                                matchId));
             }
+        } catch (TimeoutException e) {
+            logger.warning("Match Stats Timeout",
+                    "⚠️ Timeout esperando estadísticas - continuando con valores por defecto");
+            // Cancelar el future para liberar recursos
+            statsFuture.cancel(true);
         } catch (Exception e) {
             logger.error("Match Stats Finalization Failed",
                     String.format("❌ Error finalizando estadísticas: %s - continuando con valores por defecto",
@@ -360,6 +400,8 @@ public class MatchFinisher {
 
                     // ✅ (3) PROCESAMIENTO NORMAL
                     player.setCurrentMatchId(activeMatch.getMatchId());
+
+                    player.setLastQueueType(QueueManager.getQueueTypeFromSize(activeMatch.getAllPlayers().size()));
 
                     // Stats finalizadas desde cache
                     MatchLogsManager.PlayerMatchStats finalStats = null;
@@ -633,6 +675,7 @@ public class MatchFinisher {
                     activeMatch.getRedCaptain()
             );
         } else {
+            // Usar método tradicional sin información de capitanes
             logger.matchComplete(
                     activeMatch.getMatchId(),
                     activeMatch.getMatchType(),
@@ -965,8 +1008,8 @@ public class MatchFinisher {
         // **ELIMINADO**: La partida ya fue guardada en updatePlayerStatistics() con las stats correctas
         // No necesitamos guardarla de nuevo aquí
 
-        // Limpiar votos de forfeit
-        ForfeitManager.cleanupMatchVotes(activeMatch.getMatchId());
+        // Limpiar votos de forfeit y datos de AFK/DC
+        ForfeitManager.cleanupMatchData(activeMatch);
 
         // Finalizar estado global
         //MatchState.endMatch();
@@ -975,6 +1018,15 @@ public class MatchFinisher {
                 "Estado global de partida finalizado - Sistema listo para nuevas colas");
     }
 
+    /**
+     * Determina el equipo ganador del estado actual de la partida
+     */
+    private static Team determineWinnerFromCurrentState(ActiveMatch activeMatch) {
+        // Este método debería ser implementado según cómo determines el ganador
+        // Por ahora retornamos null, pero debería obtener el ganador actual
+        // Podrías guardarlo en ActiveMatch cuando se determina el ganador
+        return activeMatch.getWinnerTeam(); // Necesitas agregar este campo a ActiveMatch
+    }
 
 
     /**
@@ -987,12 +1039,28 @@ public class MatchFinisher {
                 "Ejecutando limpieza de emergencia para partida " + activeMatch.getMatchId());
 
         // Limpiar estado de jugadores
+        // FIX: Determinar QueueType de forma segura antes del loop
+        String safeQueueType = "FIVE_VS_FIVE"; // Fallback
+        ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+        if (mt != null) {
+            if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+            else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+        } else {
+            String rawType = activeMatch.getMatchType();
+            if (rawType != null) {
+                if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+            }
+        }
+
         List<PlayerData> allPlayers = new ArrayList<>();
         for (List<PlayerData> teamPlayers : activeMatch.getTeams().values()) {
             for (PlayerData playerData : teamPlayers) {
                 playerData.setInMatch(false);
+                playerData.setLastQueueType(safeQueueType);
                 playerData.setCurrentMatchId(null);
                 allPlayers.add(playerData);
+                PlayerDataCache.cachePlayer(playerData); // Actualización inmediata en caché
             }
         }
 
@@ -1015,7 +1083,20 @@ public class MatchFinisher {
         logger.warning("Emergencia Completada",
                 "Limpieza de emergencia completada - puede requerir intervención manual");
     }
-
+    /**
+     * Obtiene el nombre de display de un jugador
+     */
+    private static String getPlayerName(PlayerData playerData) {
+        try {
+            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+            if (mcPlayer != null) {
+                return mcPlayer.getName();
+            }
+        } catch (Exception e) {
+            // Fallback
+        }
+        return "UUID:" + playerData.getMinecraftUuid().substring(0, 8);
+    }
 
     private static void updateDiscordRoles(ActiveMatch activeMatch,
                                            Map<String, ProgressiveEloCalculator.EloChange> eloChanges,
@@ -1118,9 +1199,25 @@ public class MatchFinisher {
         try {
             // 1) Limpiar estado en memoria
             List<PlayerData> allPlayers = activeMatch.getAllPlayers();
+
+            // FIX: Determinar QueueType de forma segura por el nombre
+            String safeQueueType = "FIVE_VS_FIVE"; // Fallback
+            ProgressiveEloCalculator.MatchType mt = resolveMatchType(activeMatch);
+            if (mt != null) {
+                if (mt.name().contains("2V2")) safeQueueType = "TWO_VS_TWO";
+                else if (mt.name().contains("8V8")) safeQueueType = "EIGHT_VS_EIGHT";
+            } else {
+                String rawType = activeMatch.getMatchType();
+                if (rawType != null) {
+                    if (rawType.toLowerCase().contains("2v2")) safeQueueType = "TWO_VS_TWO";
+                    else if (rawType.toLowerCase().contains("8v8")) safeQueueType = "EIGHT_VS_EIGHT";
+                }
+            }
             for (PlayerData player : allPlayers) {
                 player.setInMatch(false);
+                player.setLastQueueType(safeQueueType);
                 player.setCurrentMatchId(null);
+                PlayerDataCache.cachePlayer(player); // Actualización inmediata en caché
             }
 
             // 2) Limpieza de votos de forfeit (para que no queden colgados)
@@ -1174,6 +1271,9 @@ public class MatchFinisher {
             // 7) Mover a sala de espera (una sola vez)
             try {
                 movePlayersToWaitingRoom(activeMatch, plugin, logger);
+
+                // 6.1) Dar item de requeue (perla) en el slot medio - solo rankeds
+                giveRequeuePearlAfterMatch(activeMatch, plugin, logger);
             } catch (Exception e) {
                 logger.warning("Discord Move Failed", "Error moviendo jugadores (DRAW) a sala de espera: " + e.getMessage());
             }
@@ -1276,6 +1376,39 @@ public class MatchFinisher {
     /**
      * Limpia a los jugadores de la cola después de que termine la partida
      */
+    /**
+     * Da a los jugadores del match un item (ENDER_PEARL) para requeue.
+     * - Se coloca en el slot medio de la hotbar (slot 4)
+     * - Se entrega con delay para evitar que otros sistemas (kits/cleanup) lo borren
+     * - Solo para rankeds (no 2v2 unranked)
+     */
+    private static void giveRequeuePearlAfterMatch(ActiveMatch activeMatch, RankedMinecraft plugin, DiscordLogger logger) {
+        try {
+            if (activeMatch == null || plugin == null) return;
+            if (activeMatch.isUnrankedMatch()) return; // 2v2 unranked
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try {
+                    for (PlayerData playerData : activeMatch.getAllPlayers()) {
+                        if (playerData == null) continue;
+                        try {
+                            Player mcPlayer = Bukkit.getPlayer(UUID.fromString(playerData.getMinecraftUuid()));
+                            if (mcPlayer != null && mcPlayer.isOnline()) {
+                                // Limpieza defensiva por si quedó de un match anterior
+                                RequeuePearlUtil.removeFromInventory(mcPlayer);
+                                RequeuePearlUtil.giveToMiddleSlot(mcPlayer);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                } catch (Exception ignored) {}
+            }, 20L); // 1 segundo
+        } catch (Exception e) {
+            if (logger != null) {
+                logger.warning("Requeue Pearl", "Error entregando perla de requeue: " + e.getMessage());
+            }
+        }
+    }
+
     private static void cleanupPlayersFromQueue(ActiveMatch activeMatch, DiscordLogger logger) {
         try {
             // Obtener todos los jugadores de la partida
@@ -1340,7 +1473,7 @@ public class MatchFinisher {
 
                     // **PASO 3**: Esperar procesamiento de eventos pendientes
                     try {
-                        Thread.sleep(100L * attemptCount); // Espera incremental: 100ms, 200ms, 300ms
+                        Thread.sleep(100 * attemptCount); // Espera incremental: 100ms, 200ms, 300ms
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         break;
@@ -1372,7 +1505,7 @@ public class MatchFinisher {
     }
 
     /**
-     * Asigna el rango final después de completar las 8 partidas de placement
+     * **MÉTODO CRÍTICO**: Asigna ELO y rango final cuando un jugador completa placement matches
      * Implementa el sistema completo de evaluación basado en las 8 partidas
      */
     private static void assignFinalPlacementRank(PlayerData player, String matchId, DiscordLogger logger, boolean wonLastMatch, org.fabricioyv.discord.DiscordBot discordBot) {

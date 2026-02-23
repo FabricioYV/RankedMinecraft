@@ -1,5 +1,7 @@
 package org.fabricioyv.model;
 
+import org.fabricioyv.match.ActiveMatch;
+
 public class PlayerData {
 
     private final String minecraftUuid;
@@ -8,6 +10,7 @@ public class PlayerData {
     private double mmr;
     private boolean isInMatch;
     private String currentMatchId;
+    private String lastQueueType;
 
     private int currentMatchKills;
     private int currentMatchDeaths;
@@ -46,6 +49,22 @@ public class PlayerData {
         this.mmr = mmr;
         this.currentMatchId = currentMatchId;
 
+        ActiveMatch activeMatch = ActiveMatch.getActiveMatch(currentMatchId);
+        if (activeMatch == null) {
+            this.lastQueueType = "Unknown";
+        } else {
+            int size = activeMatch.getAllPlayers().size() / 2;
+            if (size == 2) {
+                this.lastQueueType = "2v2";
+            } else if (size == 5) {
+                this.lastQueueType = "5v5";
+            } else if (size == 8) {
+                this.lastQueueType = "8v8";
+            } else {
+                this.lastQueueType = "Unknown";
+            }
+        }
+
         this.currentMatchKills = 0;
         this.currentMatchDeaths = 0;
         this.currentMatchDamage = 0.0;
@@ -74,6 +93,8 @@ public class PlayerData {
     public void setInMatch(boolean inMatch) { this.isInMatch = inMatch; }
     public String getCurrentMatchId() { return currentMatchId; }
     public void setCurrentMatchId(String currentMatchId) { this.currentMatchId = currentMatchId; }
+    public String getLastQueueType() { return lastQueueType; }
+    public void setLastQueueType(String lastQueueType) { this.lastQueueType = lastQueueType; }
 
     public int getCurrentMatchKills() { return currentMatchKills; }
     public void setCurrentMatchKills(int kills) { this.currentMatchKills = kills; }

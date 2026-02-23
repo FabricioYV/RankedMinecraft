@@ -10,11 +10,11 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.fabricioyv.config.PerformanceConfig;
 import org.fabricioyv.database.MatchLogsManager;
 import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.model.PlayerData;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -23,7 +23,6 @@ import java.util.concurrent.*;
 /**
  * Listener OPTIMIZADO para estadísticas PvP - NO bloquea hit registration
  * Las estadísticas son completamente secundarias
- *
  * Created by FabricioYV
  * @author FabricioYV
  */
@@ -58,10 +57,6 @@ public class MatchStatsListener implements Listener {
     // **OPTIMIZACIÓN CRÍTICA**: Cache híbrido con validación automática
     // Estructura: UUID → (MatchID, ValidationTimestamp, PlayerData)
     private static final Map<UUID, CacheEntry> hybridPlayerCache = new ConcurrentHashMap<>(48);
-
-    // Cache de validación para evitar re-verificaciones constantes
-    private static final Map<UUID, Long> lastValidation = new ConcurrentHashMap<>(48);
-    private static final long VALIDATION_INTERVAL = 30000; // 30 segundos
 
     // ========================================
     // ✅ 2V2 UNRANKED: BLOQUEO TOTAL DE STATS/LOGS
@@ -147,11 +142,6 @@ public class MatchStatsListener implements Listener {
             }
         } catch (Exception ignored) {}
 
-        // Solo si no se pudo confirmar con ActiveMatch, usamos el heurístico (evita falsos positivos)
-        if (!is2v2 && cached == null) {
-            // (No hacemos nada aquí: preferimos NO marcar como 2v2 si no estamos seguros)
-        }
-
         matchIs2v2Cache.put(matchId, is2v2);
     }
 
@@ -184,35 +174,67 @@ public class MatchStatsListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        // ========================================
+
+        // Si el trackeo de stats está completamente desactivado, salir inmediatamente
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // <0.01ms - sin procesamiento alguno
+        }
+
+        // Si solo el trackeo de daño está desactivado pero otros stats están activos
+        if (!PerformanceConfig.isDamageTrackingEnabled()) {
+            return; // Salir temprano si no se quiere trackear daño
+        }
+
         // **ULTRA-OPTIMIZACIÓN**: Verificación rápida de víctima
         if (!(event.getEntity() instanceof Player victim)) return;
 
         // **VERIFICACIÓN RÁPIDA**: Obtener atacante (Player directo o shooter de Arrow)
-        UUID attackerUuid = null;
-        Player attackerPlayer = null;
+        UUID attackerUuid;
         if (event.getDamager() instanceof Player attacker) {
             attackerUuid = attacker.getUniqueId();
-            attackerPlayer = attacker;
             // No permitir auto-daño
             if (attacker.equals(victim)) return;
         } else if (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player shooter) {
+            // Verificar si el trackeo de flechas está habilitado
+            if (!PerformanceConfig.isArrowTrackingEnabled()) {
+                return; // Salir si no se quiere trackear flechas
+            }
             attackerUuid = shooter.getUniqueId();
-            attackerPlayer = shooter;
             // No permitir auto-daño
             if (shooter.equals(victim)) return;
         } else {
+            // Si disable-environmental está activo y no es PvP, salir
+            if (PerformanceConfig.isDisableEnvironmentalTracking()) {
+                return;
+            }
             return; // No es PvP
         }
 
-        // **BÚSQUEDA INTELIGENTE**: Primero buscar en cache rápido
-        String matchId = playerMatchCache.get(attackerUuid);
+        // ========================================
+        // OPTIMIZACIÓN PVP-ONLY
+        // ========================================
+
+        // Si pvp-only-tracking está activo, solo procesar eventos entre jugadores
+        if (PerformanceConfig.isPvpOnlyTracking() &&
+            !(event.getDamager() instanceof Player ||
+              (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player))) {
+            return;
+        }
+
+        // **BÚSQUEDA INTELIGENTE**: Usar cache si está habilitado
+        String matchId = null;
+        if (PerformanceConfig.isCachePlayerMatches()) {
+            matchId = playerMatchCache.get(attackerUuid);
+        }
 
         // **FALLBACK AUTOMÁTICO**: Si no está en cache, buscar en partidas activas
         if (matchId == null) {
-            matchId = findAndCachePlayerMatch(attackerUuid, attackerPlayer.getName());
+            matchId = findAndCachePlayerMatch(attackerUuid);
 
             if (matchId == null) {
-                // Solo debug si realmente no hay partida para este jugador
                 return;
             }
         }
@@ -237,13 +259,18 @@ public class MatchStatsListener implements Listener {
         double damage = event.getFinalDamage();
 
         // **OPTIMIZACIÓN**: Constructor inline con pre-cálculo
-        damageQueue.offer(new DamageEvent(
+        boolean offered = damageQueue.offer(new DamageEvent(
                 attackerUuid,
                 victim.getUniqueId(),
                 damage,
                 matchId,
                 event.getDamager() instanceof Arrow
         ));
+
+        // Si la cola está llena, ignorar el evento (no bloquear)
+        if (!offered) {
+            Bukkit.getLogger().warning("[MatchStats] Cola de daño llena, evento descartado");
+        }
 
         // **RESULTADO**: <0.1ms en main thread con auto-recovery
     }
@@ -264,23 +291,10 @@ public class MatchStatsListener implements Listener {
         if (is2v2MatchCached(matchId)) return;
 
         // Encolar actualización de stats directamente
-        damageQueue.offer(new DamageEvent(player.getUniqueId(), null, 0, matchId, false, true));
-    }
-
-    // ========================================
-    // MÉTODOS ULTRA RÁPIDOS (NO I/O, NO BÚSQUEDAS)
-    // ========================================
-
-    /**
-     * Obtener atacante de forma ultra rápida
-     */
-    private Player getAttackerFast(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player) {
-            return (Player) event.getDamager();
-        } else if (event.getDamager() instanceof Arrow arrow && arrow.getShooter() instanceof Player) {
-            return (Player) arrow.getShooter();
+        boolean offered = damageQueue.offer(new DamageEvent(player.getUniqueId(), null, 0, matchId, false, true));
+        if (!offered) {
+            Bukkit.getLogger().warning("[MatchStats] Cola de flechas llena, evento descartado");
         }
-        return null;
     }
 
     // ========================================
@@ -381,6 +395,10 @@ public class MatchStatsListener implements Listener {
      * MÉTODO CRÍTICO: Inicializar estadísticas para nueva partida
      */
     public static void initializeMatchStats(String matchId, Map<String, String> playerTeams) {
+        if (playerTeams == null) {
+            Bukkit.getConsoleSender().sendMessage("§c[MatchStats] ERROR: playerTeams es null para match " + matchId);
+            return;
+        }
 
         // ✅ 2v2 UNRANKED: NO inicializar stats/logs/caches (pero confirmado por ActiveMatch para no romper 5v5/8v8)
         boolean is2v2 = false;
@@ -388,7 +406,7 @@ public class MatchStatsListener implements Listener {
             ActiveMatch am = ActiveMatch.getActiveMatch(matchId);
             if (am != null) {
                 is2v2 = am.isUnrankedMatch();
-            } else if (playerTeams != null && playerTeams.size() == 4) {
+            } else if (playerTeams.size() == 4) {
                 // fallback SOLO si realmente parecen 4 jugadores (evita falsos positivos por picks incompletos)
                 is2v2 = is2v2FromPlayerTeams(playerTeams);
             }
@@ -453,10 +471,10 @@ public class MatchStatsListener implements Listener {
         populatePlayerDataCache(matchId);
 
         // Log asíncrono (no bloquea)
-        CompletableFuture.runAsync(() -> {
+        CompletableFuture.runAsync(() ->
             MatchLogsManager.logMatchEvent(matchId, "MATCH_START", null,
-                    "Partida iniciada con " + playerTeams.size() + " jugadores");
-        });
+                    "Partida iniciada con " + playerTeams.size() + " jugadores")
+        );
     }
 
     /**
@@ -472,8 +490,9 @@ public class MatchStatsListener implements Listener {
                     for (PlayerData playerData : activeMatch.getAllPlayers()) {
                         UUID playerUuid = UUID.fromString(playerData.getMinecraftUuid());
                         playerDataCache.put(playerUuid, playerData);
-                        // Debug: Confirmar que el cache está poblado
-                        // System.out.println("Cache poblado: " + playerData.getMinecraftName());
+
+                        // ✅ OPTIMIZACIÓN: También marcar como inicializado para evitar synchronized
+                        PGMMatchListener.initializedMatches.add(matchId);
                     }
                     break; // Solo procesar LA partida correcta
                 }
@@ -557,16 +576,11 @@ public class MatchStatsListener implements Listener {
         // Capturar tamaño para logging
         final int playerCount = stats.size();
 
-        // **IMPORTANTE**: Retornar las stats SIN limpiar el cache
-        // La limpieza se hará después en cleanupMatchStats()
-        if (stats != null) {
-
-            // Log asíncrono (no bloquea)
-            CompletableFuture.runAsync(() -> {
-                MatchLogsManager.logMatchEvent(matchId, "MATCH_END", null,
-                        "Partida finalizada con " + playerCount + " jugadores");
-            });
-        }
+        // Log asíncrono (no bloquea)
+        CompletableFuture.runAsync(() ->
+            MatchLogsManager.logMatchEvent(matchId, "MATCH_END", null,
+                    "Partida finalizada con " + playerCount + " jugadores")
+        );
 
         return stats;
     }
@@ -575,6 +589,17 @@ public class MatchStatsListener implements Listener {
      * Registrar muerte de jugador (llamado desde PGM listener)
      */
     public static void recordPlayerDeath(String matchId, UUID playerUuid, UUID killerUuid) {
+        // ========================================
+        // VERIFICACIÓN DE PERFORMANCE CONFIG - RETORNO ULTRA RÁPIDO
+        // ========================================
+        if (!PerformanceConfig.isStatsTrackingEnabled()) {
+            return; // <0.01ms - NO procesar si stats están desactivados
+        }
+
+        if (!PerformanceConfig.isDeathsTrackingEnabled()) {
+            return; // Salir si no se quiere trackear muertes
+        }
+
         // ✅ 2v2 UNRANKED: NO STATS
         cache2v2ByMatchId(matchId);
         if (is2v2MatchCached(matchId)) return;
@@ -609,8 +634,8 @@ public class MatchStatsListener implements Listener {
     }
 
     /**
-     * **OPTIMIZACIÓN**: Obtener estadísticas finales con sincronización automática
-     * Asegura que todas las estadísticas estén actualizadas antes de devolverlas
+     * **OPTIMIZACIÓN MEJORADA**: Obtener estadísticas finales con sincronización inteligente
+     * ⚡ Usa poll() con timeout en lugar de busy-waiting con sleep
      */
     public static MatchLogsManager.PlayerMatchStats getFinalPlayerStats(String matchId, UUID playerUuid) {
         Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats = activeMatchStats.get(matchId);
@@ -619,11 +644,20 @@ public class MatchStatsListener implements Listener {
         MatchLogsManager.PlayerMatchStats stats = matchStats.get(playerUuid);
         if (stats == null) return null;
 
-        // **OPTIMIZACIÓN**: Breve pausa para asegurar que updates asíncronos terminen
-        // Solo necesario si hay eventos pendientes en la cola
+        // ⚡ OPTIMIZACIÓN: Usar poll() con timeout en lugar de busy-waiting
         if (!damageQueue.isEmpty()) {
             try {
-                Thread.sleep(50); // 50ms máximo para completar updates pendientes
+                // Intentar drenar eventos pendientes con timeout
+                long startWait = System.currentTimeMillis();
+                long maxWait = 100; // 100ms máximo
+
+                while (!damageQueue.isEmpty() && (System.currentTimeMillis() - startWait) < maxWait) {
+                    // Usar poll con timeout corto en lugar de sleep
+                    DamageEvent event = damageQueue.poll(10, TimeUnit.MILLISECONDS);
+                    if (event != null) {
+                        processDamageEventAsync(event);
+                    }
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -815,7 +849,7 @@ public class MatchStatsListener implements Listener {
             // Solo limpiar si hay jugadores offline significativos
             if (beforePlayerData > 10) {
                 // **CRÍTICO**: Obtener lista de jugadores en partidas activas para NO limpiarlos
-                Set<UUID> playersInActiveMatches = new HashSet<>();
+                Set<UUID> playersInActiveMatches = new java.util.HashSet<>();
                 for (Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats : activeMatchStats.values()) {
                     playersInActiveMatches.addAll(matchStats.keySet());
                 }
@@ -842,7 +876,7 @@ public class MatchStatsListener implements Listener {
             }
 
             // Limpiar entradas expiradas del cache híbrido (PERO NO DE PARTIDAS ACTIVAS)
-            Set<UUID> playersInActiveMatches = new HashSet<>();
+            Set<UUID> playersInActiveMatches = new java.util.HashSet<>();
             for (Map<UUID, MatchLogsManager.PlayerMatchStats> matchStats : activeMatchStats.values()) {
                 playersInActiveMatches.addAll(matchStats.keySet());
             }
@@ -906,7 +940,7 @@ public class MatchStatsListener implements Listener {
     /**
      * **MÉTODO CRÍTICO**: Buscar partida del jugador y actualizar cache automáticamente
      */
-    private String findAndCachePlayerMatch(UUID playerUuid, String playerName) {
+    private String findAndCachePlayerMatch(UUID playerUuid) {
         try {
             // Buscar en todas las partidas activas
             for (ActiveMatch activeMatch : ActiveMatch.getAllActiveMatches()) {
