@@ -11,6 +11,8 @@ import org.fabricioyv.database.MatchLogsIntegration;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.cache.PlayerDataCache;
+import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -106,9 +108,13 @@ public class MatchManager {
 
             activeMatch = new ActiveMatch(matchId, players, jda, guild, plugin, logger);
 
-            if (!validatePlayersConnection(players, logger)) {
-                if (logger != null) logger.warning("Match cancelado", "Algunos jugadores se desconectaron en la preparación");
-                cancelMatch(activeMatch, "Uno o más jugadores se desconectaron durante la preparación");
+            List<PlayerData> dodgers = getDisconnectedPlayers(players);
+            if (!dodgers.isEmpty()) {
+                if (logger != null) logger.warning("Match cancelado", "Algunos jugadores dodgearon en la preparación");
+                for (PlayerData dodger : dodgers) {
+                    punishDodger(dodger, activeMatch.getAllPlayers(), activeMatch.getMatchType(), logger);
+                }
+                cancelMatch(activeMatch, "Uno o más jugadores se desconectaron (Dodge) durante la preparación");
                 return;
             }
 
@@ -259,7 +265,20 @@ public class MatchManager {
 
         if (logger != null) {
             logger.matchEvent(activeMatch.getMatchId(), "Mapa Seleccionado", "Se seleccionó: " + mapName, activeMatch.getAllPlayers().size());
+
+
+// Embed estilo Stratus al iniciar (ELO inicial)
+            try {
+                String serverName = "Ranked";
+                try {
+                    String cfg = plugin.getConfig().getString("server-name");
+                    if (cfg != null && !cfg.trim().isEmpty()) serverName = cfg.trim();
+                } catch (Exception ignored) {}
+                logger.matchStartedStratusStyle(activeMatch, serverName);
+            } catch (Exception ignored) {}
+
         }
+
 
         cycleMap(mapName, activeMatch, logger);
     }
@@ -329,13 +348,16 @@ public class MatchManager {
             @Override
             public void run() {
                 if (countdown <= 0) {
-                    if (!validatePlayersConnection(activeMatch.getAllPlayers(), logger)) {
-                        cancelMatch(activeMatch, "Se desconectó un jugador antes del inicio");
+                    List<PlayerData> finalDodgers = getDisconnectedPlayers(activeMatch.getAllPlayers());
+                    if (!finalDodgers.isEmpty()) {
+                        for (PlayerData dodger : finalDodgers) {
+                            punishDodger(dodger, activeMatch.getAllPlayers(), activeMatch.getMatchType(), logger);
+                        }
+                        cancelMatch(activeMatch, "Se desconectó un jugador antes del inicio (Dodge penalizado)");
                         cancel();
                         return;
                     }
-
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 120");
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "start 60");
                     startOfficialMatch(activeMatch, logger);
                     cancel();
                     return;
@@ -519,5 +541,100 @@ public class MatchManager {
         }
 
         startMatchInternal(players, 0);
+    }
+
+    private static List<PlayerData> getDisconnectedPlayers(List<PlayerData> players) {
+        List<PlayerData> offline = new java.util.ArrayList<>();
+        if (players == null) return offline;
+        for (PlayerData pd : players) {
+            try {
+                UUID u = parseUuid(pd.getMinecraftUuid());
+                if (u == null) continue;
+                Player p = Bukkit.getPlayer(u);
+                if (p == null || !p.isOnline()) {
+                    offline.add(pd);
+                }
+            } catch (Exception ignored) {}
+        }
+        return offline;
+    }
+
+    private static int computeDoubleLossEloPenalty(PlayerData offender, List<PlayerData> allPlayers, String matchTypeRaw) {
+        // Dodge/Cancel: rival aproximado = MMR promedio del lobby (excluyendo al infractor).
+        // Calculamos pérdida normal por derrota y multiplicamos x2.
+        try {
+            if (offender == null) return 60;
+
+            int oldElo = offender.getElo();
+
+            double sum = 0.0;
+            int count = 0;
+
+            if (allPlayers != null) {
+                for (PlayerData p : allPlayers) {
+                    if (p == null) continue;
+
+                    try {
+                        if (p.getMinecraftUuid() != null && p.getMinecraftUuid().equals(offender.getMinecraftUuid())) continue;
+                    } catch (Exception ignored) {}
+
+                    try {
+                        sum += p.getMmr();
+                        count++;
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            double opponentAvg = (count > 0) ? (sum / count) : offender.getMmr();
+            int opponentAvgMMR = (int) Math.round(opponentAvg);
+
+            // ✅ IMPORTANTE: resolve a MatchType (NO String)
+            ProgressiveEloCalculator.MatchType mt = ProgressiveEloCalculator.MatchType.fromKey(matchTypeRaw);
+            if (mt == null) {
+                mt = ProgressiveEloCalculator.MatchType.RANKED_5V5;
+            }
+
+            ProgressiveEloCalculator.EloChange change =
+                    ProgressiveEloCalculator.calculateEloChange(oldElo, opponentAvgMMR, false, mt);
+
+            int baseLoss = Math.abs(change.getEloChange());
+            if (baseLoss <= 0) baseLoss = 30;
+
+            return Math.max(0, baseLoss * 2);
+        } catch (Exception ignored) {
+            return 60;
+        }
+    }
+
+    private static void punishDodger(PlayerData dodger, List<PlayerData> allPlayers, String matchType, DiscordLogger logger) {
+        try {
+            // ✅ SIEMPRE: doble loss en stats
+            DatabaseManager.addDoubleLossesToPlayer(dodger.getMinecraftUuid());
+
+            // ✅ ELO: 2× la pérdida normal de una derrota (según elo/rango)
+            int eloPenalty = computeDoubleLossEloPenalty(dodger, allPlayers, matchType);
+            int newElo = Math.max(0, dodger.getElo() - eloPenalty);
+            DatabaseManager.updatePlayerElo(dodger.getMinecraftUuid(), newElo);
+
+            // Mantener coherencia en memoria
+            try {
+                dodger.setElo(newElo);
+                dodger.setInMatch(false);
+                dodger.setCurrentMatchId(null);
+                PlayerDataCache.cachePlayer(dodger);
+            } catch (Exception ignored) {}
+
+            // Cooldown fijo (tu regla actual)
+            long cooldownTime = System.currentTimeMillis() + (30 * 60 * 1000L);
+            DatabaseManager.setPlayerCooldown(dodger.getMinecraftUuid(), cooldownTime);
+
+            if (logger != null) {
+                logger.warning("Jugador Dodgeó",
+                        String.format("El jugador %s dodgeó la partida. Se le aplicó -%d ELO (doble loss), 30 min cooldown y 2 derrotas.",
+                                dodger.getMinecraftUuid().substring(0, 8), eloPenalty));
+            }
+        } catch (Exception e) {
+            if (logger != null) logger.logError("Error castigando dodger", e);
+        }
     }
 }

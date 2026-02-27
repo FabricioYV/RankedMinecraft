@@ -13,6 +13,7 @@ import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.logging.DiscordLogger;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.queue.QueueManager;
+import org.fabricioyv.rating.ProgressiveEloCalculator;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -25,6 +26,9 @@ public class AbandonmentDetectionSystem implements Listener {
     private final DiscordLogger logger;
 
     private final Map<String, DisconnectionTracker> disconnectedPlayers = new ConcurrentHashMap<>();
+
+    // "Doble loss" = contar como 2 derrotas (no 2 adicionales)
+    private static final int DOUBLE_LOSS_COUNT = 2;
 
     // Defaults (configurable en config.yml)
     private static volatile long RECONNECTION_GRACE_PERIOD_SECONDS = 120L;
@@ -132,7 +136,11 @@ public class AbandonmentDetectionSystem implements Listener {
         }
 
         ActiveMatch activeMatch = ActiveMatch.getActiveMatch(tracker.matchId);
-        if (activeMatch == null || activeMatch.getStatus() != ActiveMatch.MatchStatus.IN_PROGRESS) {
+
+        // CORRECCIÓN: Si la partida fue cancelada (ej. por dogeo de otro) lo ignoramos.
+        // Pero si la partida terminó (FINISHED) o sigue en progreso, SÍ aplicamos el castigo
+        // porque el jugador nunca se reconectó a tiempo.
+        if (activeMatch == null || activeMatch.getStatus() == ActiveMatch.MatchStatus.CANCELLED || activeMatch.getStatus() == ActiveMatch.MatchStatus.PREPARING) {
             disconnectedPlayers.remove(playerUuid);
             return;
         }
@@ -141,6 +149,14 @@ public class AbandonmentDetectionSystem implements Listener {
     }
 
     private void processAbandonment(String playerUuid, DisconnectionTracker tracker, ActiveMatch activeMatch) {
+        // Idempotencia defensiva: si ya fue procesado (por reintentos / tareas duplicadas), no aplicar dos veces.
+        try {
+            if (isAbandonmentAlreadyProcessed(activeMatch.getMatchId(), playerUuid)) {
+                disconnectedPlayers.remove(playerUuid);
+                return;
+            }
+        } catch (Exception ignored) {}
+
         logger.error("Abandono Confirmado",
                 String.format("Jugador %s abandonó partida %s tras %d min (early=%s)",
                         tracker.playerName, tracker.matchId,
@@ -158,12 +174,22 @@ public class AbandonmentDetectionSystem implements Listener {
             int abandonmentCount = DatabaseManager.getPlayerAbandonmentCount(playerUuid);
             AbandonmentPenalty penalty = calculatePenalty(abandonmentCount + 1);
 
-            applyAbandonmentPenalty(playerData, penalty);
+            // ✅ Punto C: calcular el ELO real aplicado (doble loss según tu cálculo normal)
+            int appliedEloPenalty = computeDoubleLossEloPenalty(playerData, activeMatch, penalty.eloPenalty);
 
+            // ✅ Aplicar con el ELO real (no el tier fijo)
+            applyAbandonmentPenalty(playerData, penalty, activeMatch, appliedEloPenalty);
+
+            // ✅ Guardar el ELO real aplicado en el historial
             DatabaseManager.recordAbandonment(playerUuid, activeMatch.getMatchId(),
-                    penalty.eloPenalty, penalty.cooldownMinutes);
+                    appliedEloPenalty, penalty.cooldownMinutes);
 
-            announceAbandonment(activeMatch, playerData, penalty);
+            // Best-effort: marcar este jugador como "abandonmentProcessed" para que MatchFinisher lo SKIP.
+            // (si DatabaseManager.recordAbandonment ya lo hace, esto es redundante e inocuo)
+            markAbandonmentProcessedBestEffort(playerUuid, activeMatch.getMatchId());
+
+            // ✅ Anunciar con el ELO real aplicado
+            announceAbandonment(activeMatch, playerData, appliedEloPenalty, penalty);
 
             protectTeammates(activeMatch, playerData);
 
@@ -174,13 +200,65 @@ public class AbandonmentDetectionSystem implements Listener {
         }
     }
 
-    private void applyAbandonmentPenalty(PlayerData playerData, AbandonmentPenalty penalty) {
+    private int computeDoubleLossEloPenalty(PlayerData offender, ActiveMatch activeMatch, int fallbackTierPenalty) {
+        // Abandono: simular “dos derrotas” => pérdida normal * 2.
+        // Fallback: tier * 2 si no se puede calcular.
+        try {
+            if (offender == null) return Math.max(0, fallbackTierPenalty * 2);
+
+            int oldElo = offender.getElo();
+            int opponentAvgMMR = (int) Math.round(offender.getMmr());
+
+            ProgressiveEloCalculator.MatchType mt;
+            String raw = null;
+            try { raw = (activeMatch != null) ? activeMatch.getMatchType() : null; } catch (Exception ignored) {}
+
+            mt = ProgressiveEloCalculator.MatchType.fromKey(raw);
+            if (mt == null) mt = ProgressiveEloCalculator.MatchType.RANKED_5V5;
+
+            // Si hay equipos, promedio MMR del rival
+            try {
+                if (activeMatch != null && activeMatch.getTeams() != null) {
+                    Team offenderTeam = findPlayerTeam(activeMatch, offender);
+                    if (offenderTeam != null) {
+                        Team opponentTeam = (offenderTeam == Team.BLUE) ? Team.RED : Team.BLUE;
+                        List<PlayerData> opponents = activeMatch.getTeams().get(opponentTeam);
+
+                        if (opponents != null && !opponents.isEmpty()) {
+                            double sum = 0.0;
+                            int count = 0;
+                            for (PlayerData p : opponents) {
+                                if (p == null) continue;
+                                try {
+                                    sum += p.getMmr();
+                                    count++;
+                                } catch (Exception ignored) {}
+                            }
+                            if (count > 0) opponentAvgMMR = (int) Math.round(sum / count);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            ProgressiveEloCalculator.EloChange change =
+                    ProgressiveEloCalculator.calculateEloChange(oldElo, opponentAvgMMR, false, mt);
+
+            int baseLoss = Math.abs(change.getEloChange());
+            if (baseLoss <= 0) baseLoss = Math.max(1, fallbackTierPenalty);
+
+            return Math.max(0, baseLoss * 2);
+        } catch (Exception ignored) {
+            return Math.max(0, fallbackTierPenalty * 2);
+        }
+    }
+
+    private void applyAbandonmentPenalty(PlayerData playerData, AbandonmentPenalty penalty, ActiveMatch activeMatch, int appliedEloPenalty) {
         if (penalty.cooldownMinutes == -1) {
-            applyPermanentBan(playerData, penalty);
+            applyPermanentBan(playerData, penalty, activeMatch);
             return;
         }
 
-        int newElo = Math.max(0, playerData.getElo() - penalty.eloPenalty);
+        int newElo = Math.max(0, playerData.getElo() - Math.max(0, appliedEloPenalty));
         playerData.setElo(newElo);
 
         long cooldownEndTime = System.currentTimeMillis() + (penalty.cooldownMinutes * 60 * 1000);
@@ -188,7 +266,6 @@ public class AbandonmentDetectionSystem implements Listener {
         // ✅ SIEMPRE: doble loss
         applyDoubleLosses(playerData);
 
-        ActiveMatch activeMatch = ActiveMatch.getActiveMatch(playerData.getCurrentMatchId());
         List<PlayerData> allPlayers = activeMatch != null ? activeMatch.getAllPlayers() : Collections.emptyList();
 
         playerData.setInMatch(false);
@@ -213,7 +290,7 @@ public class AbandonmentDetectionSystem implements Listener {
                         penalty.cooldownMinutes));
     }
 
-    private void applyPermanentBan(PlayerData playerData, AbandonmentPenalty penalty) {
+    private void applyPermanentBan(PlayerData playerData, AbandonmentPenalty penalty, ActiveMatch activeMatch) {
         int newElo = Math.max(0, playerData.getElo() - penalty.eloPenalty);
         playerData.setElo(newElo);
 
@@ -221,7 +298,6 @@ public class AbandonmentDetectionSystem implements Listener {
 
         applyDoubleLosses(playerData);
 
-        ActiveMatch activeMatch = ActiveMatch.getActiveMatch(playerData.getCurrentMatchId());
         List<PlayerData> allPlayers = activeMatch != null ? activeMatch.getAllPlayers() : Collections.emptyList();
 
         playerData.setInMatch(false);
@@ -260,11 +336,56 @@ public class AbandonmentDetectionSystem implements Listener {
             DatabaseManager.addDoubleLossesToPlayer(playerData.getMinecraftUuid());
 
             logger.info("Pérdidas Dobles Aplicadas",
-                    String.format("Jugador %s recibió 2 derrotas adicionales por abandono",
-                            playerData.getMinecraftUuid().substring(0, 8)));
+                    String.format("Jugador %s recibió %d derrotas por abandono (doble loss)",
+                            playerData.getMinecraftUuid().substring(0, 8),
+                            DOUBLE_LOSS_COUNT));
 
         } catch (Exception e) {
             logger.logError("Error aplicando pérdidas dobles", e);
+        }
+    }
+
+    /**
+     * Devuelve true si el jugador ya fue marcado como abandono procesado en este match.
+     * Esto evita doble castigo y evita que MatchFinisher procese ELO/WL normal.
+     */
+    private boolean isAbandonmentAlreadyProcessed(String matchId, String playerUuid) {
+        if (matchId == null || playerUuid == null) return false;
+        try {
+            DatabaseManager.MatchProtectionSnapshot snap = DatabaseManager.getMatchProtectionSnapshot(matchId);
+            return snap != null && snap.abandonmentProcessed != null && snap.abandonmentProcessed.contains(playerUuid);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Compatibilidad: intenta marcar "abandonmentProcessed" sin depender de un método exacto.
+     * Si no existe, no rompe compile ni runtime.
+     */
+    private void markAbandonmentProcessedBestEffort(String playerUuid, String matchId) {
+        if (playerUuid == null || matchId == null) return;
+
+        // Si ya está marcado, no hacemos nada.
+        try {
+            if (isAbandonmentAlreadyProcessed(matchId, playerUuid)) return;
+        } catch (Exception ignored) {}
+
+        // Posibles nombres de método en DatabaseManager (según evoluciones del proyecto)
+        String[] candidates = new String[] {
+                "markAbandonmentProcessed",
+                "markPlayerAbandonmentProcessed",
+                "markAbandonmentAsProcessed",
+                "markPlayerProcessedAbandonment",
+                "setAbandonmentProcessed"
+        };
+
+        for (String name : candidates) {
+            try {
+                java.lang.reflect.Method m = DatabaseManager.class.getMethod(name, String.class, String.class);
+                m.invoke(null, playerUuid, matchId);
+                return;
+            } catch (Exception ignored) {}
         }
     }
 
@@ -315,8 +436,8 @@ public class AbandonmentDetectionSystem implements Listener {
         }
     }
 
-    private void announceAbandonment(ActiveMatch activeMatch, PlayerData abandoner, AbandonmentPenalty penalty) {
-        String message = String.format("§c❌ Jugador abandonó la partida y fue penalizado con -%d ELO", penalty.eloPenalty);
+    private void announceAbandonment(ActiveMatch activeMatch, PlayerData abandoner, int appliedEloPenalty, AbandonmentPenalty penalty) {
+        String message = String.format("§c❌ Jugador abandonó la partida y fue penalizado con -%d ELO (doble loss)", Math.max(0, appliedEloPenalty));
 
         for (PlayerData player : activeMatch.getAllPlayers()) {
             if (!player.equals(abandoner)) {

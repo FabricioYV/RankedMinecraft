@@ -255,8 +255,12 @@ public class MatchStatsListener implements Listener {
             }
         }
 
-        // **REGISTRO DE DAÑO**: Procesar evento normalmente
-        double damage = event.getFinalDamage();
+        // **REGISTRO DE DAÑO REALISTA (EN CORAZONES)**
+        // 1. Limitamos el daño a la vida actual de la víctima (evita los miles de daño por vacío)
+        double realDamage = Math.min(event.getFinalDamage(), victim.getHealth());
+
+        // 2. Lo dividimos entre 2 para pasarlo a corazones y lo redondeamos a 2 decimales
+        double damage = Math.round((realDamage / 2.0) * 100.0) / 100.0;
 
         // **OPTIMIZACIÓN**: Constructor inline con pre-cálculo
         boolean offered = damageQueue.offer(new DamageEvent(

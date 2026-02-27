@@ -33,6 +33,9 @@ public class MapVeto {
     private MapVoting.VotingCompleteCallback callback;
     private boolean finished = false;
 
+
+    // Bloqueo de estado para evitar spam de vetos / saltos de turno mientras se procesa un veto.
+    private boolean turnProcessing = false;
     public MapVeto(RankedMinecraft plugin, DiscordLogger logger, ActiveMatch match) {
         this.plugin = plugin;
         this.logger = logger;
@@ -62,6 +65,11 @@ public class MapVeto {
 
     public void startVeto(MapVoting.VotingCompleteCallback callback) {
         this.callback = callback;
+
+
+        // Reset defensivo (por si se reutiliza la instancia por error)
+        this.finished = false;
+        this.turnProcessing = false;
 
         if (blueCaptain == null || redCaptain == null) {
             if (logger != null) logger.error("Veto", "No se encontraron capitanes, usando random.");
@@ -97,27 +105,37 @@ public class MapVeto {
      * - Quitamos el último mapa jugado -> debería quedar IMPAR
      * - Si queda PAR, quitamos 1 extra al azar -> IMPAR
      */
+
     private void setupMapPool() {
         List<String> pool = MapManager.getAvailableMaps(matchType);
         if (pool == null) pool = new ArrayList<String>();
+        else pool = new ArrayList<String>(pool);
 
-        // Asegurar PAR al inicio
-        if (pool.size() > 1 && (pool.size() % 2 == 1)) {
-            Collections.shuffle(pool);
-            pool.remove(0);
-        }
-
-        // Quitar último jugado
+        // Quitar último jugado (si existe), para evitar repetir mapa consecutivo
         String lastPlayed = null;
         try {
             List<String> recent = MapManager.getRecentMaps(matchType);
             if (recent != null && !recent.isEmpty()) lastPlayed = recent.get(recent.size() - 1);
         } catch (Exception ignored) {}
 
-        if (lastPlayed != null) pool.remove(lastPlayed);
+        if (lastPlayed != null) {
+            // Remoción normal (case-sensitive)
+            boolean removed = pool.remove(lastPlayed);
 
-        // Garantizar IMPAR
-        if (pool.size() > 1 && (pool.size() % 2 == 0)) {
+            // Fallback: remoción case-insensitive (por si MapManager devuelve nombres con casing distinto)
+            if (!removed) {
+                for (int i = 0; i < pool.size(); i++) {
+                    String m = pool.get(i);
+                    if (m != null && m.equalsIgnoreCase(lastPlayed)) {
+                        pool.remove(i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Garantizar IMPAR: si quedó PAR, quitamos 1 al azar (solo si hay más de 1 mapa)
+        while (pool.size() > 1 && pool.size() % 2 == 0) {
             Collections.shuffle(pool);
             pool.remove(0);
         }
@@ -128,6 +146,14 @@ public class MapVeto {
     private void nextTurn() {
         if (finished) return;
 
+        // Liberar el bloqueo: a partir de aquí el capitán del turno puede vetar.
+        turnProcessing = false;
+
+        // Seguridad: evitar que queden múltiples timers de turno corriendo.
+        if (turnTask != null) {
+            try { turnTask.cancel(); } catch (Exception ignored) {}
+            turnTask = null;
+        }
         if (remainingMaps == null || remainingMaps.isEmpty()) {
             finishImmediately(MapManager.getRandomMap(matchType));
             return;
@@ -152,8 +178,13 @@ public class MapVeto {
         startTurnTimer();
     }
 
+
     public boolean processVeto(String playerUuid, int mapIndex) {
         if (finished) return false;
+
+        // Bloquear spam de /veto mientras se procesa un veto o se está cambiando de turno.
+        if (turnProcessing) return false;
+
         if (currentTurnCaptain == null) return false;
         if (playerUuid == null) return false;
 
@@ -162,10 +193,13 @@ public class MapVeto {
 
         if (remainingMaps == null || mapIndex < 1 || mapIndex > remainingMaps.size()) return false;
 
+        turnProcessing = true; // Bloqueamos hasta que nextTurn() libere el estado.
+
         String vetoedMap = remainingMaps.remove(mapIndex - 1);
 
         if (turnTask != null) {
             try { turnTask.cancel(); } catch (Exception ignored) {}
+            turnTask = null;
         }
 
         String capName = getPlayerName(currentTurnCaptain);
@@ -175,6 +209,20 @@ public class MapVeto {
         announceToMatch("§8[§cX§8] " + color + capName + " §7vetó: §c§m" + vetoedMap);
         if (logger != null) logger.info("Mapa Vetado", capName + " vetó " + vetoedMap);
 
+        // Si por alguna razón quedamos sin mapas, hacer fallback seguro (esto NO debería pasar si el flujo es correcto).
+        if (remainingMaps == null || remainingMaps.isEmpty()) {
+            if (logger != null) logger.error("Veto", "remainingMaps quedó vacío tras un veto. Usando random de emergencia.");
+            finishImmediately(MapManager.getRandomMap(matchType));
+            return true;
+        }
+
+        // Si ya solo queda 1 mapa, terminamos INMEDIATO (sin esperar 20 ticks), evitando carreras.
+        if (remainingMaps.size() == 1) {
+            finishImmediately(remainingMaps.get(0));
+            return true;
+        }
+
+        // Cambiar turno y programar el próximo anuncio
         currentTurnCaptain = currentTurnCaptain.equals(blueCaptain) ? redCaptain : blueCaptain;
 
         Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
@@ -187,7 +235,8 @@ public class MapVeto {
         return true;
     }
 
-    private void startTurnTimer() {
+    private void startTurnTimer(
+    ) {
         turnTask = new BukkitRunnable() {
             int timeLeft = turnDurationSeconds;
 
@@ -205,6 +254,12 @@ public class MapVeto {
                 }
 
                 if (timeLeft <= 0) {
+                    if (currentTurnCaptain == null || currentTurnCaptain.getMinecraftUuid() == null) {
+                        finishImmediately(MapManager.getRandomMap(matchType));
+                        cancelSafe();
+                        return;
+                    }
+
                     int randomIndex = new Random().nextInt(remainingMaps.size());
                     processVeto(currentTurnCaptain.getMinecraftUuid(), randomIndex + 1);
                     cancelSafe();
@@ -239,9 +294,11 @@ public class MapVeto {
     private void finishImmediately(String selectedMap) {
         if (finished) return;
         finished = true;
+        turnProcessing = false;
 
         if (turnTask != null) {
             try { turnTask.cancel(); } catch (Exception ignored) {}
+            turnTask = null;
         }
 
         announceToMatch("§6§l========================");
@@ -350,8 +407,10 @@ public class MapVeto {
 
     public void cancelVeto() {
         this.finished = true;
+        this.turnProcessing = false;
         if (turnTask != null) {
             try { turnTask.cancel(); } catch (Exception ignored) {}
+            turnTask = null;
         }
     }
 }

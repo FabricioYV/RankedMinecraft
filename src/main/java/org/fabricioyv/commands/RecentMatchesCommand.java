@@ -44,43 +44,41 @@ public class RecentMatchesCommand extends ListenerAdapter {
                 return;
             }
 
-            EmbedBuilder embed = new EmbedBuilder()
-                    .setTitle("🏆 Partidas Recientes")
-                    .setDescription("Últimas " + matches.size() + " partidas jugadas")
-                    .setColor(Color.BLUE)
-                    .setFooter("Usa /matchdetails <match_id> para ver detalles completos");
+            // Usamos StringBuilder para armar un mensaje de texto normal (sin Embed)
+            StringBuilder sb = new StringBuilder();
+            sb.append("🏆 **Partidas Recientes**\n\n");
 
             for (int i = 0; i < matches.size(); i++) {
                 MatchLogsManager.MatchSummary match = matches.get(i);
 
-                String matchInfo = """
-                    **ID:** `%s`
-                    **Tipo:** %s
-                    **Mapa:** %s
-                    **Ganador:** %s
-                    **Fecha:** %s
-                    **Duración:** %s""".formatted(
-                        match.getMatchId(),
+                String winner = getWinnerEmoji(match.getWinnerTeam()) + " " + match.getWinnerTeam();
+                String duration = formatDuration(match.getDurationSeconds());
+
+                // Resolver el ID público de 5 caracteres para generar el link
+                String publicId = MatchLogsManager.resolvePublicMatchId(
+                        match.getMapName(),
+                        match.getWinnerTeam(),
+                        match.getDurationSeconds()
+                );
+
+                String linkStats = (publicId != null)
+                        ? "https://kekelive.netlify.app/match/" + publicId
+                        : "*(Procesando link...)*";
+
+                // Formato textual simple
+                sb.append(String.format("**#%d** | %s | 🗺️ %s | 👑 %s | ⏱️ %s\n",
+                        i + 1,
                         match.getMatchType(),
                         match.getMapName(),
-                        getWinnerEmoji(match.getWinnerTeam()) + " " + match.getWinnerTeam(),
-                        match.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM HH:mm")),
-                        formatDuration(match.getDurationSeconds())
-                );
-
-                embed.addField(
-                        String.format("#%d - %s", i + 1, match.getMatchId()),
-                        matchInfo,
-                        false // Cambiar a false para mejor legibilidad con IDs largos
-                );
-
-                // Agregar separador entre partidas para mejor formato
-                if (i < matches.size() - 1) {
-                    embed.addBlankField(false);
-                }
+                        winner,
+                        duration
+                ));
+                sb.append("📊 Stats: ").append(linkStats).append("\n\n");
             }
 
-            event.getHook().editOriginalEmbeds(embed.build()).queue();
+            // Enviamos el mensaje como texto plano usando editOriginal() en lugar de editOriginalEmbeds()
+            event.getHook().editOriginal(sb.toString().trim()).queue();
+
         }).exceptionally(throwable -> {
             event.getHook().editOriginal("❌ Error obteniendo partidas recientes: " + throwable.getMessage()).queue();
             Bukkit.getLogger().severe("Error obteniendo partidas recientes: " + throwable.getMessage());

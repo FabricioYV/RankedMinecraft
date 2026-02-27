@@ -34,7 +34,7 @@ forfeit:
 
 abandonment:
   # tiempo que permites para que alguien vuelva tras desconexión antes de marcar abandono
-  reconnect-grace-seconds: 120
+  reconnect-grace-seconds: 60
 
 # ========================================
 # CONFIGURACION DE PERFORMANCE Y HIT REGISTRATION
