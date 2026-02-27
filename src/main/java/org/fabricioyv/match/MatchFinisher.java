@@ -659,36 +659,61 @@ public class MatchFinisher {
                                            Map<String, Integer> eloChanges, long durationSeconds,
                                            DiscordLogger logger) {
 
-        // NUEVO: Verificar si fue partida con sistema de picks
-        if (activeMatch.isPicksMatch()) {
-            // Usar método con información de capitanes
-            logger.matchComplete(
-                    activeMatch.getMatchId(),
-                    activeMatch.getMatchType(),
-                    activeMatch.getSelectedMap(),
-                    winnerTeam,
-                    activeMatch.getTeams(),
-                    eloChanges,
-                    durationSeconds,
-                    true, // isPicksMatch
-                    activeMatch.getBlueCaptain(),
-                    activeMatch.getRedCaptain()
-            );
-        } else {
-            // Usar método tradicional sin información de capitanes
-            logger.matchComplete(
-                    activeMatch.getMatchId(),
-                    activeMatch.getMatchType(),
-                    activeMatch.getSelectedMap(),
-                    winnerTeam,
-                    activeMatch.getTeams(),
-                    eloChanges,
-                    durationSeconds
-            );
+        // Resolver match_id público (ABCDE) para la web.
+        // Si tu ActiveMatch ya trae el ID corto, úsalo; si no, lo buscamos en BD2.matches (pool match_logs).
+        String publicMatchId = null;
+
+        try {
+            String mid = activeMatch.getMatchId();
+            if (mid != null) {
+                mid = mid.trim();
+                if (mid.length() == 5 && mid.matches("^[A-Z0-9]{5}$")) {
+                    publicMatchId = mid;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        if (publicMatchId == null) {
+            try {
+                String winner = (winnerTeam == Team.BLUE) ? "blue" : "red";
+                publicMatchId = MatchLogsManager.resolvePublicMatchId(activeMatch.getSelectedMap(), winner, durationSeconds);
+            } catch (Exception ignored) {}
         }
 
-        // También enviar log separado de cambios de ELO
-        // Log específico con modificadores aplicados
+        // Enviar embed estilo Stratus (limpio) con link y ELO inicial->final
+        try {
+            logger.matchEndedStratusStyle(activeMatch, winnerTeam, eloChanges, durationSeconds, publicMatchId);
+        } catch (Exception e) {
+            // Fallback: si por algo falla, usa el embed legacy
+            try {
+                if (activeMatch.isPicksMatch()) {
+                    logger.matchComplete(
+                            activeMatch.getMatchId(),
+                            activeMatch.getMatchType(),
+                            activeMatch.getSelectedMap(),
+                            winnerTeam,
+                            activeMatch.getTeams(),
+                            eloChanges,
+                            durationSeconds,
+                            true,
+                            activeMatch.getBlueCaptain(),
+                            activeMatch.getRedCaptain()
+                    );
+                } else {
+                    logger.matchComplete(
+                            activeMatch.getMatchId(),
+                            activeMatch.getMatchType(),
+                            activeMatch.getSelectedMap(),
+                            winnerTeam,
+                            activeMatch.getTeams(),
+                            eloChanges,
+                            durationSeconds
+                    );
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // Log de modificadores ELO (como ya tenías)
         ProgressiveEloCalculator.MatchType matchType = resolveMatchType(activeMatch);
 
         if (matchType != null && matchType.affectsElo()) {
@@ -777,6 +802,7 @@ public class MatchFinisher {
                     mcPlayer.sendMessage("§7Ya fuiste penalizado al abandonar:");
                     mcPlayer.sendMessage("§c  • Pérdida inmediata de ELO");
                     mcPlayer.sendMessage("§c  • Cooldown aplicado");
+                    mcPlayer.sendMessage("§c  • +2 derrotas (doble loss)");
                     mcPlayer.sendMessage("§7§oEste resultado no afecta tu ELO adicional");
                     mcPlayer.sendMessage("§e💡 Tip: Reconéctate dentro de 1:30 min para evitar penalizaciones");
 
@@ -1874,7 +1900,7 @@ public class MatchFinisher {
                                 player.getMinecraftUuid().substring(0, 8)));
 
             } catch (Exception e) {
-                logger.logError("Error procesando resultado de equipo para jugador " + player.getMinecraftUuid(), e);
+                logger.systemError("MatchFinisher", "Error procesando resultado de equipo para jugador " + player.getMinecraftUuid(), e.getMessage());
             }
         }
     }

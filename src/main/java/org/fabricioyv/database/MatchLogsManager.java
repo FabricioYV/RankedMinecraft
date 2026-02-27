@@ -917,9 +917,9 @@ public class MatchLogsManager {
             conn.setAutoCommit(false);
 
             String sql = "INSERT INTO player_match_stats (match_id, player_uuid, player_name, team, " +
-                        "kills, deaths, damage_dealt, damage_received, arrows_shot, arrows_hit, " +
-                        "arrow_accuracy, old_elo, new_elo, elo_change, old_mmr, new_mmr, mmr_change, won, timestamp) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "kills, deaths, damage_dealt, damage_received, arrows_shot, arrows_hit, " +
+                    "arrow_accuracy, old_elo, new_elo, elo_change, old_mmr, new_mmr, mmr_change, won, timestamp) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             PreparedStatement stmt = conn.prepareStatement(sql);
 
@@ -966,7 +966,7 @@ public class MatchLogsManager {
             if (shouldSavePlayerStats(stats)) {
                 // Usar el método original logMatchEvent para compatibilidad
                 logMatchEvent(matchId, "PLAYER_STATS", stats.getPlayerUuid(),
-                    String.format("K:%d D:%d DMG:%.1f", stats.getKills(), stats.getDeaths(), stats.getDamageDealt()));
+                        String.format("K:%d D:%d DMG:%.1f", stats.getKills(), stats.getDeaths(), stats.getDamageDealt()));
             }
         }
     }
@@ -1012,5 +1012,78 @@ public class MatchLogsManager {
         stmt.setBoolean(18, stats.isWon());
         stmt.setTimestamp(19, Timestamp.valueOf(LocalDateTime.now(LIMA_ZONE)));
     }
-}
+    /*
+     * Pega ESTE BLOQUE en tu MatchLogsManager.java y BORRA por completo:
+     * - Ambos métodos getNumericIdByMatchId(...) duplicados
+     * - El helper resolveMatchesConnection() si solo existía para esos métodos
+     *
+     * Idealmente pega esto cerca del final de la clase (antes del último }).
+     */
 
+    public static String resolvePublicMatchId(String mapName, String winnerTeamLower, long durationSeconds) {
+        if (mapName == null || mapName.trim().isEmpty()) return null;
+        if (winnerTeamLower == null || winnerTeamLower.trim().isEmpty()) return null;
+
+        String map = mapName.trim();
+        String winner = winnerTeamLower.trim().toLowerCase();
+
+        long minDur = Math.max(0L, durationSeconds - 120L);
+        long maxDur = durationSeconds + 120L;
+
+        String sql = "SELECT match_id " +
+                "FROM matches " +
+                "WHERE CHAR_LENGTH(match_id)=5 " +
+                "  AND map_name=? " +
+                "  AND winner_team=? " +
+                "  AND duration_seconds BETWEEN ? AND ? " +
+                "ORDER BY end_time DESC " +
+                "LIMIT 1";
+
+        try (java.sql.Connection conn = DatabaseManager.getConnectionTo("match_logs");
+             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, map);
+            ps.setString(2, winner);
+            ps.setLong(3, minDur);
+            ps.setLong(4, maxDur);
+
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String id = rs.getString(1);
+                    if (id != null) {
+                        id = id.trim();
+                        if (id.length() == 5) return id;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // fallback sin duración (por si BD2 difiere un poco)
+        String sql2 = "SELECT match_id " +
+                "FROM matches " +
+                "WHERE CHAR_LENGTH(match_id)=5 " +
+                "  AND map_name=? " +
+                "  AND winner_team=? " +
+                "ORDER BY end_time DESC " +
+                "LIMIT 1";
+
+        try (java.sql.Connection conn = DatabaseManager.getConnectionTo("match_logs");
+             java.sql.PreparedStatement ps = conn.prepareStatement(sql2)) {
+
+            ps.setString(1, map);
+            ps.setString(2, winner);
+
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String id = rs.getString(1);
+                    if (id != null) {
+                        id = id.trim();
+                        if (id.length() == 5) return id;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+}

@@ -7,11 +7,14 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.bukkit.entity.Player;
 import org.fabricioyv.config.VoiceChannelConfig;
+import org.fabricioyv.match.ActiveMatch;
 import org.fabricioyv.match.Team;
 import org.fabricioyv.model.PlayerData;
 import org.fabricioyv.rating.Rank;
 
 import java.awt.*;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -27,6 +30,12 @@ public class DiscordLogger {
 
     // Discord nickname max length
     private static final int DISCORD_NICK_MAX = 32;
+
+    // Link público de stats (usa match_id de 5 caracteres de BD2)
+    private static final String STATS_BASE_URL = "https://kekelive.netlify.app/match/";
+
+    // Para evitar wraps feos de nombres (en fields)
+    private static final int MAX_NAME_CHARS = 18;
 
     private final JDA jda;
     private final TextChannel logsChannel;
@@ -48,8 +57,299 @@ public class DiscordLogger {
         }
     }
 
+    // =========================================================
+    //  STRATUS STYLE (START / END) — SIN CODEBLOCK
+    //  Columnas: usando FIELDS INLINE (como Stratus)
+    // =========================================================
+
     /**
-     * Log detallado de finalización de partida con estadísticas completas
+     * Embed estilo Stratus al iniciar: Map/Server + equipos (ELO actual).
+     * SIN "pizarra" (sin ```), usa 2 fields inline.
+     */
+    public void matchStartedStratusStyle(ActiveMatch activeMatch, String serverName) {
+        if (activeMatch == null) return;
+
+        int playerCount = 0;
+        try { playerCount = activeMatch.getAllPlayers() != null ? activeMatch.getAllPlayers().size() : 0; } catch (Exception ignored) {}
+
+        String queueLabel = toQueueLabel(activeMatch.getMatchType(), playerCount);
+        String map = safe(activeMatch.getSelectedMap(), "Unknown");
+        String server = safe(serverName, "Ranked");
+
+        String redLines = buildStartTeamLines(activeMatch.getTeams(), Team.RED);
+        String blueLines = buildStartTeamLines(activeMatch.getTeams(), Team.BLUE);
+
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle("Match Started – " + queueLabel);
+        embed.setColor(Color.GREEN);
+
+        // Texto normal (sin codeblock)
+        embed.setDescription(
+                "**Map** - " + map + "\n" +
+                        "**Server** - " + server
+        );
+
+        // Columnas reales sin fondo negro: fields inline
+        embed.addField("Red", limitFieldValue(redLines), true);
+        embed.addField("Blue", limitFieldValue(blueLines), true);
+
+        embed.setTimestamp(java.time.Instant.now());
+        embed.setFooter("Keke Ranked (" + safe(activeMatch.getMatchId(), "?") + ")");
+
+        sendEmbedToResults(embed);
+    }
+
+    /**
+     * Embed estilo Stratus al terminar: muestra ELO inicial→final (delta) y link a la web.
+     * SIN "pizarra" (sin ```), usa 2 fields inline.
+     * @param publicMatchId  match_id público de 5 caracteres (BD2.matches.match_id). Si es null, no pone link.
+     */
+    public void matchEndedStratusStyle(ActiveMatch activeMatch,
+                                       Team winnerTeam,
+                                       Map<String, Integer> eloChanges,
+                                       long durationSeconds,
+                                       String publicMatchId) {
+        if (activeMatch == null) return;
+        if (winnerTeam == null) winnerTeam = Team.BLUE;
+
+        int playerCount = 0;
+        try { playerCount = activeMatch.getAllPlayers() != null ? activeMatch.getAllPlayers().size() : 0; } catch (Exception ignored) {}
+
+        String queueLabel = toQueueLabel(activeMatch.getMatchType(), playerCount);
+        String map = safe(activeMatch.getSelectedMap(), "Unknown");
+
+        String statsUrl = null;
+        if (publicMatchId != null && !publicMatchId.trim().isEmpty()) {
+            statsUrl = STATS_BASE_URL + publicMatchId.trim();
+        }
+
+        Team loserTeam = (winnerTeam == Team.BLUE) ? Team.RED : Team.BLUE;
+
+        String winnersLines = buildEndTeamLines(activeMatch.getTeams(), winnerTeam, eloChanges);
+        String losersLines = buildEndTeamLines(activeMatch.getTeams(), loserTeam, eloChanges);
+
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle("Match Ended – Keke Ranked");
+        embed.setColor(Color.RED);
+
+        StringBuilder desc = new StringBuilder();
+        desc.append("**Mode** - ").append(queueLabel)
+                .append(" | **Map** - ").append(map)
+                .append(" | **Duration** - ").append(formatDuration(durationSeconds));
+
+        if (statsUrl != null) {
+            desc.append("\n").append("**Stats** - ").append(statsUrl);
+        }
+
+        embed.setDescription(desc.toString());
+
+        // Columnas sin pizarra
+        embed.addField("Winning Team", limitFieldValue(winnersLines), true);
+        embed.addField("Losing Team", limitFieldValue(losersLines), true);
+
+        // Capitanes (si es picks)
+        try {
+            if (activeMatch.isPicksMatch()) {
+                String blueCap = (activeMatch.getBlueCaptain() != null) ? getPlayerDisplayName(activeMatch.getBlueCaptain()) : "N/A";
+                String redCap = (activeMatch.getRedCaptain() != null) ? getPlayerDisplayName(activeMatch.getRedCaptain()) : "N/A";
+                embed.addField("Captains", "🔵 " + shortName(blueCap) + " | 🔴 " + shortName(redCap), false);
+            }
+        } catch (Exception ignored) {}
+
+        embed.setTimestamp(java.time.Instant.now());
+        embed.setFooter("Keke Ranked (" + safe(activeMatch.getMatchId(), "?") + ")");
+
+        sendEmbedToResults(embed);
+
+        // Mantener update de nicknames (solo rankeds con eloChanges)
+        try {
+            if (eloChanges != null && !eloChanges.isEmpty()) {
+                updateDiscordNicknames(eloChanges, activeMatch.getTeams());
+            }
+        } catch (Exception ignored) {}
+    }
+
+    // =========================================================
+    //  DRAW (Empate) — SIN CODEBLOCK, EN 2 COLUMNAS INLINE
+    // =========================================================
+
+    public void matchDraw(String matchId,
+                          String matchType,
+                          String selectedMap,
+                          java.util.Map<org.fabricioyv.match.Team, java.util.List<org.fabricioyv.model.PlayerData>> teams,
+                          long durationSeconds) {
+        try {
+            int playerCount = 0;
+            if (teams != null) {
+                for (java.util.List<org.fabricioyv.model.PlayerData> list : teams.values()) {
+                    if (list != null) playerCount += list.size();
+                }
+            }
+
+            String queueLabel = toQueueLabel(matchType, playerCount);
+            String map = (selectedMap != null && !selectedMap.trim().isEmpty()) ? selectedMap.trim() : "Unknown";
+
+            // Link SOLO si matchId ya es el público de 5 chars (BD2.matches.match_id)
+            String statsUrl = null;
+            if (matchId != null && matchId.trim().length() == 5) {
+                statsUrl = STATS_BASE_URL + matchId.trim();
+            }
+
+            String redLines = buildDrawTeamLines(teams, org.fabricioyv.match.Team.RED);
+            String blueLines = buildDrawTeamLines(teams, org.fabricioyv.match.Team.BLUE);
+
+            EmbedBuilder embed = new EmbedBuilder();
+            embed.setTitle("Match Draw – Keke Ranked");
+            embed.setColor(Color.GRAY);
+
+            StringBuilder desc = new StringBuilder();
+            desc.append("**Mode** - ").append(queueLabel)
+                    .append(" | **Map** - ").append(map)
+                    .append(" | **Duration** - ").append(formatDuration(durationSeconds));
+            if (statsUrl != null) desc.append("\n").append("**Stats** - ").append(statsUrl);
+
+            embed.setDescription(desc.toString());
+
+            embed.addField("Red", limitFieldValue(redLines), true);
+            embed.addField("Blue", limitFieldValue(blueLines), true);
+
+            embed.setTimestamp(java.time.Instant.now());
+            sendEmbedToResults(embed);
+        } catch (Exception ignored) {}
+    }
+
+    private String buildDrawTeamLines(
+            java.util.Map<org.fabricioyv.match.Team, java.util.List<org.fabricioyv.model.PlayerData>> teams,
+            org.fabricioyv.match.Team team
+    ) {
+        if (teams == null) return "(empty)";
+        java.util.List<org.fabricioyv.model.PlayerData> list = teams.get(team);
+        if (list == null || list.isEmpty()) return "(empty)";
+
+        StringBuilder sb = new StringBuilder();
+        for (org.fabricioyv.model.PlayerData p : list) {
+            if (p == null) continue;
+            String name = shortName(getPlayerDisplayName(p));
+            int elo = p.getElo();
+            sb.append(name).append(" — ").append(elo).append("\n");
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? "(empty)" : out;
+    }
+
+    // =========================================================
+    //  LÍNEAS DE EQUIPO
+    // =========================================================
+
+    private String buildStartTeamLines(Map<Team, List<PlayerData>> teams, Team team) {
+        if (teams == null) return "(empty)";
+        List<PlayerData> list = teams.get(team);
+        if (list == null || list.isEmpty()) return "(empty)";
+
+        StringBuilder sb = new StringBuilder();
+        for (PlayerData p : list) {
+            if (p == null) continue;
+            String name = shortName(getPlayerDisplayName(p));
+            int elo = 0;
+            try { elo = p.getElo(); } catch (Exception ignored) {}
+            sb.append(name).append(" — ").append(elo).append("\n");
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? "(empty)" : out;
+    }
+
+    private String buildEndTeamLines(Map<Team, List<PlayerData>> teams, Team team, Map<String, Integer> eloChanges) {
+        if (teams == null) return "(empty)";
+        List<PlayerData> list = teams.get(team);
+        if (list == null || list.isEmpty()) return "(empty)";
+
+        StringBuilder sb = new StringBuilder();
+        for (PlayerData p : list) {
+            if (p == null) continue;
+
+            String name = shortName(getPlayerDisplayName(p));
+
+            int endElo = 0;
+            try { endElo = p.getElo(); } catch (Exception ignored) {}
+
+            int delta = 0;
+            if (eloChanges != null) {
+                try {
+                    Integer d = eloChanges.get(p.getMinecraftUuid());
+                    if (d != null) delta = d;
+                } catch (Exception ignored) {}
+            }
+
+            int startElo = endElo - delta;
+
+            // Placement info
+            String placementSuffix = "";
+            try {
+                if (p.isInPlacement()) {
+                    int played = p.getPlacementMatchesPlayed();
+                    int req = PlayerData.getPlacementMatchesRequired();
+                    placementSuffix = " [" + played + "/" + req + "]";
+                }
+            } catch (Exception ignored) {}
+
+            sb.append(name)
+                    .append(" — ")
+                    .append(startElo)
+                    .append(" → ")
+                    .append(endElo)
+                    .append(" (")
+                    .append(delta >= 0 ? "+" : "")
+                    .append(delta)
+                    .append(")")
+                    .append(placementSuffix)
+                    .append("\n");
+        }
+
+        String out = sb.toString().trim();
+        return out.isEmpty() ? "(empty)" : out;
+    }
+
+    private String toQueueLabel(String matchType, int playerCount) {
+        // Por tamaño de jugadores (más fiable)
+        if (playerCount == 4) return "2v2 Queue";
+        if (playerCount == 10) return "Conquest Queue";
+        if (playerCount == 16) return "8v8 Queue";
+
+        if (matchType == null) return "Queue";
+        String mt = matchType.trim().toLowerCase();
+        if (mt.contains("2v2")) return "2v2 Queue";
+        if (mt.contains("8v8")) return "8v8 Queue";
+        if (mt.contains("5v5") || mt.contains("conquest")) return "Conquest Queue";
+        return "Queue";
+    }
+
+    private String shortName(String name) {
+        if (name == null) return "Player";
+        String n = name.trim();
+        if (n.length() <= MAX_NAME_CHARS) return n;
+        return n.substring(0, MAX_NAME_CHARS - 1) + "…";
+    }
+
+    private String safe(String s, String def) {
+        if (s == null) return def;
+        String t = s.trim();
+        return t.isEmpty() ? def : t;
+    }
+
+    private String limitFieldValue(String s) {
+        // Discord embed field value max = 1024 chars
+        if (s == null || s.trim().isEmpty()) return "(empty)";
+        String t = s.trim();
+        if (t.length() <= 1024) return t;
+        return t.substring(0, 1021) + "...";
+    }
+
+    // =========================================================
+    //  EXISTING METHODS (matchComplete, logs, etc.)
+    // =========================================================
+
+    /**
+     * Log detallado de finalización de partida con estadísticas completas (legacy)
      */
     public void matchComplete(String matchId, String matchType, String mapName,
                               Team winnerTeam, Map<Team, List<PlayerData>> teams,
@@ -59,7 +359,6 @@ public class DiscordLogger {
         embed.setTitle("🏆 Partida Finalizada");
         embed.setColor(winnerTeam == Team.BLUE ? Color.BLUE : Color.RED);
 
-        // Información básica
         embed.addField("🆔 Match ID", matchId, true);
         embed.addField("⚔️ Tipo", matchType, true);
         embed.addField("🗺️ Mapa", mapName, true);
@@ -67,7 +366,6 @@ public class DiscordLogger {
         embed.addField("⏱️ Duración", formatDuration(durationSeconds), true);
         embed.addField("📊 Jugadores", String.valueOf(teams.values().stream().mapToInt(List::size).sum()), true);
 
-        // Equipos y estadísticas
         StringBuilder teamsInfo = new StringBuilder();
         int placementPlayersCount = 0;
 
@@ -86,7 +384,6 @@ public class DiscordLogger {
                 Integer eloChange = eloChanges.get(player.getMinecraftUuid());
                 String statusText;
 
-                // Placement
                 if (player.isInPlacement()) {
                     placementPlayersCount++;
                     int matchesPlayed = player.getPlacementMatchesPlayed();
@@ -105,7 +402,6 @@ public class DiscordLogger {
 
         embed.addField("👥 Equipos", teamsInfo.toString(), false);
 
-        // Estadísticas de ELO (solo NO-placement)
         Map<String, Integer> rankedEloChanges = new HashMap<>();
         for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
             PlayerData player = findPlayerByUuid(teams, entry.getKey());
@@ -114,24 +410,15 @@ public class DiscordLogger {
             }
         }
 
-        int totalEloGained = rankedEloChanges.values().stream()
-                .filter(change -> change > 0)
-                .mapToInt(Integer::intValue)
-                .sum();
-
-        int totalEloLost = Math.abs(rankedEloChanges.values().stream()
-                .filter(change -> change < 0)
-                .mapToInt(Integer::intValue)
-                .sum());
+        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
 
         embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
         embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
         embed.addField("⚖️ ELO Neto", "0", true);
 
         if (placementPlayersCount > 0) {
-            embed.addField("🔍 En Evaluación",
-                    placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
-                            " en período de evaluación", false);
+            embed.addField("🔍 En Evaluación", placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") + " en período de evaluación", false);
         }
 
         embed.setTimestamp(java.time.Instant.now());
@@ -143,7 +430,7 @@ public class DiscordLogger {
     }
 
     /**
-     * Log detallado de finalización de partida CON INFORMACIÓN DE CAPITANES
+     * Log detallado de finalización de partida CON INFORMACIÓN DE CAPITANES (legacy)
      */
     public void matchComplete(String matchId, String matchType, String mapName,
                               Team winnerTeam, Map<Team, List<PlayerData>> teams,
@@ -154,7 +441,6 @@ public class DiscordLogger {
         embed.setTitle("🏆 Partida Finalizada");
         embed.setColor(winnerTeam == Team.BLUE ? Color.BLUE : Color.RED);
 
-        // Información básica
         embed.addField("🆔 Match ID", matchId, true);
         embed.addField("⚔️ Tipo", matchType, true);
         embed.addField("🗺️ Mapa", mapName, true);
@@ -166,9 +452,7 @@ public class DiscordLogger {
         embed.addField("🔄 Formación", teamFormation, true);
 
         if (isPicksMatch && blueCaptain != null && redCaptain != null) {
-            String captainsInfo = String.format("🔵 **%s**\n🔴 **%s**",
-                    getPlayerDisplayName(blueCaptain),
-                    getPlayerDisplayName(redCaptain));
+            String captainsInfo = String.format("🔵 **%s**\n🔴 **%s**", getPlayerDisplayName(blueCaptain), getPlayerDisplayName(redCaptain));
             embed.addField("👨‍✈️ Capitanes", captainsInfo, true);
         } else {
             embed.addField("", "", true);
@@ -199,8 +483,7 @@ public class DiscordLogger {
                 Integer eloChange = eloChanges.get(player.getMinecraftUuid());
 
                 String captainIndicator = "";
-                if (isPicksMatch && ((team == Team.BLUE && player.equals(blueCaptain)) ||
-                        (team == Team.RED && player.equals(redCaptain)))) {
+                if (isPicksMatch && ((team == Team.BLUE && player.equals(blueCaptain)) || (team == Team.RED && player.equals(redCaptain)))) {
                     captainIndicator = " 👨‍✈️";
                 }
 
@@ -223,7 +506,6 @@ public class DiscordLogger {
 
         embed.addField("👥 Equipos", teamsInfo.toString(), false);
 
-        // Estadísticas de ELO (solo NO-placement)
         Map<String, Integer> rankedEloChanges = new HashMap<>();
         for (Map.Entry<String, Integer> entry : eloChanges.entrySet()) {
             PlayerData player = findPlayerByUuid(teams, entry.getKey());
@@ -232,24 +514,15 @@ public class DiscordLogger {
             }
         }
 
-        int totalEloGained = rankedEloChanges.values().stream()
-                .filter(change -> change > 0)
-                .mapToInt(Integer::intValue)
-                .sum();
-
-        int totalEloLost = Math.abs(rankedEloChanges.values().stream()
-                .filter(change -> change < 0)
-                .mapToInt(Integer::intValue)
-                .sum());
+        int totalEloGained = rankedEloChanges.values().stream().filter(change -> change > 0).mapToInt(Integer::intValue).sum();
+        int totalEloLost = Math.abs(rankedEloChanges.values().stream().filter(change -> change < 0).mapToInt(Integer::intValue).sum());
 
         embed.addField("📈 ELO Ganado", String.valueOf(totalEloGained), true);
         embed.addField("📉 ELO Perdido", String.valueOf(totalEloLost), true);
         embed.addField("⚖️ ELO Neto", "0", true);
 
         if (placementPlayersCount > 0) {
-            embed.addField("🔍 En Evaluación",
-                    placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") +
-                            " en período de evaluación", false);
+            embed.addField("🔍 En Evaluación", placementPlayersCount + " jugador" + (placementPlayersCount == 1 ? "" : "es") + " en período de evaluación", false);
         }
 
         embed.setTimestamp(java.time.Instant.now());
@@ -260,9 +533,7 @@ public class DiscordLogger {
         updateDiscordNicknames(eloChanges, teams);
     }
 
-    /**
-     * Log específico para cambios de ELO
-     */
+    /** Log específico para cambios de ELO (legacy) */
     public void eloChanges(String matchId, Map<String, Integer> eloChanges, Team winnerTeam) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("📊 Cambios de ELO");
@@ -309,10 +580,30 @@ public class DiscordLogger {
         });
     }
 
+    private void sendEmbed(EmbedBuilder embed) {
+        if (logsChannel == null) {
+            System.err.println("❌ No se puede enviar log: Canal de logs no disponible");
+            return;
+        }
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                logsChannel.sendMessageEmbeds(embed.build()).queue(
+                        success -> {},
+                        error -> System.err.println("❌ Error enviando log a Discord: " + error.getMessage())
+                );
+            } catch (Exception e) {
+                System.err.println("❌ Error inesperado enviando log: " + e.getMessage());
+            }
+        });
+    }
+
     private String formatDuration(long seconds) {
         long minutes = seconds / 60;
         long remainingSeconds = seconds % 60;
-        return (minutes > 0) ? String.format("%dm %ds", minutes, remainingSeconds) : String.format("%ds", seconds);
+        return (minutes > 0)
+                ? String.format("%dm %ds", minutes, remainingSeconds)
+                : String.format("%ds", seconds);
     }
 
     private String getPlayerDisplayName(PlayerData player) {
@@ -335,6 +626,8 @@ public class DiscordLogger {
             Player mcPlayer = org.bukkit.Bukkit.getPlayer(java.util.UUID.fromString(uuid));
             if (mcPlayer != null) return mcPlayer.getName();
         } catch (Exception ignored) {}
+
+        if (uuid == null || uuid.length() < 8) return "UUID:unknown";
         return "UUID:" + uuid.substring(0, 8);
     }
 
@@ -342,18 +635,6 @@ public class DiscordLogger {
     public void warning(String title, String description) { sendLog(LogLevel.WARNING, title, description, Color.ORANGE); }
     public void error(String title, String description) { sendLog(LogLevel.ERROR, title, description, Color.RED); }
     public void success(String title, String description) { sendLog(LogLevel.SUCCESS, title, description, Color.GREEN); }
-
-    public void queueEvent(String playerName, String discordId, String action, String details) {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle("🎮 Evento de Cola");
-        embed.setColor(Color.CYAN);
-        embed.addField("👤 Jugador", playerName, true);
-        embed.addField("🔗 Discord ID", discordId, true);
-        embed.addField("⚡ Acción", action, true);
-        embed.addField("📝 Detalles", details, false);
-        embed.setTimestamp(java.time.Instant.now());
-        sendEmbed(embed);
-    }
 
     public void matchEvent(String matchId, String event, String details, int playerCount) {
         EmbedBuilder embed = new EmbedBuilder();
@@ -405,24 +686,6 @@ public class DiscordLogger {
         sendEmbed(embed);
     }
 
-    private void sendEmbed(EmbedBuilder embed) {
-        if (logsChannel == null) {
-            System.err.println("❌ No se puede enviar log: Canal de logs no disponible");
-            return;
-        }
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                logsChannel.sendMessageEmbeds(embed.build()).queue(
-                        success -> {},
-                        error -> System.err.println("❌ Error enviando log a Discord: " + error.getMessage())
-                );
-            } catch (Exception e) {
-                System.err.println("❌ Error inesperado enviando log: " + e.getMessage());
-            }
-        });
-    }
-
     /**
      * Actualiza apodos Discord:
      * Formato: [Rango] Nickmc
@@ -459,7 +722,6 @@ public class DiscordLogger {
 
                     int currentElo = player.getElo();
 
-                    // Rango real desde tu enum
                     Rank rank = Rank.getRankByElo(currentElo);
                     String rankName = (rank != null) ? rank.getDisplayName() : "Cobre III";
 
@@ -471,7 +733,7 @@ public class DiscordLogger {
                     if (desiredNick.equals(currentNick)) continue;
 
                     member.modifyNickname(desiredNick).queue(
-                            ok -> {}, // sin spam de logs
+                            ok -> {},
                             err -> warning("Error Actualizando Apodo",
                                     String.format("No se pudo actualizar apodo de %s: %s", minecraftName, err.getMessage()))
                     );
@@ -504,18 +766,19 @@ public class DiscordLogger {
         }
     }
 
-    public void debug(String balanceDetallado, String balanceReport) {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle("🔍 Debug Detalles");
-        embed.setColor(Color.GRAY);
-        embed.addField("📝 Balance Detallado", "```\n" + balanceDetallado + "\n```", false);
-        embed.addField("📊 Balance Report", "```\n" + balanceReport + "\n```", false);
-        embed.setTimestamp(java.time.Instant.now());
-        sendEmbed(embed);
-    }
+    private PlayerData findPlayerByUuid(Map<Team, List<PlayerData>> teams, String uuid) {
+        if (teams == null || uuid == null) return null;
 
-    public void matchDraw(String matchId, String matchType, String selectedMap, Map<Team, List<PlayerData>> teams, long durationSeconds) {
-        // pendiente si quieres implementar
+        for (List<PlayerData> teamPlayers : teams.values()) {
+            if (teamPlayers == null) continue;
+
+            for (PlayerData player : teamPlayers) {
+                if (player != null && uuid.equals(player.getMinecraftUuid())) {
+                    return player;
+                }
+            }
+        }
+        return null;
     }
 
     public enum LogLevel {
@@ -535,39 +798,66 @@ public class DiscordLogger {
         }
     }
 
-    private PlayerData findPlayerByUuid(Map<Team, List<PlayerData>> teams, String uuid) {
-        if (teams == null || uuid == null) return null;
-
-        for (List<PlayerData> teamPlayers : teams.values()) {
-            if (teamPlayers == null) continue;
-
-            for (PlayerData player : teamPlayers) {
-                if (player != null && uuid.equals(player.getMinecraftUuid())) {
-                    return player;
-                }
-            }
-        }
-        return null;
+    public void debug(String title, String description) {
+        // Debug silencioso: a consola para no spamear Discord
+        try {
+            org.bukkit.Bukkit.getConsoleSender().sendMessage("[DEBUG] " + title + " | " + description);
+        } catch (Exception ignored) {}
     }
 
-    public void logError(String message, Throwable throwable) {
-        String errorDetails = message != null ? message : "Error";
+    // =========================================================
+    //  COMPAT METHODS (para que compile con el resto del proyecto)
+    // =========================================================
 
-        if (throwable != null) {
-            errorDetails += "\nError: " + throwable.getMessage();
+    /** Compat: usado en CaptainPickSystem, MatchManager, etc. */
+    public void logError(String message, Exception ex) {
+        logError(message, (Throwable) ex);
+    }
 
-            java.io.StringWriter sw = new java.io.StringWriter();
-            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-            throwable.printStackTrace(pw);
-            String stackTrace = sw.toString();
+    /** Compat: usado en varios listeners */
+    public void logError(String message, Throwable t) {
+        if (t == null) {
+            error("Error", message != null ? message : "Error desconocido");
+            return;
+        }
+        String component = "Runtime";
+        String err = (message != null ? message : "Error") + " | " + t.getClass().getSimpleName() + ": " + safe(t.getMessage(), "sin mensaje");
+        systemError(component, err, toStackTrace(t));
+    }
 
-            if (stackTrace.length() > 800) {
-                stackTrace = stackTrace.substring(0, 800) + "...";
-            }
+    /**
+     * Compat: usado en VoiceChannelListener.
+     * Firma esperada: queueEvent(String, String, String, String)
+     */
+    public void queueEvent(String type, String event, String actor, String details) {
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle("📥 Queue Event");
+        embed.setColor(Color.CYAN);
 
-            errorDetails += "\nStack Trace:\n```\n" + stackTrace + "\n```";
+        embed.addField("Tipo", safe(type, "N/A"), true);
+        embed.addField("Evento", safe(event, "N/A"), true);
+        embed.addField("Actor", safe(actor, "N/A"), true);
+
+        if (details != null && !details.trim().isEmpty()) {
+            // Evita exceder límites feos
+            String d = details.length() > 1500 ? details.substring(0, 1500) + "..." : details;
+            embed.addField("Detalles", d, false);
         }
 
-        error("Error del Sistema", errorDetails);
+        embed.setTimestamp(java.time.Instant.now());
+        sendEmbed(embed); // logsChannel
+    }
+
+    private String toStackTrace(Throwable t) {
+        try {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            t.printStackTrace(pw);
+            pw.flush();
+            String out = sw.toString();
+            return out.length() > 2000 ? out.substring(0, 2000) + "..." : out;
+        } catch (Exception e) {
+            return "No se pudo generar stacktrace: " + e.getMessage();
+        }
     }
 }

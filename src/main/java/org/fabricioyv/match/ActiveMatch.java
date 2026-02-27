@@ -357,10 +357,11 @@ public class ActiveMatch {
                 return;
             }
 
+            // A la regla pública solo le denegamos conectarse, no tocamos permisos de micrófono
             channel.getManager()
                     .putPermissionOverride(guild.getPublicRole(),
                             EnumSet.of(Permission.VIEW_CHANNEL),
-                            EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK))
+                            EnumSet.of(Permission.VOICE_CONNECT))
                     .queue(
                             ok -> setupQueueRolePermissions(channel, teamPlayers, onComplete),
                             err -> setupQueueRolePermissions(channel, teamPlayers, onComplete)
@@ -376,10 +377,11 @@ public class ActiveMatch {
             Role queueRole = guild.getRoleById(VoiceChannelConfig.QUEUE_ROLE_ID);
 
             if (queueRole != null) {
+                // Al rol de queue también solo le denegamos conectarse, sin tocar el micrófono
                 channel.getManager()
                         .putPermissionOverride(queueRole,
                                 EnumSet.of(Permission.VIEW_CHANNEL),
-                                EnumSet.of(Permission.VOICE_CONNECT, Permission.VOICE_SPEAK))
+                                EnumSet.of(Permission.VOICE_CONNECT))
                         .queue(
                                 ok -> setupTeamMemberPermissions(channel, teamPlayers, 0, onComplete),
                                 err -> setupTeamMemberPermissions(channel, teamPlayers, 0, onComplete)
@@ -411,9 +413,10 @@ public class ActiveMatch {
                 guild.retrieveMemberById(discordId).queue(
                         fetched -> {
                             if (fetched != null) {
+                                // A los jugadores del equipo solo les damos permiso explícito de Ver y Conectar
                                 channel.getManager()
                                         .putPermissionOverride(fetched,
-                                                EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VOICE_USE_VAD),
+                                                EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT),
                                                 Collections.emptySet())
                                         .queue(
                                                 ok -> setupTeamMemberPermissions(channel, teamPlayers, idx + 1, onComplete),
@@ -428,9 +431,10 @@ public class ActiveMatch {
                 return;
             }
 
+            // A los jugadores del equipo solo les damos permiso explícito de Ver y Conectar
             channel.getManager()
                     .putPermissionOverride(m,
-                            EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT, Permission.VOICE_SPEAK, Permission.VOICE_USE_VAD),
+                            EnumSet.of(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT),
                             Collections.emptySet())
                     .queue(
                             ok -> setupTeamMemberPermissions(channel, teamPlayers, idx + 1, onComplete),
