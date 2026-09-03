@@ -1,0 +1,42 @@
+# Configuración de pools de mapas para RankedMinecraft
+pools:
+  2v2:
+    - "Boneyard"
+    - "Bridge┈castle"
+    - "Chernot"
+    - "Climate"
+    - "Coral"
+
+  5v5:
+    - "Siege"
+    - "Smoke┈KotH┈5v5"
+    - "Topaz"
+    - "Willow"
+    - "Factori"
+    - "Revolution"
+    - "Space┈Race┈1969"
+    - "Rusteze┈5v5"
+
+  8v8:
+    - "Java II"
+    - "Jurassic"
+    - "NextGen"
+    - "Gobi"
+    - "Oriental"
+# Configuración de RankedMinecraft
+# Opciones: VOTING, VETO, RANDOM
+selection_mode: "VETO"
+
+voting:
+  duration: 20
+  enable_player_voting: false # Se ignorará si selection_mode es VETO o RANDOM
+
+veto:
+  duration_per_turn: 15
+  announce_to_all: true
+
+map_cycle:
+  delay: 6
+
+final_countdown:
+  duration: 10

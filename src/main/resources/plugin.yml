@@ -1,0 +1,46 @@
+name: RankedMinecraft
+version: '${project.version}'
+main: org.fabricioyv.RankedMinecraft
+authors: [ FabricioYv ]
+depend: [PGM]
+
+commands:
+  veto:
+    description: Usado para vetar mapas
+    usage: /veto <numero>
+  votemap:
+    description: Votar por un mapa durante la votación
+    usage: /votemap <número>
+    aliases: [v, votar]
+  ff:
+    description: Votar para rendirse en una partida
+    usage: /ff
+    aliases: [ forfeit, surrender ]
+  ready:
+    description: Acelerar inicio de partida
+    aliases: [r]
+    usage: /ready
+  mapadmin:
+    description: Comandos administrativos para gestionar el sistema de mapas
+    usage: /mapadmin <stats|recent|clear|list|test|mode|reload>
+    permission: rankedmc.admin
+  placement:
+    description: Ver estadísticas de jugadores en placement matches
+    usage: /placement [jugador]
+    aliases: [stats, placementstats]
+  testplacement:
+    description: Comando de testing para analizar el historial completo de placement matches
+    usage: /testplacement <jugador>
+    permission: ranked.admin
+  pick:
+    description: Elegir un jugador durante el sistema de picks de capitanes
+    usage: /pick <jugador>
+  elodecay:
+    description: Gestionar el sistema de ELO Decay
+    usage: /elodecay <reload|force|info>
+    permission: rankedmc.admin
+    aliases: [decay]
+  requeue:
+    description: Reingresar a la cola después de una partida
+    usage: /requeue
+    aliases: [rq]
