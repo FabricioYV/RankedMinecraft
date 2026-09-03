@@ -877,13 +877,6 @@ public class MatchFinisher {
             waitingRoom = guild.getVoiceChannelById(VoiceChannelConfig.WAITING_ROOM_CHANNEL_ID);
         } catch (Exception ignored) {}
 
-        // Fallback (Isaac): ID real del canal de espera
-        if (waitingRoom == null) {
-            try {
-                waitingRoom = guild.getVoiceChannelById("1405393642847338546");
-            } catch (Exception ignored) {}
-        }
-
         return waitingRoom;
     }
 

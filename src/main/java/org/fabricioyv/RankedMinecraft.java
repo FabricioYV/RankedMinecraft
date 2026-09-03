@@ -58,6 +58,9 @@ public final class RankedMinecraft extends JavaPlugin {
         // 3) Cargar settings del sistema de forfeit/afk desde config.yml
         ForfeitManager.loadSettings(this);
 
+        // Cargar canales y roles de Discord desde config.yml
+        org.fabricioyv.config.VoiceChannelConfig.init(this);
+
         try {
             // Inicializar sistema de mapas
             MapManager.initialize(this);

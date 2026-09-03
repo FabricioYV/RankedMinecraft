@@ -32,11 +32,6 @@ public class CaptainPickSystem {
 
     private static final Map<String, PickSession> activeSessions = new ConcurrentHashMap<>();
 
-    // ids de roles que pueden ser capitanes (según tu configuración actual)
-    private static final String MAIN_SPONSOR_ROLE_ID = "1413241361087332505";
-    private static final String SPONSOR_ROLE_ID = "1413243740231041174";
-    private static final String SERVER_BOOSTER_ROLE_ID = "1407203727076491295";
-
     private static final int PICK_TIMEOUT_SECONDS = 20;
     private static final int MIN_WINS_FOR_CAPTAIN = 10;
 
@@ -519,7 +514,7 @@ public class CaptainPickSystem {
 
     static boolean hasSponsorRole(Member member) {
         for (Role role : member.getRoles()) {
-            if (role.getId().equals(MAIN_SPONSOR_ROLE_ID) || role.getId().equals(SPONSOR_ROLE_ID) || role.getId().equals(SERVER_BOOSTER_ROLE_ID)) {
+            if (org.fabricioyv.config.VoiceChannelConfig.CAPTAIN_ELIGIBLE_ROLE_IDS.contains(role.getId())) {
                 return true;
             }
         }
@@ -936,7 +931,7 @@ public class CaptainPickSystem {
                         .format(java.time.format.DateTimeFormatter.ofPattern("HH-mm"));
 
                 activeMatch.getGuild().createVoiceChannel("🎯 Picks " + timestamp)
-                        .setParent(activeMatch.getGuild().getCategoryById("1412199394536898631"))
+                        .setParent(activeMatch.getGuild().getCategoryById(org.fabricioyv.config.VoiceChannelConfig.PICKS_CATEGORY_ID))
                         .queue(channel -> {
                             tempPickChannel = channel;
                             logger.info("Canal temporal creado", "Canal temporal de picks: " + channel.getName());

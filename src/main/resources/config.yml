@@ -1,7 +1,42 @@
 discord:
   enabled: true
-  token: NzcyNTI4MTg5Njc1Mjc0Mjcw.GhAvXW.10_CuaxD_G75js8R4SzHSmUHbuYAoXR8UhwmCE
-  guild-id: '1404292846340542554'
+  token: PUT_TOKEN_HERE
+  guild-id: PUT_GUILD_ID_HERE
+
+  # Canales y roles usados por el bot. Rellena con los IDs de tu propio
+  # servidor de Discord (clic derecho -> Copiar ID, con el modo desarrollador activado).
+  channels:
+    waiting-room: PUT_CHANNEL_ID_HERE
+    team-category: PUT_CATEGORY_ID_HERE
+    match-results: PUT_CHANNEL_ID_HERE
+    logs: PUT_CHANNEL_ID_HERE
+    picks-category: PUT_CATEGORY_ID_HERE
+    voice-2v2: PUT_CHANNEL_ID_HERE
+    voice-5v5: PUT_CHANNEL_ID_HERE
+    voice-8v8: PUT_CHANNEL_ID_HERE
+
+  roles:
+    queue: PUT_ROLE_ID_HERE
+    # roles que pueden ser capitanes ademas de tener suficientes victorias
+    captain-eligible:
+      - PUT_ROLE_ID_HERE
+      - PUT_ROLE_ID_HERE
+      - PUT_ROLE_ID_HERE
+    # rol de Discord asociado a cada rango de ELO
+    ranks:
+      COBRE_3: PUT_ROLE_ID_HERE
+      COBRE_2: PUT_ROLE_ID_HERE
+      COBRE_1: PUT_ROLE_ID_HERE
+      HIERRO_3: PUT_ROLE_ID_HERE
+      HIERRO_2: PUT_ROLE_ID_HERE
+      HIERRO_1: PUT_ROLE_ID_HERE
+      ORO_3: PUT_ROLE_ID_HERE
+      ORO_2: PUT_ROLE_ID_HERE
+      ORO_1: PUT_ROLE_ID_HERE
+      DIAMANTE_3: PUT_ROLE_ID_HERE
+      DIAMANTE_2: PUT_ROLE_ID_HERE
+      DIAMANTE_1: PUT_ROLE_ID_HERE
+      ESMERALDA: PUT_ROLE_ID_HERE
 
 databases:
   ranked:
@@ -9,13 +44,13 @@ databases:
     port: '3306'
     database: bot_db1
     username: botuser
-    password: ZuWzGA^@!eeJaftDXqEBlJmy
+    password: PUT_DB_PASSWORD_HERE
   match_logs:
     host: 127.0.0.1
     port: '3306'
     database: bot_db2
     username: botuser
-    password: ZuWzGA^@!eeJaftDXqEBlJmy
+    password: PUT_DB_PASSWORD_HERE
 
 
 forfeit:
