@@ -1,111 +1,119 @@
-# RankedMinecraft
+<div align="center">
 
-Resumen breve
+# ⚔️ RankedMinecraft
 
-RankedMinecraft es un plugin de Minecraft (Bukkit/Spigot/Paper) diseñado para gestionar partidas clasificatorias (ranked), con sistemas de ELO/MMR, integración con PGM (match handling), y un bot de Discord para notificaciones y herramientas administrativas. El objetivo principal es ofrecer matchmaking y cálculo de rating robusto, optimizado para rendimiento en servidores con partidas competitivas.
+**Sistema de matchmaking competitivo para servidores Paper/Spigot con PGM.**
+Colas automáticas, picks de capitanes, vetos de mapa, ELO/MMR y estadísticas — con un bot de Discord integrado.
 
-Este plugin trabaja junto a [RankedDiscord](https://github.com/FabricioYV/RankedDiscord) (verificación de cuentas, comandos de admin vía Discord), compartiendo una misma base de datos. **Para instalar el sistema completo, seguí [SETUP.md](SETUP.md).**
+[![Licencia](https://img.shields.io/badge/licencia-GPLv3-blue.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/java-16%2B-orange.svg)](pom.xml)
+[![PGM](https://img.shields.io/badge/requiere-PGM-6e40c9.svg)](https://pgm.dev/)
+[![Plugin complementario](https://img.shields.io/badge/plugin%20complementario-RankedDiscord-5865F2.svg?logo=discord&logoColor=white)](https://github.com/FabricioYV/RankedDiscord)
 
-Autor
+[Instalación](#-instalación) • [Comandos](#-comandos) • [Arquitectura](#-arquitectura) • [RankedDiscord](#-el-sistema-completo)
 
-- Creado por FabricioYV
-- Repositorio: https://github.com/FabricioYV/RankedMinecraft
+</div>
 
-Visión general y lógica de funcionamiento
+---
 
-1. Arquitectura general
-- El plugin actúa como coordinador central: registra comandos, listeners y subsistemas al habilitarse.
-- Componentes principales:
-  - Sistema de matchmaking y gestión de partidas (ActiveMatch, MatchFinisher, MapManager).
-  - Sistemas de rating: ELO (ProgressiveEloCalculator, PlacementRankAssignment) y MMR (MMRCalculator, PlacementMMRCalculator).
-  - Registro y logging de partidas (MatchLogsManager / MatchLogsIntegration) con posibilidad de exportar o notificar en Discord.
-  - Integración con PGM: escucha eventos de fin de partida y muertes para actualizar estadísticas y finalizar partidas.
-  - DiscordBot: integración para notificaciones, logs y comandos adicionales.
-  - Bases de datos y batch processing: operaciones pesadas o en lote se gestionan asíncronamente para no bloquear el servidor.
-  - Caches en memoria (PlayerDataCache y caches internos de MatchStatsListener) para lecturas/consultas rápidas durante partidas.
+## ✨ Qué hace
 
-2. Flujo de una partida (simplificado)
-- Preparación: administradores o sistema seleccionan mapa (MapManager). Jugadores se unen y se crea un `ActiveMatch`.
-- Inicio: `MatchStatsListener.initializeMatchStats()` se prepara con las entradas en memoria y precalienta caches.
-- Durante la partida: eventos de daño, muertes y acciones son registrados en memoria (queues y workers asíncronos). La captura de estadísticas está diseñada para minimizar latencia en el main thread.
-- Finalización: PGM dispara un evento de finish; `PGMMatchListener` detecta la partida local correspondiente, libera jugadores en memoria inmediatamente y desencadena procesamiento asíncrono para determinar ganador y finalizar la partida con `MatchFinisher`.
-- Rating: una vez finalizada la partida, se calculan cambios de ELO/MMR y se aplican mediante operaciones asíncronas a la base de datos; `MatchStatsListener` mantiene las estadísticas mientras se aplican los cambios (cleanup controlado).
+RankedMinecraft convierte un servidor PGM en una plataforma de ranked completa:
 
-3. Diseño clave y decisiones importantes
-- Performance-first: lecturas y escritura en memoria primero (marcar jugadores disponibles), y escritura en BD asíncrona después. Esto reduce latencia en matchmaking y evita bloquear el servidor.
-- Worker threads y colas: `MatchStatsListener` usa una cola bounded y un worker dedicado para procesar eventos de daño fuera del main thread. Esto protege la hit registration y mantiene responsividad.
-- Caches híbridos: estructuras con TTL y validación para mantener lookups O(1) durante partidas, evitando búsquedas O(n).
-- Operaciones en lote: `BatchProcessor` y estrategias de batching para actualizar la BD con menor overhead.
-- Seguridad y tokens: el plugin integra un bot de Discord; por seguridad, los tokens y credenciales deben mantenerse fuera del repositorio y en archivos de configuración/variables de entorno.
+| | |
+|---|---|
+| 🎯 **Matchmaking** | Colas automáticas por modo (2v2 / 5v5 / 8v8), balanceadas por MMR |
+| 🧢 **Picks de capitanes** | Selección de equipos en vivo, con veto y reroll de capitanes |
+| 🗺️ **Vetos de mapa** | Sistema de votación/veto integrado con PGM |
+| 📈 **ELO/MMR** | Cálculo diferenciado para partidas de placement vs. partidas normales |
+| 🔁 **Requeue** | Reingreso rápido a cola al terminar una partida |
+| 🎙️ **Discord en vivo** | Canales de voz temporales por equipo, resultados y logs automáticos |
+| 🛡️ **Anti-abandono** | Detección de AFK/desconexión con forfeit y penalización de ELO |
 
-Comandos principales (uso resumido)
-- /votemap — sistema de votación de mapas.
-- /ff — comando para forfeit (rendición).
-- /ready, /r — marcar listo.
-- /mapadmin — comandos administrativos para gestionar mapas (stats, recent, list, clear, test).
-- /placement — ver estado de placement para un jugador.
-- /testplacement — comando administrador para ejecutar el análisis avanzado de placement de un jugador.
-- /pick — comando para el sistema de picks de capitanes durante la fase de selección.
-- /elodecay — administrar el sistema de decay de ELO (reload, force, info).
+## 🧩 El sistema completo
 
-Archivos y recursos importantes
-- `plugin.yml` — definición del plugin (comandos, permisos y meta).
-- `src/main/resources/elo-config.yml` — configuración del sistema ELO / ELO decay.
-- `src/main/resources/maps.yml` — listado/configuración de mapas.
-- `src/main/java/org/fabricioyv/...` — código fuente con paquetes por responsabilidad (commands, listeners, match, rating, database, discord, cache, etc.).
+RankedMinecraft no corre solo — trabaja junto a **[RankedDiscord](https://github.com/FabricioYV/RankedDiscord)**, un segundo plugin que maneja la verificación de cuentas y comandos de administración vía Discord. Ambos comparten la misma base de datos MySQL.
 
-Integración con servicios externos
-- PGM: el plugin escucha los eventos de PGM y mapea los matches de PGM a sus `ActiveMatch` internos para procesar finales y estadísticas.
-- Discord: `DiscordBot` envía logs/notificaciones y expone funcionalidades administrativas. **Nunca** guarda el token en el repositorio en producción; usa variables de entorno o archivos de configuración que no se commiteen.
-- Base de datos: el acceso central se hace desde `DatabaseManager`. Las consultas pesadas se ejecutan de forma asíncrona o en batch para evitar bloqueo.
+```mermaid
+flowchart LR
+    Jugador((🎮 Jugador))
 
-Consideraciones de despliegue
-- Build: el proyecto usa Maven. Empaqueta con:
+    subgraph MC["Servidor Minecraft"]
+        RM["RankedMinecraft<br/>matchmaking · picks · ELO/MMR"]
+        RD["RankedDiscord<br/>verificación · admin"]
+    end
+
+    DB[("MySQL<br/>ranked_players")]
+
+    BotA["🤖 Bot Discord<br/>notificaciones de partidas"]
+    BotB["🤖 Bot Discord<br/>verificación y stats"]
+
+    Jugador -->|juega partidas| RM
+    Jugador -->|"/verify, comandos de prefijo"| RD
+
+    RM -->|"ELO, MMR, resultados"| DB
+    RD -->|"verificación, stats"| DB
+
+    RM --- BotA
+    RD --- BotB
+```
+
+**👉 Para levantar el sistema completo (los dos plugins + la base de datos), seguí [SETUP.md](SETUP.md).**
+
+## 🚀 Instalación
 
 ```bash
+git clone https://github.com/FabricioYV/RankedMinecraft.git
+cd RankedMinecraft
 mvn clean package
 ```
 
-- Instalación: copiar el JAR resultante al `plugins/` del servidor (Paper/Spigot) y reiniciar o cargar.
-- Configuración inicial: rellenar las credenciales (BD, Discord token) y revisar `elo-config.yml` y `maps.yml` antes de iniciar.
-- Recomendación JVM: para servidores con partidas concurrentes y procesamiento asíncrono, dedicar memoria y usar G1GC (depende del host):
+Copiá el `.jar` de `target/` a `plugins/` de tu servidor, iniciá una vez para generar `config.yml`, apagalo y completá tus credenciales de Discord/MySQL e IDs de canales/roles. Guía completa paso a paso en **[SETUP.md](SETUP.md)**.
+
+Recomendado para JVM en producción (partidas concurrentes, procesamiento asíncrono):
 
 ```bash
 -Xms2G -Xmx4G -XX:+UseG1GC -XX:MaxGCPauseMillis=200
 ```
 
-Puntos de seguridad y buenas prácticas
-- No hardcodear tokens: eliminar cualquier token en código (el proyecto de ejemplo contiene tokens en el código, reemplázalos antes de producción).
-- Restringir permisos: los comandos administrativos requieren permisos (`ranked.admin`, `rankedmc.admin`), revisa `plugin.yml`.
-- Respaldos de BD: al ejecutar migraciones o cambios de rating masivos (decay, migraciones), hacer backup de la BD primero.
+## 📜 Comandos
 
-Notas sobre testing y debugging
-- Logging: se usa el logger del plugin y `DiscordLogger` para reportes; activa el nivel de log adecuado en entorno de pruebas.
-- Modo de pruebas para placement: `TestPlacementAnalysisCommand` ejecuta el analizador avanzado; úsalo en un entorno controlado.
-- Simula partidas en un entorno de staging con PGM (o mock de eventos) antes de desplegar en producción.
+| Comando | Descripción |
+|---|---|
+| `/votemap` | Sistema de votación de mapas |
+| `/veto` | Vetos de mapa durante la selección |
+| `/ff` | Forfeit (rendición) |
+| `/ready`, `/r` | Marcar listo |
+| `/pick` | Picks de capitanes durante la fase de selección |
+| `/requeue` | Reingresar a cola tras una partida |
+| `/placement` | Ver estado de placement de un jugador |
+| `/mapadmin` | Admin: stats, recent, list, clear, test de mapas |
+| `/testplacement` | Admin: análisis avanzado de placement |
+| `/elodecay` | Admin: reload/force/info del decay de ELO |
 
-Limitaciones y futuras mejoras sugeridas
-- Validación y saneamiento de tokens/credentials en startup: evitar fallos silenciosos.
-- API de administración remota: añadir endpoints HTTP/REST solo para métricas y salud (con autenticación).
-- Más tests unitarios/integración: actualmente muchas operaciones dependen de PGM y BD; crear mocks para pruebas automatizadas.
-- Mejor manejo de errores: reemplazar `printStackTrace()` por logging estructurado y métricas de fallos.
+Permisos administrativos vía `ranked.admin` / `rankedmc.admin` (ver `plugin.yml`).
 
-Contacto y licencia
-- Autor: FabricioYV
-- Repo: https://github.com/FabricioYV/RankedMinecraft
-- Licencia: revisa el repo para la licencia aplicada (si no hay, añadir una como MIT/Apache para código abierto).
+## 🏗️ Arquitectura
 
-Resumen final
+- **Matchmaking y partidas**: `ActiveMatch`, `MatchFinisher`, `MapManager`, `QueueManager`.
+- **Rating**: ELO (`ProgressiveEloCalculator`, `PlacementRankAssignment`) y MMR (`MMRCalculator`, `PlacementMMRCalculator`), con lógica diferenciada para placement.
+- **Integración PGM**: escucha eventos de fin de partida y muertes para actualizar stats y cerrar partidas.
+- **Discord**: `DiscordBot` para notificaciones, logs y canales de voz temporales por equipo.
+- **Persistencia**: `DatabaseManager` + `BatchProcessor` — escritura en memoria primero, batch asíncrono a MySQL después, para no bloquear el hilo principal.
+- **Caches**: TTL en memoria (`PlayerDataCache`) para lookups O(1) durante partidas activas.
 
-Este plugin está pensado para servidores competitivos que necesitan manejo de partidas y ratings con baja latencia y alto throughput. La arquitectura se centra en:
-- operaciones en memoria y liberación inmediata de jugadores,
-- persistencia asíncrona en BD,
-- cálculos de rating avanzados y diferenciados para placement vs partidas normales,
-- integración con PGM y Discord,
-- optimizaciones de performance (caches, queues, workers).
+**Diseño clave — performance-first**: los jugadores se liberan en memoria de inmediato al terminar una partida; los cambios de ELO/MMR se calculan y persisten de forma asíncrona después, para que el matchmaking nunca espere a la base de datos.
 
-Si quieres, puedo:
-- Generar una sección adicional con ejemplos de configuración (plantilla `elo-config.yml`).
-- Añadir un apartado de cómo desarrollar (estructura de paquetes, cómo ejecutar tests o ejecutar en modo dev).
-- Quitar o advertir sobre cualquier token detectado en el código y preparar un checklist de seguridad para producción.
+## 🔒 Seguridad
 
+- `config.yml` se distribuye con placeholders (`PUT_..._HERE`) — nunca commitees credenciales reales.
+- Los comandos administrativos requieren permisos explícitos (`ranked.admin`, `rankedmc.admin`).
+- Antes de migraciones o cambios masivos de rating (decay, etc.), respaldá la base de datos.
+
+## 🤝 Contribuir
+
+Ver [CONTRIBUTING.md](CONTRIBUTING.md) para la convención de ramas y el flujo de Pull Requests.
+
+## 📄 Licencia
+
+[GPL-3.0](LICENSE) — Creado por [FabricioYV](https://github.com/FabricioYV).
