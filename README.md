@@ -5,6 +5,7 @@
 **Sistema de matchmaking competitivo para servidores Paper/Spigot con PGM.**
 Colas automáticas, picks de capitanes, vetos de mapa, ELO/MMR y estadísticas — con un bot de Discord integrado.
 
+[![Build](https://github.com/FabricioYV/RankedMinecraft/actions/workflows/build.yml/badge.svg)](https://github.com/FabricioYV/RankedMinecraft/actions/workflows/build.yml)
 [![Licencia](https://img.shields.io/badge/licencia-GPLv3-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-16%2B-orange.svg)](pom.xml)
 [![PGM](https://img.shields.io/badge/requiere-PGM-6e40c9.svg)](https://pgm.dev/)
@@ -61,6 +62,10 @@ flowchart LR
 **👉 Para levantar el sistema completo (los dos plugins + la base de datos), seguí [SETUP.md](SETUP.md).**
 
 ## 🚀 Instalación
+
+**Opción rápida:** descargá el `.jar` ya compilado desde la [última Release](https://github.com/FabricioYV/RankedMinecraft/releases/latest).
+
+**Compilar vos mismo:**
 
 ```bash
 git clone https://github.com/FabricioYV/RankedMinecraft.git
