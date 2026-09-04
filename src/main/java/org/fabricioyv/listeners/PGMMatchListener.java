@@ -475,10 +475,10 @@ public class PGMMatchListener implements Listener {
 
             // Calcular puntuaciones por objetivos
             if (goalModule != null) {
-                Collection<Goal> allGoals = goalModule.getGoals();
+                Collection<Goal<?>> allGoals = goalModule.getGoals();
                 logger.info("Goals Analysis", String.format("Analizando %d objetivos totales", allGoals.size()));
 
-                for (Goal goal : allGoals) {
+                for (Goal<?> goal : allGoals) {
                     String goalName = goal.getName();
                     String goalType = identifyGoalType(goalName);
 
