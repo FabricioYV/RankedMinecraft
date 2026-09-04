@@ -4,6 +4,8 @@ Resumen breve
 
 RankedMinecraft es un plugin de Minecraft (Bukkit/Spigot/Paper) diseñado para gestionar partidas clasificatorias (ranked), con sistemas de ELO/MMR, integración con PGM (match handling), y un bot de Discord para notificaciones y herramientas administrativas. El objetivo principal es ofrecer matchmaking y cálculo de rating robusto, optimizado para rendimiento en servidores con partidas competitivas.
 
+Este plugin trabaja junto a [RankedDiscord](https://github.com/FabricioYV/RankedDiscord) (verificación de cuentas, comandos de admin vía Discord), compartiendo una misma base de datos. **Para instalar el sistema completo, seguí [SETUP.md](SETUP.md).**
+
 Autor
 
 - Creado por FabricioYV
