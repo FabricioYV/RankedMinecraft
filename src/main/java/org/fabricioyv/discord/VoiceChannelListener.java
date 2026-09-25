@@ -5,6 +5,7 @@ import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.unions.AudioChannelUnion;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import org.fabricioyv.cache.PlayerDataCache;
 import org.fabricioyv.config.VoiceChannelConfig;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.logging.DiscordLogger;
@@ -13,7 +14,6 @@ import org.fabricioyv.queue.QueueManager;
 import org.fabricioyv.queue.QueueResult;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -25,10 +25,11 @@ public class VoiceChannelListener extends ListenerAdapter {
     private final QueueManager queueManager;
     private final DiscordLogger logger;
 
-    private static final ConcurrentHashMap<String, PlayerData> discordPlayerCache = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Long> lastCacheUpdate = new ConcurrentHashMap<>();
-    private static final long CACHE_DURATION = 300000; // 5 minutos
-
+    // Nota: antes esta clase mantenía su propio cache de PlayerData por Discord ID
+    // (TTL de 5 min, invalidación manual). Era un duplicado de PlayerDataCache
+    // (mismo shape, mismos datos) que podía quedar desincronizado del caché
+    // "real" -- ahora usa DatabaseManager.getPlayerByDiscordIdAsync(), que ya
+    // consulta/puebla PlayerDataCache internamente. Una sola fuente de verdad.
     private static final ScheduledExecutorService asyncExecutor = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "VoiceListener-Async");
         t.setDaemon(true);
@@ -38,7 +39,6 @@ public class VoiceChannelListener extends ListenerAdapter {
     public VoiceChannelListener(QueueManager queueManager, DiscordLogger discordLogger) {
         this.queueManager = queueManager;
         this.logger = discordLogger;
-        asyncExecutor.scheduleAtFixedRate(this::cleanExpiredCache, 10, 10, TimeUnit.MINUTES);
     }
 
     @Override
@@ -48,49 +48,14 @@ public class VoiceChannelListener extends ListenerAdapter {
         AudioChannelUnion newChannel = event.getChannelJoined();
         String discordId = member.getId();
 
-        PlayerData cachedPlayer = getCachedPlayerData(discordId);
-
-        if (cachedPlayer != null) {
-            processVoiceUpdate(member, oldChannel, newChannel, cachedPlayer);
-        } else {
-            getPlayerDataAsync(discordId).thenAccept(playerData -> {
-                if (playerData != null) {
-                    processVoiceUpdate(member, oldChannel, newChannel, playerData);
-                }
-            }).exceptionally(throwable -> {
-                logger.logError("Error obteniendo datos de jugador Discord ID " + discordId, throwable);
-                return null;
-            });
-        }
-    }
-
-    private PlayerData getCachedPlayerData(String discordId) {
-        PlayerData cached = discordPlayerCache.get(discordId);
-        if (cached == null) return null;
-
-        Long lastUpdate = lastCacheUpdate.get(discordId);
-        if (lastUpdate == null || (System.currentTimeMillis() - lastUpdate) > CACHE_DURATION) {
-            discordPlayerCache.remove(discordId);
-            lastCacheUpdate.remove(discordId);
-            return null;
-        }
-        return cached;
-    }
-
-    private CompletableFuture<PlayerData> getPlayerDataAsync(String discordId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                PlayerData playerData = DatabaseManager.getPlayerByDiscordId(discordId);
-                if (playerData != null) {
-                    discordPlayerCache.put(discordId, playerData);
-                    lastCacheUpdate.put(discordId, System.currentTimeMillis());
-                }
-                return playerData;
-            } catch (Exception e) {
-                System.err.println("Error async obteniendo PlayerData para Discord ID " + discordId + ": " + e.getMessage());
-                return null;
+        DatabaseManager.getPlayerByDiscordIdAsync(discordId).thenAccept(playerData -> {
+            if (playerData != null) {
+                processVoiceUpdate(member, oldChannel, newChannel, playerData);
             }
-        }, asyncExecutor);
+        }).exceptionally(throwable -> {
+            logger.logError("Error obteniendo datos de jugador Discord ID " + discordId, throwable);
+            return null;
+        });
     }
 
     private void processVoiceUpdate(Member member, AudioChannelUnion oldChannel, AudioChannelUnion newChannel, PlayerData playerData) {
@@ -111,10 +76,9 @@ public class VoiceChannelListener extends ListenerAdapter {
         // Entró a canal cola
         if (newChannel != null && isQueueChannel(newChannel.getId())) {
             String discordId = member.getId();
-            discordPlayerCache.remove(discordId);
-            lastCacheUpdate.remove(discordId);
+            PlayerDataCache.invalidateByDiscordId(discordId);
 
-            getPlayerDataAsync(discordId).thenAccept(freshPlayerData -> {
+            DatabaseManager.getPlayerByDiscordIdAsync(discordId).thenAccept(freshPlayerData -> {
                 if (freshPlayerData == null) return;
 
                 String queueTypeName = getQueueTypeName(newChannel.getId());
@@ -207,20 +171,9 @@ public class VoiceChannelListener extends ListenerAdapter {
         }, 1, TimeUnit.SECONDS);
     }
 
-    private void cleanExpiredCache() {
-        long now = System.currentTimeMillis();
-        lastCacheUpdate.forEach((discordId, lastUpdate) -> {
-            if (now - lastUpdate > CACHE_DURATION) {
-                discordPlayerCache.remove(discordId);
-                lastCacheUpdate.remove(discordId);
-            }
-        });
-    }
-
     public static void invalidatePlayersCache(java.util.List<String> discordIds) {
         for (String discordId : discordIds) {
-            discordPlayerCache.remove(discordId);
-            lastCacheUpdate.remove(discordId);
+            PlayerDataCache.invalidateByDiscordId(discordId);
         }
     }
 }
