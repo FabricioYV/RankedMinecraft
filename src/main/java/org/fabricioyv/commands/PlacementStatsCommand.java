@@ -1,11 +1,15 @@
 package org.fabricioyv.commands;
 
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.fabricioyv.RankedMinecraft;
 import org.fabricioyv.database.DatabaseManager;
 import org.fabricioyv.model.PlayerData;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Comando para mostrar estadísticas del sistema de placement matches
@@ -15,6 +19,12 @@ import org.fabricioyv.model.PlayerData;
  */
 public class PlacementStatsCommand implements CommandExecutor {
 
+    private final RankedMinecraft plugin;
+
+    public PlacementStatsCommand(RankedMinecraft plugin) {
+        this.plugin = plugin;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
@@ -22,48 +32,49 @@ public class PlacementStatsCommand implements CommandExecutor {
             return true;
         }
 
-        try {
-            // Si no se especifica jugador, mostrar stats del propio jugador
-            PlayerData playerData;
-            String targetPlayerName;
+        // Si no se especifica jugador, mostrar stats del propio jugador
+        String targetPlayerName;
+        CompletableFuture<PlayerData> lookup;
 
-            if (args.length > 0) {
-                // Buscar jugador por nombre especificado
-                targetPlayerName = args[0];
+        if (args.length > 0) {
+            // Buscar jugador por nombre especificado
+            targetPlayerName = args[0];
 
-                // Intentar obtener el UUID del jugador por nombre
-                Player targetPlayer = player.getServer().getPlayer(targetPlayerName);
-                if (targetPlayer != null) {
-                    // Jugador está online - usar su UUID
-                    playerData = DatabaseManager.getPlayerByMinecraftUuid(targetPlayer.getUniqueId().toString());
-                } else {
-                    // Jugador no está online - buscar en jugadores que han estado en el servidor
-                    org.bukkit.OfflinePlayer offlinePlayer = player.getServer().getOfflinePlayer(targetPlayerName);
-                    if (offlinePlayer.hasPlayedBefore()) {
-                        playerData = DatabaseManager.getPlayerByMinecraftUuid(offlinePlayer.getUniqueId().toString());
-                    } else {
-                        player.sendMessage("§cJugador no encontrado: " + targetPlayerName);
-                        return true;
-                    }
-                }
+            // Intentar obtener el UUID del jugador por nombre
+            Player targetPlayer = player.getServer().getPlayer(targetPlayerName);
+            if (targetPlayer != null) {
+                // Jugador está online - usar su UUID
+                lookup = DatabaseManager.getPlayerByMinecraftUuidAsync(targetPlayer.getUniqueId().toString());
             } else {
-                // Mostrar stats del propio jugador
-                targetPlayerName = player.getName();
-                playerData = DatabaseManager.getPlayerByMinecraftUuid(player.getUniqueId().toString());
+                // Jugador no está online - buscar en jugadores que han estado en el servidor
+                org.bukkit.OfflinePlayer offlinePlayer = player.getServer().getOfflinePlayer(targetPlayerName);
+                if (offlinePlayer.hasPlayedBefore()) {
+                    lookup = DatabaseManager.getPlayerByMinecraftUuidAsync(offlinePlayer.getUniqueId().toString());
+                } else {
+                    player.sendMessage("§cJugador no encontrado: " + targetPlayerName);
+                    return true;
+                }
             }
-
-            if (playerData == null) {
-                player.sendMessage("§cNo se encontraron datos para el jugador: " + targetPlayerName);
-                return true;
-            }
-
-            // Mostrar estadísticas de placement
-            displayPlacementStats(player, playerData, targetPlayerName);
-
-        } catch (Exception e) {
-            player.sendMessage("§cError al obtener estadísticas: " + e.getMessage());
-            e.printStackTrace();
+        } else {
+            // Mostrar stats del propio jugador
+            targetPlayerName = player.getName();
+            lookup = DatabaseManager.getPlayerByMinecraftUuidAsync(player.getUniqueId().toString());
         }
+
+        String finalTargetName = targetPlayerName;
+        lookup.thenAccept(playerData -> Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                if (playerData == null) {
+                    player.sendMessage("§cNo se encontraron datos para el jugador: " + finalTargetName);
+                    return;
+                }
+                // Mostrar estadísticas de placement
+                displayPlacementStats(player, playerData, finalTargetName);
+            } catch (Exception e) {
+                player.sendMessage("§cError al obtener estadísticas: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }));
 
         return true;
     }

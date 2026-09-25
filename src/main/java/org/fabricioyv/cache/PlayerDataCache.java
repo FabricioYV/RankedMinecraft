@@ -111,16 +111,40 @@ public class PlayerDataCache {
     }
 
     /**
-     * Invalidar cache cuando se actualiza un jugador
+     * Invalidar cache cuando se actualiza un jugador.
+     *
+     * BUG histórico: antes este método pedía (minecraftUuid, discordId), pero
+     * los 7 call sites en DatabaseManager solo tienen la UUID a mano en el
+     * momento del update -- nunca pasaban el discordId, así que esa mitad del
+     * cache jamás se invalidaba activamente y solo expiraba por TTL (hasta 60s
+     * de ELO/MMR desactualizado mostrado en Discord).
      */
-    public static void invalidatePlayer(String minecraftUuid, String discordId) {
-        if (minecraftUuid != null) {
-            playerCacheByUuid.remove(minecraftUuid);
-            cacheTimestamps.remove("uuid:" + minecraftUuid);
+    public static void invalidateByUuid(String minecraftUuid) {
+        if (minecraftUuid == null) return;
+
+        PlayerData cached = playerCacheByUuid.remove(minecraftUuid);
+        cacheTimestamps.remove("uuid:" + minecraftUuid);
+
+        if (cached != null && cached.getDiscordId() != null) {
+            playerCacheByDiscordId.remove(cached.getDiscordId());
+            cacheTimestamps.remove("discord:" + cached.getDiscordId());
         }
-        if (discordId != null) {
-            playerCacheByDiscordId.remove(discordId);
-            cacheTimestamps.remove("discord:" + discordId);
+    }
+
+    /**
+     * Invalida por Discord ID. Simétrico a invalidateByUuid(): antes solo existía
+     * el sentido uuid->discord, así que VoiceChannelListener mantenía su propio
+     * cache duplicado (con su propio TTL de 5 min) en vez de poder invalidar este.
+     */
+    public static void invalidateByDiscordId(String discordId) {
+        if (discordId == null) return;
+
+        PlayerData cached = playerCacheByDiscordId.remove(discordId);
+        cacheTimestamps.remove("discord:" + discordId);
+
+        if (cached != null && cached.getMinecraftUuid() != null) {
+            playerCacheByUuid.remove(cached.getMinecraftUuid());
+            cacheTimestamps.remove("uuid:" + cached.getMinecraftUuid());
         }
     }
 

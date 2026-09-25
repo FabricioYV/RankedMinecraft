@@ -574,7 +574,7 @@ public class DatabaseManager {
 
         // Invalidar cache
         for (PlayerStatUpdate update : updates) {
-            PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
+            PlayerDataCache.invalidateByUuid(update.minecraftUuid);
         }
     }
 
@@ -673,7 +673,7 @@ public class DatabaseManager {
         }
 
         for (PlayerStatUpdateWithPlacement update : updates) {
-            PlayerDataCache.invalidatePlayer(update.minecraftUuid, null);
+            PlayerDataCache.invalidateByUuid(update.minecraftUuid);
         }
     }
 
@@ -689,7 +689,7 @@ public class DatabaseManager {
                 stmt.setString(3, minecraftUuid);
 
                 stmt.executeUpdate();
-                PlayerDataCache.invalidatePlayer(minecraftUuid, null);
+                PlayerDataCache.invalidateByUuid(minecraftUuid);
                 return;
 
             } catch (SQLException e) {
@@ -711,7 +711,7 @@ public class DatabaseManager {
 
                 int rows = stmt.executeUpdate();
                 if (rows > 0) {
-                    PlayerDataCache.invalidatePlayer(minecraftUuid, null);
+                    PlayerDataCache.invalidateByUuid(minecraftUuid);
                 }
                 return;
 
@@ -982,7 +982,7 @@ public class DatabaseManager {
             stmt.setInt(1, newElo);
             stmt.setString(2, playerUuid);
             stmt.executeUpdate();
-            PlayerDataCache.invalidatePlayer(playerUuid, null);
+            PlayerDataCache.invalidateByUuid(playerUuid);
         } catch (SQLException e) {
             System.err.println("❌ Error updatePlayerElo: " + e.getMessage());
         }
@@ -1091,7 +1091,7 @@ public class DatabaseManager {
              PreparedStatement stmt = conn.prepareStatement(query)) {
             stmt.setString(1, playerUuid);
             int rows = stmt.executeUpdate();
-            if (rows > 0) PlayerDataCache.invalidatePlayer(playerUuid, null);
+            if (rows > 0) PlayerDataCache.invalidateByUuid(playerUuid);
         } catch (SQLException e) {
             System.err.println("❌ Error addDoubleLossesToPlayer: " + e.getMessage());
         }
@@ -1109,7 +1109,7 @@ public class DatabaseManager {
                 stmt.setString(3, minecraftUuid);
 
                 stmt.executeUpdate();
-                PlayerDataCache.invalidatePlayer(minecraftUuid, null);
+                PlayerDataCache.invalidateByUuid(minecraftUuid);
                 return;
 
             } catch (SQLException e) {

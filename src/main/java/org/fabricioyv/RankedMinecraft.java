@@ -75,8 +75,8 @@ public final class RankedMinecraft extends JavaPlugin {
             registerCommand("ready", new ReadyCommand());
             // NO uses getCommand("r") -> "r" es alias de "ready" en plugin.yml
             registerCommand("mapadmin", new MapAdminCommand());
-            registerCommand("placement", new PlacementStatsCommand());
-            registerCommand("testplacement", new TestPlacementAnalysisCommand());
+            registerCommand("placement", new PlacementStatsCommand(this));
+            registerCommand("testplacement", new TestPlacementAnalysisCommand(this));
             registerCommand("pick", new PickCommand());
             registerCommand("requeue", new RequeueCommand());
 
